@@ -1,0 +1,13 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["occt.BUILD"])
+
+# Headers OCCT's CMake generates at configure time. We vendor them here so the
+# @occt http_archive doesn't need to run CMake.
+cc_library(
+    name = "generated_hdrs",
+    hdrs = glob(["generated/*.hxx"]),
+    includes = ["generated"],
+)

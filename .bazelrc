@@ -1,0 +1,12 @@
+common --enable_bzlmod
+build --cxxopt=-std=c++17 --host_cxxopt=-std=c++17
+build --copt=-fPIC --host_copt=-fPIC
+build --copt=-fvisibility=hidden
+build --copt=-fexceptions
+build --define=occt_linux=1
+
+# Silence OCCT's warnings without hiding our own.
+build --per_file_copt=external/occt/.*@-w
+
+# Reduce link surface; we don't need layering-check fussiness on vendored code.
+build --features=-layering_check

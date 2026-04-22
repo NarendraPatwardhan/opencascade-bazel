@@ -1,0 +1,18 @@
+module(
+    name = "opencascade_bazel",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "rules_cc", version = "0.0.17")
+bazel_dep(name = "platforms", version = "0.0.10")
+
+# OCCT source fetched via http_archive; BUILD is vendored in third_party/occt/occt.BUILD.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "occt",
+    build_file = "//third_party/occt:occt.BUILD",
+    strip_prefix = "OCCT-7_9_3",
+    urls = ["https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz"],
+    sha256 = "5ecf094ec6b12d5413dfb851d8c3590c354058aee556e32e408bdfbf8c357d57",
+)
