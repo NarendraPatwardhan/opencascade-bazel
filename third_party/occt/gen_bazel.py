@@ -25,23 +25,15 @@ SUBSET = [
     "TKGeomAlgo", "TKTopAlgo", "TKPrim",
     "TKBO", "TKBool", "TKHLR", "TKFillet", "TKOffset", "TKFeat",
     "TKMesh", "TKShHealing",
-    # DataExchange / XCAF
+    # DataExchange / XCAF — only formats we expose through the C API
     "TKDE", "TKXSBase",
-    "TKDESTEP", "TKDESTL", "TKDEIGES", "TKDEGLTF", "TKDEOBJ", "TKDEPLY",
-    "TKDECascade", "TKDEVRML",
+    "TKDESTEP", "TKDESTL", "TKDEGLTF", "TKDEOBJ",
     "TKRWMesh",
-    "TKXCAF", "TKLCAF", "TKCAF",
-    "TKCDF",
-    "TKBinL", "TKBin", "TKBinXCAF", "TKBinTObj",
-    "TKStdL", "TKStd",
-    "TKVCAF",
-    "TKTObj",
-    # Visualization (required by DE/XCAF toolkits' EXTERNLIB). Compiled without
-    # OpenGL/FreeType/FreeImage/TBB — unused symbols remain but never linked
-    # into a program that doesn't call them.
+    "TKXCAF", "TKLCAF", "TKCAF", "TKCDF",
+    "TKVCAF",  # forced by TKXCAF's EXTERNLIB
+    # Visualization (required transitively by TKXCAF / TKDEGLTF / TKRWMesh).
+    # Compiled without OpenGL/FreeType/FreeImage/TBB.
     "TKService", "TKV3d",
-    # XML persistence (required by TKDECascade).
-    "TKXmlL", "TKXml", "TKXmlTObj", "TKXmlXCAF",
 ]
 
 # CSF_* → linkopts on linux. Everything else is elided (Windows/GL/X11/etc.).
@@ -278,14 +270,10 @@ def emit(occt_root: Path) -> str:
         ')\n'
     )
 
-    # Shared .so for FFI / scripting consumers.
-    chunks.append(
-        'cc_shared_library(\n'
-        '    name = "libocct",\n'
-        '    shared_lib_name = "libocct.so",\n'
-        '    deps = [":occt"],\n'
-        ')\n'
-    )
+    # NOTE: no cc_shared_library here. The top-level //api:libocc_c is the
+    # single shared artifact that statically embeds @occt//:occt; a
+    # cc_library cannot be statically linked into more than one
+    # cc_shared_library, so we don't ship libocct.so alongside it.
 
     return "\n".join(chunks)
 

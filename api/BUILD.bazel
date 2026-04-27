@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Static/internal cc_library. Name chosen so the implicit libocc_c_lib.so
+# output doesn't collide with the cc_shared_library below.
+cc_library(
+    name = "occ_c_lib",
+    srcs = ["src/occ_c.cc"],
+    hdrs = ["include/occ_c.h"],
+    includes = ["include"],
+    deps = ["@occt//:occt"],
+    copts = [
+        "-Wno-deprecated-declarations",
+        "-Wno-unused-variable",
+    ],
+)
+
+# Convenience alias for callers that want the static library.
+alias(
+    name = "occ_c",
+    actual = ":occ_c_lib",
+)
+
+# Single shared artifact for FFI / language bindings. Statically embeds all
+# of @occt//:occt. Only occ_* symbols are exported (project-wide
+# -fvisibility=hidden + __attribute__((visibility("default"))) on the API).
+cc_shared_library(
+    name = "libocc_c",
+    shared_lib_name = "libocc_c.so",
+    deps = [":occ_c_lib"],
+)
