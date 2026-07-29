@@ -3,8 +3,25 @@ module(
     version = "0.1.0",
 )
 
-bazel_dep(name = "rules_cc", version = "0.0.17")
-bazel_dep(name = "platforms", version = "0.0.10")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# Hermetic C/C++ via zig cc (clang-based). Used for native //api and OCCT
+# builds on local hosts and BuildBuddy RBE — no host gcc required.
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.2.0")
+
+toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+use_repo(toolchains, "zig_sdk")
+
+register_toolchains(
+    "@zig_sdk//toolchain/...",
+    "@zig_sdk//libc_aware/toolchain/...",
+)
+
+# Official Emscripten toolchain (Bzlmod). Provides wasm_cc_binary and registers
+# cc-toolchain-wasm-emscripten_* toolchains. Pin; retest on upgrade.
+# Native C++ uses hermetic_cc above; browser/Wasm still uses emcc via this module.
+bazel_dep(name = "emsdk", version = "6.0.3")
 
 # OCCT source fetched via http_archive; BUILD is vendored in third_party/occt/occt.BUILD.
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")

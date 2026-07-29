@@ -1,0 +1,20 @@
+# BuildBuddy Workflows CI. Requires the BuildBuddy GitHub app to be connected
+# to this repository in the BuildBuddy dashboard (one-time). Local `bb build
+# --config=buildbuddy` does not need this file.
+#
+# The workflow runner is the Bazel coordinator; compile/link execute in the
+# Ubuntu 20.04 RBE image pinned in `.bazelrc` under --config=buildbuddy.
+actions:
+  - name: "Native smoke"
+    container_image: "ubuntu-20.04"
+    triggers:
+      push:
+        branches:
+          - "master"
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: "bazel build --config=buildbuddy //api:libocc_c //examples/c_smoke"
+      - run: "bazel run --config=buildbuddy //examples/c_smoke"

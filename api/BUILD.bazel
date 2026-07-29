@@ -1,4 +1,5 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_shared_library")
+load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_shared_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -22,11 +23,121 @@ alias(
     actual = ":occ_c_lib",
 )
 
-# Single shared artifact for FFI / language bindings. Statically embeds all
-# of @occt//:occt. Only occ_* symbols are exported (project-wide
+# Single shared artifact for native FFI / language bindings. Statically embeds
+# all of @occt//:occt. Only occ_* symbols are exported (project-wide
 # -fvisibility=hidden + __attribute__((visibility("default"))) on the API).
 cc_shared_library(
     name = "libocc_c",
     shared_lib_name = "libocc_c.so",
     deps = [":occ_c_lib"],
+)
+
+# ---------------------------------------------------------------------------
+# Browser / Wasm product (Emscripten via @emsdk)
+# ---------------------------------------------------------------------------
+#
+# Build with:
+#   bazel build //api:libocc_c_wasm
+#
+# Produces libocc_c.js + libocc_c.wasm. The JS module is MODULARIZE'd as
+# createOccModule(); call that from the browser, then use Module.ccall /
+# cwrap / HEAP* against the exported occ_* symbols.
+#
+# The underlying cc_binary is tagged manual so `bazel build //...` does not
+# try to link it with the host toolchain (it has no main; --no-entry is
+# emscripten-only).
+
+# Keep in sync with OCC_API symbols in include/occ_c.h (C names need a
+# leading underscore for Emscripten). malloc/free let JS allocate for paths.
+_OCC_C_EXPORTS = ",".join([
+    "_malloc",
+    "_free",
+    "_occ_version",
+    "_occ_last_error",
+    "_occ_shape_free",
+    "_occ_shape_copy",
+    "_occ_shape_is_null",
+    "_occ_make_box",
+    "_occ_make_cylinder",
+    "_occ_make_sphere",
+    "_occ_make_cone",
+    "_occ_make_torus",
+    "_occ_make_wedge",
+    "_occ_fuse",
+    "_occ_cut",
+    "_occ_intersect",
+    "_occ_section",
+    "_occ_fillet_all",
+    "_occ_fillet_edges",
+    "_occ_chamfer_all",
+    "_occ_chamfer_edges",
+    "_occ_shell",
+    "_occ_offset_3d",
+    "_occ_extrude",
+    "_occ_revolve",
+    "_occ_loft",
+    "_occ_pipe",
+    "_occ_translate",
+    "_occ_rotate",
+    "_occ_scale",
+    "_occ_mirror",
+    "_occ_volume",
+    "_occ_surface_area",
+    "_occ_center_of_mass",
+    "_occ_bbox",
+    "_occ_count_faces",
+    "_occ_count_edges",
+    "_occ_count_vertices",
+    "_occ_face_at",
+    "_occ_edge_at",
+    "_occ_vertex_xyz",
+    "_occ_step_write",
+    "_occ_step_read",
+    "_occ_brep_write",
+    "_occ_brep_read",
+    "_occ_stl_write",
+    "_occ_gltf_write",
+    "_occ_obj_write",
+    "_occ_obj_read",
+    "_occ_mesh_compute",
+    "_occ_mesh_vertex_count",
+    "_occ_mesh_index_count",
+    "_occ_mesh_vertices",
+    "_occ_mesh_normals",
+    "_occ_mesh_indices",
+    "_occ_mesh_free",
+])
+
+_WASM_LINKOPTS = [
+    "--no-entry",
+    "-sMODULARIZE=1",
+    "-sEXPORT_NAME=createOccModule",
+    "-sENVIRONMENT=web,worker,node",
+    "-sALLOW_MEMORY_GROWTH=1",
+    # OCCT + occ_c catch C++ exceptions at the FFI boundary.
+    "-fexceptions",
+    "-sDISABLE_EXCEPTION_CATCHING=0",
+    # STEP/BREP path IO uses libc filesystem (MEMFS by default in the browser).
+    "-sFILESYSTEM=1",
+    "-sEXPORTED_FUNCTIONS=[%s]" % _OCC_C_EXPORTS,
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8','lengthBytesUTF8','getValue','setValue','HEAPU8','HEAP8','HEAP16','HEAP32','HEAPF32','HEAPF64']",
+]
+
+cc_binary(
+    name = "libocc_c_wasm_bin",
+    srcs = ["wasm_stub.c"],
+    deps = [":occ_c_lib"],
+    linkopts = _WASM_LINKOPTS,
+    tags = ["manual"],
+)
+
+wasm_cc_binary(
+    name = "libocc_c_wasm",
+    cc_target = ":libocc_c_wasm_bin",
+    outputs = [
+        "libocc_c.js",
+        "libocc_c.wasm",
+    ],
+    # Opt-in: compiling OCCT with emcc is heavy; keep out of `bazel build //...`.
+    tags = ["manual"],
 )

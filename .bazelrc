@@ -1,4 +1,19 @@
 common --enable_bzlmod
+common --enable_platform_specific_config
+
+# Required for emsdk / hermetic_cc platform + toolchain resolution.
+build --incompatible_enable_cc_toolchain_resolution
+
+# Do not auto-detect host gcc/clang. Native C++ uses hermetic_cc_toolchain
+# (zig cc) registered in MODULE.bazel. Wasm still uses @emsdk's toolchain via
+# wasm_cc_binary transitions.
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+
+# zig cc keeps its own cache under $HOME/.cache/zig; allow sandbox access.
+build:linux --sandbox_add_mount_pair=/home
+build:macos --sandbox_add_mount_pair=/Users
+build:windows --sandbox_add_mount_pair=C:\Users
+
 build --cxxopt=-std=c++17 --host_cxxopt=-std=c++17
 build --copt=-fPIC --host_copt=-fPIC
 build --copt=-fvisibility=hidden
@@ -10,3 +25,60 @@ build --per_file_copt=external/occt/.*@-w
 
 # Reduce link surface; we don't need layering-check fussiness on vendored code.
 build --features=-layering_check
+
+# ---------------------------------------------------------------------------
+# BuildBuddy (opt-in) — remote cache, RBE, and build-event UI.
+#
+# Offline / unauthenticated local builds remain the default. Remote is enabled
+# only with --config=buildbuddy. Auth is supplied by the `bb` CLI (`bb login`);
+# no account secret belongs in this repository.
+#
+# With hermetic_cc_toolchain, workers need no host C++ compiler — pin a plain
+# Ubuntu image (same glibc floor as nml). Changing the digest is a deliberate
+# remote-cache epoch change.
+#
+# Remote-only: every spawnable action must run on RBE (or fail). Analysis still
+# runs on the coordinator (Bazel process); compile/link/test/genrule do not.
+# ---------------------------------------------------------------------------
+common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
+common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
+common:buildbuddy --remote_cache=grpcs://remote.buildbuddy.io
+common:buildbuddy --remote_executor=grpcs://remote.buildbuddy.io
+# rbe-ubuntu20-04 (not bare library/ubuntu): emsdk's wasm_binary extractor needs
+# python3 on the worker. C++ still uses hermetic zig cc, not the image gcc.
+# Digest: gcr.io/flame-public/rbe-ubuntu20-04 latest @ 2026-07-28.
+common:buildbuddy --remote_default_exec_properties=container-image=docker://gcr.io/flame-public/rbe-ubuntu20-04@sha256:036ae8c90876fa22da9ace6f8218e614f4cd500a154fc162973fff691e72d28e
+# Per-action *remote* resource requests (BuildBuddy RBE scheduler only).
+common:buildbuddy --remote_default_exec_properties=EstimatedCPU=4
+common:buildbuddy --remote_default_exec_properties=EstimatedMemory=8GB
+common:buildbuddy --remote_default_exec_properties=EstimatedFreeDiskBytes=10GB
+# Kill hung remote compiles (e.g. stuck worker) so retries can reassign.
+common:buildbuddy --remote_default_exec_properties=default-timeout=15m
+# Force remote execution for build spawns; no local/sandboxed compile/link.
+# (Test strategies are separate: remote tests still go through spawn_strategy.)
+common:buildbuddy --spawn_strategy=remote
+common:buildbuddy --strategy=remote
+common:buildbuddy --genrule_strategy=remote
+common:buildbuddy --remote_local_fallback=false
+# Zero local spawn budget so Bazel cannot schedule compile/link on the host.
+# Bazel 9+: --local_resources (legacy --local_cpu_resources is gone).
+common:buildbuddy --local_resources=cpu=0
+common:buildbuddy --local_resources=memory=0
+# Wide pipeline of remote actions.
+common:buildbuddy --jobs=500
+# Long STEP/kernel translation units; avoid flaky remote timeouts.
+common:buildbuddy --remote_timeout=3600
+common:buildbuddy --remote_retries=5
+common:buildbuddy --remote_download_minimal
+common:buildbuddy --remote_cache_compression
+# Overlap cache uploads/downloads with execution.
+common:buildbuddy --remote_cache_async
+
+# Optional: build wasm targets with --config=wasm (also used by wasm_cc_binary
+# transitions; this config is for ad-hoc native→emcc experimentation).
+build:wasm --platforms=@emsdk//:platform_wasm
+build:wasm --cpu=wasm
+build:wasm --copt=-fexceptions
+
+# Performance opt builds (explicit; default remains fastbuild).
+build:release --compilation_mode=opt

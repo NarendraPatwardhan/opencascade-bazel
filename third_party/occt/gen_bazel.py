@@ -247,6 +247,17 @@ def emit(occt_root: Path) -> str:
         linkopts = uniq(linkopts)
         include_dirs = uniq(include_dirs)
 
+        # Host system libs (pthread/rt/dl) are invalid under Emscripten/wasm.
+        if linkopts:
+            linkopts_expr = (
+                "select({\n"
+                '        "@platforms//os:emscripten": [],\n'
+                f"        \"//conditions:default\": {bzl_list(linkopts)},\n"
+                "    })"
+            )
+        else:
+            linkopts_expr = "[]"
+
         chunks.append(f'# ---- {tk} ----')
         chunks.append(
             f'cc_library(\n'
@@ -255,7 +266,7 @@ def emit(occt_root: Path) -> str:
             f'    hdrs = {bzl_list(sorted(set(all_hdrs)))},\n'
             f'    includes = {bzl_list(include_dirs)},\n'
             f'    copts = OCCT_COPTS,\n'
-            f'    linkopts = {bzl_list(linkopts)},\n'
+            f'    linkopts = {linkopts_expr},\n'
             f'    deps = {bzl_list([d for d in deps if not d.startswith("#")])},\n'
             f'    alwayslink = True,\n'
             f')\n'

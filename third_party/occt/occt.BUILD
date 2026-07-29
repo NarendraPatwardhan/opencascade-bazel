@@ -3537,11 +3537,15 @@ cc_library(
         "src/Precision",
     ],
     copts = OCCT_COPTS,
-    linkopts = [
-        "-lpthread",
-        "-lrt",
-        "-ldl",
-    ],
+    # Host system libs are invalid under Emscripten/wasm (see gen_bazel.py).
+    linkopts = select({
+        "@platforms//os:emscripten": [],
+        "//conditions:default": [
+            "-lpthread",
+            "-lrt",
+            "-ldl",
+        ],
+    }),
     deps = [
         "@@//third_party/occt:generated_hdrs",
         ":occt_shaders",
