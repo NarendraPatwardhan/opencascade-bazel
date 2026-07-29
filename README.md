@@ -9,7 +9,6 @@ Hermetic [Bazel](https://bazel.build/) packaging of [OCCT](https://github.com/Op
 <p>
   <img alt="OCCT 7.9.3" src="https://img.shields.io/badge/OCCT-7.9.3-654ff0">
   <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-2e7d32">
-  <img alt="AgentOS path: BSL" src="https://img.shields.io/badge/agent--os-BSL%201.1-f5c542">
   <img alt="Runtime: Wasm" src="https://img.shields.io/badge/runtime-native%20%7C%20Wasm-3178c6">
   <img alt="Build: Bazel" src="https://img.shields.io/badge/build-Bazel-43a047">
 </p>
@@ -20,14 +19,14 @@ Hermetic [Bazel](https://bazel.build/) packaging of [OCCT](https://github.com/Op
   <a href="#build">Build</a> ·
   <a href="#agentos-scripting">AgentOS scripting</a> ·
   <a href="#licensing">Licensing</a> ·
-  <a href="docs/aiboost-agentic-cad.md">Agentic CAD notes</a>
+  <a href="docs/aiboost-agentic-cad.md">Architecture notes</a>
 </p>
 
 <p>
   <img src="docs/browser-demo.png" alt="Browser demo: Monaco Luau editor and OCCT solid mesh in the page" width="980">
 </p>
 
-<p><em>Browser PoC — parametric Luau (Monaco) drives host <code>occ_*</code> tools; mesh renders in-page.</em></p>
+<p><em>Browser demo — parametric Luau (Monaco) drives host <code>occ_*</code> tools; mesh renders in-page.</em></p>
 
 </div>
 
@@ -71,8 +70,8 @@ The image above is the working vertical slice: **Luau in AgentOS → host CAD to
 | `solid.*` batteries | Thin Luau over host `cad.call` → `occ_*` |
 | Mesh panel | Expert-visible geometry + kernel version metadata |
 
-Process, challenge alignment (AI-BOOST / SIAD-style agentic CAD), and design decisions:  
-**[`docs/aiboost-agentic-cad.md`](docs/aiboost-agentic-cad.md)** · **[`docs/process-decisions.md`](docs/process-decisions.md)** · figure source [`docs/browser-demo.png`](docs/browser-demo.png)
+Architecture trade-offs and decision log:  
+**[`docs/aiboost-agentic-cad.md`](docs/aiboost-agentic-cad.md)** · **[`docs/process-decisions.md`](docs/process-decisions.md)** · screenshot [`docs/browser-demo.png`](docs/browser-demo.png)
 
 ## Build
 
@@ -139,7 +138,7 @@ Luau (sandbox) ──tools.call──► host ──occ_*──► OCCT Wasm ─
 api/                  # Apache-2.0 — C API + Wasm packaging
 examples/c_api/       # Apache-2.0 — pure C API demo
 agent-os/             # BSL 1.1 — AgentOS CAD scripting + browser demo
-docs/                 # Process / proposal notes + demo screenshot
+docs/                 # Architecture notes + demo screenshot
 bazel/                # force_opt, wasm_opt, size_limit
 third_party/occt/     # OCCT toolkit subset packaging
 third_party/binaryen/ # wasm-opt

@@ -1,52 +1,51 @@
-# Process decisions log (agentic CAD stack)
+# Design decisions
 
-Short, dated-style decisions for proposal writing and onboarding. Prefer this over archaeology in chat logs.
+Short record of structural choices. Prefer this over digging through chat history.
 
 ## D1 — C ABI is the public product
 
 **Decision:** Ship `occ_c` (opaque handles, status codes, no C++ in the header).  
-**Why:** Polyglot FFI, browser Wasm, and agent tools all need a stable boundary. OCP-style class dumps do not.  
-**Consequence:** New capability → extend `occ_c` + pure-C exercise first; languages consume the C surface only.
+**Why:** Polyglot FFI, browser Wasm, and host tools need a stable boundary. Full OCCT class graphs do not.  
+**Consequence:** New capability → extend `occ_c` and exercise it in pure C first.
 
-## D2 — AgentOS for scripting, not freestanding Luau (product path)
+## D2 — AgentOS for scripting
 
-**Decision:** Use AgentOS **loom** release artifacts + host tools for Luau CAD scripting.  
-**Why:** Filesystem, tools broker, analyze, fuel, and browser host already exist; freestanding World rebuilds that for free.  
-**Kept:** Freestanding design notes may exist locally for comparison; they are not the product path.
+**Decision:** Use AgentOS **loom** release artifacts and host tools for Luau CAD scripting.  
+**Why:** Filesystem, tools broker, analyze, and fuel already exist; a freestanding Luau World would rebuild them.  
+**Note:** Freestanding designs may exist as notes; they are not the product path.
 
-## D3 — OCCT stays Emscripten on the host
+## D3 — OCCT stays on the Emscripten host
 
-**Decision:** Never freestanding-port or wasmi-guest full OCCT.  
-**Why:** Exceptions, MEMFS, ~28 MiB optimized Wasm; nested interpretation is a non-starter.  
-**Consequence:** Dual Wasm worlds (AgentOS kernel + `libocc_c`) mediated by host tools and shape IDs.
+**Decision:** Do not freestanding-port or run full OCCT under wasmi as an AgentOS guest.  
+**Why:** Exceptions, MEMFS, large binary; nested interpretation is not viable.  
+**Consequence:** Two Wasm modules (AgentOS kernel + `libocc_c`) joined by host tools and shape IDs.
 
 ## D4 — License split
 
-**Decision:** Apache-2.0 for kernel/examples; BSL only under `agent-os/`.  
-**Why:** Partners can take the kernel without AgentOS; product scripting can still use BSL AgentOS under opyt.cloud terms.
+**Decision:** Apache-2.0 for kernel and examples; BSL only under `agent-os/`.  
+**Why:** Kernel consumers need not take AgentOS; scripting product can still use it.
 
-## D5 — RBE-only for agents on the project host
+## D5 — Remote builds for heavy work on constrained hosts
 
-**Decision:** AI agents use `bb --config=buildbuddy` for Bazel compiles; no local `bazel build` as the agent path.  
-**Why:** OCCT builds dominate local machines; industrial PoCs similarly need remote or dedicated build infra.
+**Decision:** Prefer BuildBuddy RBE (`bb --config=buildbuddy`) for OCCT/Wasm compiles when the machine is not a build rig.  
+**Why:** Full toolkit links dominate small laptops; end users with stronger machines can still use bare `bazel`.
 
-## D6 — Pin AgentOS releases, do not rebuild the monorepo
+## D6 — Pin AgentOS releases
 
-**Decision:** Consume GitHub release **v0.4.0** digests (`http_file` / fetch script).  
-**Why:** Hermetic, reviewable platform version; same posture as SIAD-style controlled environments.
+**Decision:** Consume GitHub release **v0.4.0** by digest (`http_file` / fetch script); do not rebuild AgentOS in this repo.  
+**Why:** Hermetic, reviewable platform version.
 
-## D7 — Monaco + Luau Monarch (not CM legacy modes)
+## D7 — Monaco + Luau Monarch
 
-**Decision:** Editor is Monaco; language is a **Monarch** Luau definition adapted from icebearc/monaco-luau (MIT).  
-**Why:** No official Monaco Luau package; built-in Monaco language is Lua-only; CodeMirror “legacy-modes” rejected as product direction.  
-**Note:** Monarch is Monaco’s supported tokenizer API — distinct from CodeMirror 5 legacy modes.
+**Decision:** Editor is Monaco; language is a Monarch Luau definition adapted from icebearc/monaco-luau (MIT).  
+**Why:** No first-party Monaco Luau package; built-in language is Lua-only. Monarch is Monaco’s supported tokenizer API (not CodeMirror legacy modes).
 
-## D8 — First green bar before domain depth
+## D8 — Prove the bridge before domain depth
 
-**Decision:** Prove Luau → boolean solid → mesh → browser UI before piping/FEA.  
-**Why:** Challenge KPIs need a trustworthy generator; untrusted LLM + non-kernel geometry would invalidate later SIAD validation.
+**Decision:** Ship Luau → boolean solid → mesh → browser UI before assemblies, drawings, or FEA.  
+**Why:** Later automation is worthless if the geometry path is not real BRep under a sandbox.
 
-## D9 — Human oversight is structural
+## D9 — Oversight is structural
 
-**Decision:** Guest has no ambient host; UI Run/approve; errors surface without killing the session.  
-**Why:** Matches AI-BOOST Responsible AI (expert remains accountable).
+**Decision:** Guest has no ambient host access; UI owns Run; errors do not take down the page.  
+**Why:** Untrusted scripts and planners must not share the host’s authority.
