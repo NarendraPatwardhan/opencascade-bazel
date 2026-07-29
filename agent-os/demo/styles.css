@@ -1,0 +1,194 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a3140;
+  --fg: #e8ecf4;
+  --muted: #8b93a7;
+  --accent: #00a6ff;
+  --danger: #ff6b6b;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+  --sans: "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: #12151c;
+}
+
+.brand .muted {
+  color: var(--muted);
+  margin-left: 0.35rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: #222836;
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+button.primary {
+  background: color-mix(in srgb, var(--accent) 35%, #1a2230);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr);
+  gap: 0;
+  height: calc(100% - 96px);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+.panel {
+  padding: 0.75rem 1rem 1rem;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.view-panel {
+  border-right: none;
+}
+
+h2 {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Monaco host */
+.editor-host,
+.monaco-host {
+  flex: 1;
+  min-height: 240px;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-host .monaco-editor,
+.monaco-host .monaco-editor {
+  position: absolute;
+  inset: 0;
+}
+
+h2 .hint-inline {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.hint code {
+  font-family: var(--mono);
+  color: #b8d4ff;
+}
+
+.log,
+.meta {
+  margin: 0;
+  background: #0c0e13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.status {
+  font-size: 0.9rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: #1c2433;
+  border: 1px solid var(--border);
+}
+
+.status[data-error="1"] {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.viewport {
+  flex: 1;
+  min-height: 320px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: radial-gradient(ellipse at center, #232a38 0%, #151820 70%);
+  overflow: hidden;
+}
+
+.viewport canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.foot {
+  padding: 0.45rem 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.foot code {
+  font-family: var(--mono);
+}

@@ -1,129 +1,171 @@
+<div align="center">
+
 # opencascade-bazel
 
-Hermetic [Bazel](https://bazel.build/) packaging of [OpenCASCADE Technology](https://github.com/Open-Cascade-SAS/OCCT) (OCCT) **7.9.3**, with a **clean C API** as the primary product.
+**A clean C API and browser Wasm build of OpenCASCADE — so agents and apps never write C++.**
 
-The goal is not a C++ CAD app. OCCT is C++ under the hood; this repository exists so callers never have to write C++. The public surface is **`occ_c`** — a stable C ABI for polyglot FFI (Rust, Zig, Go, Python, WASM, etc.), shaped after [build123d](https://github.com/gumyr/build123d)'s modeling surface.
+Hermetic [Bazel](https://bazel.build/) packaging of [OCCT](https://github.com/Open-Cascade-SAS/OCCT) **7.9.3**, with **`occ_c`** as the public product surface (inspired by [build123d](https://github.com/gumyr/build123d)’s modeling shape, not a class dump of OCCT).
 
-**Status:** Native `libocc_c` and browser **Wasm** both build and run. Wasm is a first-class product path (`//api:libocc_c_wasm`) — release-optimized, Binaryen-shrunk, and size-gated — not a prototype.
+<p>
+  <img alt="OCCT 7.9.3" src="https://img.shields.io/badge/OCCT-7.9.3-654ff0">
+  <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-2e7d32">
+  <img alt="AgentOS path: BSL" src="https://img.shields.io/badge/agent--os-BSL%201.1-f5c542">
+  <img alt="Runtime: Wasm" src="https://img.shields.io/badge/runtime-native%20%7C%20Wasm-3178c6">
+  <img alt="Build: Bazel" src="https://img.shields.io/badge/build-Bazel-43a047">
+</p>
 
-## Product: the C API
+<p>
+  <a href="#product-occ_c">Product</a> ·
+  <a href="#browser-demo">Browser demo</a> ·
+  <a href="#build">Build</a> ·
+  <a href="#agentos-scripting">AgentOS scripting</a> ·
+  <a href="#licensing">Licensing</a> ·
+  <a href="docs/aiboost-agentic-cad.md">Agentic CAD notes</a>
+</p>
+
+<p>
+  <img src="docs/browser-demo.png" alt="Browser demo: Monaco Luau editor and OCCT solid mesh in the page" width="980">
+</p>
+
+<p><em>Browser PoC — parametric Luau (Monaco) drives host <code>occ_*</code> tools; mesh renders in-page.</em></p>
+
+</div>
+
+## Why this repo
+
+Most CAD automation either forces C++ (OCCT), a heavy Python stack (OCP / build123d), or a black-box mesh generator. This repository does something narrower and more reusable:
+
+1. **Package OCCT hermetically** (Bazel, pinned 7.9.3, modeling-focused toolkit subset).  
+2. **Expose a stable C ABI** (`occ_c`) — opaque shapes, status codes, no C++ in the public header.  
+3. **Ship the same ABI to the browser** as optimized Wasm (`//api:libocc_c_wasm`).  
+4. **Optionally** host **AgentOS `loom` Luau** as a sandboxed scripting computer that calls CAD only through allowlisted host tools (BSL tree under [`agent-os/`](agent-os/)).
+
+Callers (Rust, Zig, Go, Python, JS, agents) speak **C / Wasm**, not `TopoDS_*`.
+
+## Product: `occ_c`
 
 | Path | Role |
 |------|------|
-| [`api/include/occ_c.h`](api/include/occ_c.h) | Public C header — **this is the API** |
-| [`api/src/occ_c.cc`](api/src/occ_c.cc) | Thin C++ implementation (implementation detail only) |
-| [`//api:libocc_c`](api/BUILD.bazel) | Native shared library (`libocc_c.so`) for FFI |
-| [`//api:libocc_c_wasm`](api/BUILD.bazel) | Browser / Wasm module (`libocc_c.js` + `.wasm`) via Emscripten — **working** |
-| [`//examples/c_smoke`](examples/c_smoke/) | Canonical smoke test — **pure C** |
+| [`api/include/occ_c.h`](api/include/occ_c.h) | Public C header — **the contract** |
+| [`api/src/occ_c.cc`](api/src/occ_c.cc) | Thin OCCT mapping (implementation detail) |
+| [`//api:libocc_c`](api/BUILD.bazel) | Native shared library (`libocc_c.so`) |
+| [`//api:libocc_c_wasm`](api/BUILD.bazel) | Browser module (`libocc_c.js` + `.wasm`) |
+| [`//examples/c_api`](examples/c_api/) | Pure-C end-to-end demo |
 
-Design notes:
+**Conventions:** opaque `occ_shape_t` / `occ_mesh_t`; caller frees; `OCC_OK` / `occ_last_error()`; **1-based** topology indices; primitives, booleans, fillets, sweeps, transforms, measure, STEP/BREP/STL/mesh.
 
-- Opaque handles (`occ_shape_t`, `occ_mesh_t`); caller owns and frees them
-- Integer status codes + `occ_last_error()` (thread-local)
-- No C++ types, exceptions, or STL in the public header
-- Topology indices are **1-based** (OCCT / build123d convention)
+## Browser demo
+
+The image above is the working vertical slice: **Luau in AgentOS → host CAD tools → OCCT mesh → WebGL view**, with human Run/approve in the loop.
+
+```bash
+# After AgentOS release assets + libocc_c Wasm are staged (see agent-os/README.md):
+./agent-os/scripts/dev.sh
+# → http://127.0.0.1:8765/
+```
+
+| Piece | Role |
+|-------|------|
+| Monaco + Luau Monarch | Editable parametric intent (not a screenshot of CAD) |
+| Runtime worker | AgentOS `loom` + `createOccModule` |
+| `solid.*` batteries | Thin Luau over host `cad.call` → `occ_*` |
+| Mesh panel | Expert-visible geometry + kernel version metadata |
+
+Process, challenge alignment (AI-BOOST / SIAD-style agentic CAD), and design decisions:  
+**[`docs/aiboost-agentic-cad.md`](docs/aiboost-agentic-cad.md)** · **[`docs/process-decisions.md`](docs/process-decisions.md)** · figure source [`docs/browser-demo.png`](docs/browser-demo.png)
 
 ## Build
 
-Native (default — fully local, no account). C/C++ is compiled with a **hermetic zig cc** toolchain (`hermetic_cc_toolchain`); no system gcc is required:
+Native default uses **hermetic zig cc** (`hermetic_cc_toolchain`) — no system gcc required:
 
 ```bash
 bazel build //...
-bazel run //examples/c_smoke
+bazel run //examples/c_api
 bazel build //api:libocc_c
 ```
 
 ### BuildBuddy remote cache + RBE (opt-in)
 
-Remote builds use the same targets; only the execution venue changes. Config is
-`--config=buildbuddy` in [`.bazelrc`](.bazelrc). **No secrets are committed.**
+Same targets; config is `--config=buildbuddy` in [`.bazelrc`](.bazelrc). **No secrets in the tree.**
 
-**One-time machine setup** (not automatic — you need a free BuildBuddy account):
-
-1. Create an account at [app.buildbuddy.io](https://app.buildbuddy.io/) (GitHub login is fine; free for individuals / open source).
-2. Install the [BuildBuddy CLI](https://www.buildbuddy.io/docs/cli) (`bb`) if needed.
-3. From this repo: `bb login` (stores your personal API key in **local** `.git/config`, not in the tree).
-
-Then prefer `bb` over bare `bazel` when you want remote. With `--config=buildbuddy`,
-**all compile/link/test actions run on RBE only** (no local spawn fallback); the
-laptop only runs Bazel analysis and downloads minimal outputs:
+1. Account at [app.buildbuddy.io](https://app.buildbuddy.io/)  
+2. [BuildBuddy CLI](https://www.buildbuddy.io/docs/cli) (`bb`)  
+3. `bb login` (API key in local `.git/config` only)
 
 ```bash
-bb build --config=buildbuddy //api:libocc_c //examples/c_smoke
-bb run  --config=buildbuddy //examples/c_smoke
+bb build --config=buildbuddy //api:libocc_c //examples/c_api
+bb run  --config=buildbuddy //examples/c_api
 bb build --config=buildbuddy //api:libocc_c_wasm   # heavy; good RBE fit
 ```
 
-Invocations appear at the `https://app.buildbuddy.io/invocation/...` URL Bazel prints.
+With `--config=buildbuddy`, compile/link run **on RBE only** (no local spawn fallback). Optional CI: [`buildbuddy.yaml`](buildbuddy.yaml) after connecting the BuildBuddy GitHub app.
 
-**Dashboard extras (only if you want them):**
+### Browser Wasm pipeline
 
-| Feature | Automatic? | What to do |
-|---------|------------|------------|
-| BES UI + remote cache + RBE for `bb ... --config=buildbuddy` | After account + `bb login` | No per-repo dashboard wiring |
-| CI workflows ([`buildbuddy.yaml`](buildbuddy.yaml)) | **No** | Install BuildBuddy GitHub app on this public repo in the dashboard |
-| Org shared cache / multiple users | **No** | Create/join an org and use an org API key if desired |
-
-Public repo does **not** by itself enable RBE. Unauthenticated BES-only uploads are possible without a key, but cache + remote execution require the API key from `bb login`.
-
-### Browser / Wasm (works — always release / size pipeline)
-
-**Wasm compiles and works.** The same `occ_c` C API is exported to the browser via Emscripten (`wasm_cc_binary` + hermetic `@emsdk`). Builds have been verified on BuildBuddy RBE end-to-end (link + Binaryen optimize + size gate).
-
-Wasm is **always built at `-c opt`** (even if the CLI is fastbuild), with size-oriented emcc flags and a post-link Binaryen pass:
+Always release-oriented:
 
 ```text
-force_opt (-c opt) → emcc -Os (ASSERTIONS=0) → wasm-opt -Oz --converge → size_limit (≤32 MiB)
+force_opt (-c opt) → emcc -Os → wasm-opt -Oz --converge → size_limit (≤32 MiB)
 ```
-
-Typical optimized artifact sizes for the current BRep-focused OCCT subset (order of magnitude; exact bytes move with API growth):
 
 | Artifact | Approx. size |
 |----------|----------------|
-| `libocc_c.wasm` (after `wasm-opt -Oz`) | ~27–28 MiB raw |
-| Same, gzipped over the wire | ~7 MiB |
-| `libocc_c.js` glue | ~200 KiB |
+| `libocc_c.wasm` (after opt) | ~27–28 MiB raw · ~7 MiB gzip |
+| `libocc_c.js` | ~200 KiB |
 
 ```bash
-# Remote (preferred for the heavy OCCT+emcc compile):
 bb build --config=buildbuddy //api:libocc_c_wasm
-
-# Local (hermetic emsdk; no system Emscripten install required):
-bazel build //api:libocc_c_wasm
+# or locally: bazel build //api:libocc_c_wasm
 ```
 
-| Output | Role |
-|--------|------|
-| `libocc_c.js` | MODULARIZE glue; export name `createOccModule` |
-| `libocc_c.wasm` | Binaryen-optimized module (`occ_*` + `malloc`/`free`) |
+Tagged `manual` (not bare `//...`). Size gate: `//api:libocc_c_wasm_size_limit`.  
+JS: `createOccModule()` then `ccall` / `cwrap` on `occ_*` (+ `malloc`/`free`).
 
-Use from JS with `createOccModule()`, then `ccall` / `cwrap` on the exported `occ_*` symbols (or allocate paths with `_malloc` / `_free`). The target is tagged `manual` (not in bare `//...`). CI size gate: `//api:libocc_c_wasm_size_limit` (fails if `.wasm` exceeds 32 MiB).
+## AgentOS scripting
+
+**Product path for in-browser / agent Luau:** AgentOS **`loom`** + host tools over `libocc_c_wasm`, entirely under **[`agent-os/`](agent-os/)** (BSL). The Apache kernel never depends on it.
+
+- Node smoke and browser demo: [`agent-os/README.md`](agent-os/README.md)  
+- Task tracker: [`agent-os/TASKS.md`](agent-os/TASKS.md)  
+- Pinned AgentOS release assets (v0.4.0) via `http_file` / `scripts/fetch-release.sh`
+
+```text
+Luau (sandbox) ──tools.call──► host ──occ_*──► OCCT Wasm ──mesh──► UI
+```
 
 ## Layout
 
 ```text
-api/                  # C API (primary product) + Wasm packaging
-bazel/                # force_opt, wasm_opt, size_limit helpers
-examples/c_smoke/     # Pure C end-to-end smoke test
-third_party/occt/     # Bazel packaging for a modeling-focused OCCT subset
-third_party/binaryen/ # wasm-opt packaging (Binaryen release)
-MODULE.bazel          # Bzlmod; OCCT 7.9.3 + emsdk + hermetic_cc
-buildbuddy.yaml       # Optional BuildBuddy Workflows CI
-AGENTS.md             # Conventions for AI agents working in this repo
+api/                  # Apache-2.0 — C API + Wasm packaging
+examples/c_api/       # Apache-2.0 — pure C API demo
+agent-os/             # BSL 1.1 — AgentOS CAD scripting + browser demo
+docs/                 # Process / proposal notes + demo screenshot
+bazel/                # force_opt, wasm_opt, size_limit
+third_party/occt/     # OCCT toolkit subset packaging
+third_party/binaryen/ # wasm-opt
+MODULE.bazel          # OCCT 7.9.3 + emsdk + hermetic_cc + AgentOS pins
+AGENTS.md             # Conventions for coding agents
 ```
 
-OCCT is fetched at build time (`@occt`); it is not committed. Local clones of upstream trees (`OCCT/`, `OCP/`, `build123d/`) may exist for reference and are gitignored.
+OCCT is fetched at build time (`@occt`). Local clones (`OCCT/`, `OCP/`, `build123d/`) and `scripting/` design notes are gitignored when present.
+
+## Licensing
+
+| Path | License |
+|------|---------|
+| Kernel, examples, packaging (everything except `agent-os/`) | **Apache-2.0** — [LICENSE](LICENSE) |
+| [`agent-os/`](agent-os/) | **BSL 1.1** — [agent-os/LICENSE](agent-os/LICENSE) |
+
+Linked OCCT remains under its LGPL-2.1 + exception terms.  
+Apache consumers use `api/` and `examples/` only — they never need `agent-os/`.
 
 ## What this is not
 
-- Not a C++ sample project or OCCT tutorial
-- Not a full OCCT wrap (no Draw, no OpenGL viewer stack, no full DE formats)
-- Not Python/OCP/build123d itself — those may sit as local references only
+- Not a C++ sample suite or full OCCT tutorial  
+- Not Draw / OpenGL viewer / full data-exchange matrix  
+- Not Python, OCP, or build123d in the build graph (references only)  
+- Not an Apache redistribution of AgentOS (BSL under `agent-os/` only)
 
-## License
+---
 
-Apache 2.0 — see [LICENSE](LICENSE).
-
-Linked OCCT remains under its own LGPL-2.1 + exception terms.
-
-Copyright © 2025 opyt.cloud
+Copyright © 2025–2026 opyt.cloud

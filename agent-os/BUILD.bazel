@@ -1,0 +1,82 @@
+# BSL product surface — AgentOS CAD scripting over //api:libocc_c_wasm.
+# See LICENSE and README.md in this package.
+#
+# Heavy compiles: agents use `bb --config=buildbuddy` only.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "LICENSE",
+    "README.md",
+    "TASKS.md",
+    "scripts/stage.mjs",
+    "scripts/dev.sh",
+    "scripts/fetch-release.sh",
+    "scripts/browserify-mc-core.sh",
+    "demo/serve.mjs",
+    "src/batteries/solid.luau",
+])
+
+filegroup(
+    name = "release_assets",
+    srcs = [
+        "@agent_os_kernel_wasm//file",
+        "@agent_os_loom_tar//file",
+        "@agent_os_mc_core_mjs//file",
+        "@agent_os_catalog_compiler_wasm//file",
+    ],
+)
+
+filegroup(
+    name = "app_srcs",
+    srcs = glob(
+        [
+            "src/**",
+            "demo/**",
+            "scripts/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Stage tree into bazel-bin for packaging (manual). Prefer scripts/dev.sh for local serve.
+genrule(
+    name = "stage",
+    srcs = [
+        ":release_assets",
+        ":app_srcs",
+        "//api:libocc_c_emcc_js",
+        "//api:libocc_c_wasm_file",
+        "scripts/stage.mjs",
+        "src/batteries/solid.luau",
+    ],
+    outs = ["stage/stamp.txt"],
+    cmd = """
+set -euo pipefail
+OUT_DIR="$$(dirname $(location stage/stamp.txt))"
+export STAGE_OUT="$$OUT_DIR"
+export AGENT_OS_KERNEL="$(location @agent_os_kernel_wasm//file)"
+export AGENT_OS_LOOM="$(location @agent_os_loom_tar//file)"
+export AGENT_OS_MC_CORE="$(location @agent_os_mc_core_mjs//file)"
+export AGENT_OS_CATALOG="$(location @agent_os_catalog_compiler_wasm//file)"
+export OCC_JS="$(location //api:libocc_c_emcc_js)"
+export OCC_WASM="$(location //api:libocc_c_wasm_file)"
+export SOLID_LUAU="$(location src/batteries/solid.luau)"
+export SRC_DIR="$$PWD/agent-os/src"
+export DEMO_DIR="$$PWD/agent-os/demo"
+if [ ! -d "$$SRC_DIR" ]; then
+  export SRC_DIR="$$(cd "$$(dirname $(location src/batteries/solid.luau))/.." && pwd)"
+fi
+if [ ! -d "$$DEMO_DIR" ]; then
+  export DEMO_DIR="$$SRC_DIR/../demo"
+fi
+# Optional browserified core next to release mc-core
+MC_DIR="$$(dirname "$(location @agent_os_mc_core_mjs//file)")"
+if [ -f "$$MC_DIR/mc-core.browser.mjs" ]; then
+  export AGENT_OS_MC_CORE_BROWSER="$$MC_DIR/mc-core.browser.mjs"
+fi
+node "$(location scripts/stage.mjs)"
+echo "staged $$OUT_DIR" > "$(location stage/stamp.txt)"
+""",
+    tags = ["manual"],
+)

@@ -6,9 +6,10 @@ Instructions for AI coding agents working in this repository. Prefer this file o
 
 **Ship a clean, stable C API over a hermetic Bazel build of OCCT.**
 
-- The product is **`occ_c`**: [`api/include/occ_c.h`](api/include/occ_c.h) and [`//api:libocc_c`](api/BUILD.bazel).
-- Callers should use **C only** (or language FFI to that C ABI). They should not need C++.
+- The Apache-2.0 product is **`occ_c`**: [`api/include/occ_c.h`](api/include/occ_c.h) and [`//api:libocc_c`](api/BUILD.bazel) / Wasm.
+- Callers of the open-source kernel should use **C only** (or language FFI to that C ABI). They should not need C++.
 - C++ exists only as an implementation detail of the wrapper and of OCCT itself.
+- **AgentOS-based Luau scripting** is a **separate BSL product path** under [`agent-os/`](agent-os/) only.
 
 ### Explicit non-goals
 
@@ -16,6 +17,19 @@ Instructions for AI coding agents working in this repository. Prefer this file o
 - Do **not** treat raw OCCT C++ as a public API of this repo.
 - Do **not** add new C++ examples for end users.
 - Do **not** depend on Python, OCP, or build123d in the Bazel graph.
+- Do **not** put AgentOS / BSL code under `api/`, `examples/`, or other Apache trees.
+
+## License boundary (critical)
+
+| Path | License | Notes |
+|------|---------|--------|
+| `api/`, `examples/`, `third_party/occt/`, `bazel/`, root | **Apache-2.0** | C API, Wasm, hermetic OCCT |
+| [`agent-os/`](agent-os/) | **BSL 1.1** ([agent-os/LICENSE](agent-os/LICENSE)) | AgentOS loom, host tools, CadEngine |
+| `scripting/` | gitignored local design notes | Not shipped; reference only |
+
+- Apache consumers must never need `agent-os/`.
+- AgentOS code may call `//api:libocc_c` / Wasm; the reverse dependency is forbidden.
+- Chosen scripting architecture: **AgentOS loom + host tools → OCCT** (see local `scripting/DESIGN_AGENTOS.md` if present). Do not implement freestanding Luau unless explicitly asked.
 
 ## Priority of artifacts
 
@@ -23,11 +37,13 @@ Instructions for AI coding agents working in this repository. Prefer this file o
 |----------|------|--------|
 | P0 | `api/include/occ_c.h` | Contract. Design for long-lived FFI. |
 | P0 | `api/src/occ_c.cc` | Implementation of that contract. Keep thin. |
-| P0 | `examples/c_smoke/` | Canonical validation path — **pure C**. |
+| P0 | `examples/c_api/` | Canonical pure-C API demo — **Apache**. |
 | P0 | `//api:libocc_c_wasm` | Browser product: Emscripten JS+Wasm over `occ_c`. |
+| P1 | `agent-os/` | BSL AgentOS integration (scaffold → CadEngine). |
 | P1 | `third_party/occt/gen_bazel.py` | Source of truth for the OCCT toolkit subset. |
 | P1 | `third_party/occt/occt.BUILD` | Generated; regenerate via the script, do not hand-edit. |
-| Ref only | `OCCT/`, `OCP/`, `build123d/` | Gitignored local clones. Reference/research only. Not build inputs. |
+| Ref only | `OCCT/`, `OCP/`, `build123d/`, `scripting/` | Gitignored. Research/local only. |
+| Ref only | `../steamboat`, `../agent-os` | Sibling trees; not Bazel deps of the Apache kernel. |
 
 ## C API conventions
 
@@ -45,7 +61,7 @@ When adding or changing API:
 
 ### Prefer growing the C surface, not bypassing it
 
-- New capability for consumers → add to `occ_c.h` + `occ_c.cc` + exercise in **C** (`c_smoke` or a new pure-C example/test).
+- New capability for consumers → add to `occ_c.h` + `occ_c.cc` + exercise in **C** (`//examples/c_api` or a new pure-C example/test).
 - Do not solve user problems by documenting “call `BRepPrimAPI_MakeBox` from C++”.
 - When adding `OCC_API` symbols, also update `_OCC_C_EXPORTS` in [`api/BUILD.bazel`](api/BUILD.bazel) so Wasm exports stay in sync (and re-check `//api:libocc_c_wasm_size_limit`).
 
@@ -66,31 +82,25 @@ When adding or changing API:
 
 ## Examples and tests
 
-- **Canonical:** `bazel run //examples/c_smoke` — pure C against `//api:occ_c_lib`.
+- **Canonical:** `bazel run //examples/c_api` — pure C against `//api:occ_c_lib`.
 - Prefer new validation as pure C (or later `cc_test` that still only includes `occ_c.h`).
 - There is **no** C++ example target; do not reintroduce one.
 
 ## Build commands
 
-Local (default):
+**AI agents on the project host must use BuildBuddy only** (this machine is not a compile rig):
 
 ```bash
-bazel build //...
-bazel build //api:libocc_c
-bazel run //examples/c_smoke
-```
-
-Remote (BuildBuddy RBE + cache + BES) — opt-in, any target:
-
-```bash
-# One-time per machine/repo if not already authenticated:
+# One-time per machine if needed:
 bb login
 
-bb build --config=buildbuddy //api:libocc_c //examples/c_smoke
-bb run  --config=buildbuddy //examples/c_smoke
+bb build --config=buildbuddy //api:libocc_c //examples/c_api
+bb run  --config=buildbuddy //examples/c_api
 bb build --config=buildbuddy //api:libocc_c_wasm
+bb run  --config=buildbuddy //agent-os/smoke:node_smoke
 ```
 
+- **Do not** run plain `bazel build` / local spawn as the agent path. End users with better machines may use bare `bazel` without `--config=buildbuddy`.
 - Prefer **`bb`** (not bare `bazel`) whenever `--config=buildbuddy` is set so the API key is attached.
 - Never commit API keys or put them in `.bazelrc`.
 - `buildbuddy.yaml` is optional CI; it only runs after the BuildBuddy GitHub app is connected to the repo in the dashboard. Local remote builds do not need that.
@@ -103,7 +113,7 @@ Bazel version: see `.bazelversion`. C++17, `-fPIC`, hidden visibility, BuildBudd
 
 | Path | Toolchain | Module |
 |------|-----------|--------|
-| Native `//api`, `@occt`, `//examples/c_smoke` | **zig cc** via `hermetic_cc_toolchain` | `hermetic_cc_toolchain` in `MODULE.bazel` |
+| Native `//api`, `@occt`, `//examples/c_api` | **zig cc** via `hermetic_cc_toolchain` | `hermetic_cc_toolchain` in `MODULE.bazel` |
 | Browser `//api:libocc_c_wasm` | **emcc** (always `-c opt`) + Binaryen `wasm-opt` | `emsdk` + Binaryen 131 |
 
 - Host gcc/clang auto-detect is **disabled** (`BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1`).
@@ -122,12 +132,19 @@ Bazel version: see `.bazelversion`. C++17, `-fPIC`, hidden visibility, BuildBudd
 - Keep the ABI C-friendly: POD args, opaque pointers, no exceptions across the FFI boundary (already translated inside `occ_c.cc`).
 - Wasm link policy lives on `//api:libocc_c_wasm_bin` (`MODULARIZE`, `EXPORT_NAME`, `EXPORTED_FUNCTIONS`, exception catching, FS). Adjust there, not in OCCT sources.
 
+## AgentOS scripting (`agent-os/`, BSL)
+
+- Implementation **only** under [`agent-os/`](agent-os/) (see its README + LICENSE).
+- Geometry: host tools → `createOccModule` / `occ_*`; guest holds shape **IDs** only.
+- Never freestanding-port OCCT or run it as an mc/wasmi guest.
+- Do not commit freestanding Steamboat-style Luau as the product path (local design notes in gitignored `scripting/` may still exist).
+
 ## Documentation hygiene
 
-- [`README.md`](README.md) is user-facing and C-API-first.
+- [`README.md`](README.md) is user-facing and C-API-first; license table is mandatory.
 - This file is agent-facing: architecture, constraints, and anti-patterns.
 - Do not re-document full OCCT here. Link upstream when needed.
-- Ignore gitignored trees (`OCCT/`, `OCP/`, `build123d/`) when describing “the repo” unless the task is explicitly about regenerating packaging or studying reference APIs.
+- Ignore gitignored trees (`OCCT/`, `OCP/`, `build123d/`, `scripting/`) when describing “the repo” unless the task is explicitly about them.
 
 ## Anti-patterns (do not do)
 
@@ -139,8 +156,12 @@ Bazel version: see `.bazelversion`. C++17, `-fPIC`, hidden visibility, BuildBudd
 6. Expanding the OCCT toolkit subset for curiosity rather than a concrete `occ_*` feature.
 7. Replacing `@emsdk` with a home-grown Emscripten toolchain without a hard requirement.
 8. Committing BuildBuddy API keys or hard-coding auth into `.bazelrc`.
+9. Mixing BSL AgentOS code into Apache `api/` / `examples/`.
+10. Implementing freestanding Luau as the default after AgentOS was chosen.
+11. Running heavy **local** `bazel build` on the agent host — use `bb --config=buildbuddy` only.
 
 ## When unsure
 
-Default to: **extend `occ_c.h`, implement in `occ_c.cc`, prove with pure C.**  
-If something cannot be expressed cleanly in C, redesign the API shape — do not push callers into C++.
+Default to: **extend `occ_c.h`, implement in `occ_c.cc`, prove with pure C (`//examples/c_api`).**  
+If something cannot be expressed cleanly in C, redesign the API shape — do not push callers into C++.  
+For agent scripting, implement under **`agent-os/`** only.

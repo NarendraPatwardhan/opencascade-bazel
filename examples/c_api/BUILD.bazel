@@ -1,0 +1,8 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+# Canonical pure-C validation of //api:occ_c_lib (Apache-2.0 product surface).
+cc_binary(
+    name = "c_api",
+    srcs = ["main.c"],
+    deps = ["//api:occ_c_lib"],
+)

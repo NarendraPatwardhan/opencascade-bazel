@@ -1,7 +1,0 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary")
-
-cc_binary(
-    name = "c_smoke",
-    srcs = ["c_smoke.c"],
-    deps = ["//api:occ_c_lib"],
-)

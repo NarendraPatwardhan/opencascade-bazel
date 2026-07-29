@@ -127,6 +127,7 @@ _WASM_LINKOPTS = [
     "-Os",
     "--no-entry",
     "-sMODULARIZE=1",
+    "-sEXPORT_ES6=1",
     "-sEXPORT_NAME=createOccModule",
     "-sENVIRONMENT=web,worker,node",
     "-sALLOW_MEMORY_GROWTH=1",

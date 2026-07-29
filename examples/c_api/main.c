@@ -1,4 +1,4 @@
-/* C smoke test — pure C program exercising occ_c.h end-to-end.
+/* Pure C demo of the occ_c API (//examples/c_api).
    Constructs (box ∪ cyl) − cyl, verifies volume, exports STEP / STL / glTF /
    OBJ / BREP, reads STEP back, and runs occ_mesh_compute. */
 
@@ -49,15 +49,15 @@ int main(void) {
   printf("bbox: (%.2f,%.2f,%.2f) .. (%.2f,%.2f,%.2f)\n",
          bmin[0], bmin[1], bmin[2], bmax[0], bmax[1], bmax[2]);
 
-  CHECK(occ_step_write(cut, "c_smoke.step"));
-  CHECK(occ_stl_write (cut, "c_smoke.stl",  0.1));
-  CHECK(occ_brep_write(cut, "c_smoke.brep"));
-  CHECK(occ_obj_write (cut, "c_smoke.obj",  0.1));
+  CHECK(occ_step_write(cut, "c_api.step"));
+  CHECK(occ_stl_write (cut, "c_api.stl",  0.1));
+  CHECK(occ_brep_write(cut, "c_api.brep"));
+  CHECK(occ_obj_write (cut, "c_api.obj",  0.1));
   /* glTF requires RapidJSON — OCCT here is built without it; viewer hand-off
      goes through occ_mesh_compute instead. */
 
   occ_shape_t reread = NULL;
-  CHECK(occ_step_read("c_smoke.step", &reread));
+  CHECK(occ_step_read("c_api.step", &reread));
   double vol2 = 0.0;
   CHECK(occ_volume(reread, &vol2));
   printf("reread STEP volume = %.4f mm^3\n", vol2);

@@ -16,5 +16,5 @@ actions:
         branches:
           - "*"
     steps:
-      - run: "bazel build --config=buildbuddy //api:libocc_c //examples/c_smoke"
-      - run: "bazel run --config=buildbuddy //examples/c_smoke"
+      - run: "bazel build --config=buildbuddy //api:libocc_c //examples/c_api"
+      - run: "bazel run --config=buildbuddy //examples/c_api"

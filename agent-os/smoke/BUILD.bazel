@@ -1,0 +1,13 @@
+package(default_visibility = ["//visibility:public"])
+
+# Prefer: vendor artifacts + `node agent-os/smoke/node_smoke.mjs` (see README).
+# Bazel data wiring for CI is optional; shell binary needs rules_shell which we
+# do not pull in solely for smoke — use the Node script after `bb` builds Wasm.
+
+filegroup(
+    name = "smoke_srcs",
+    srcs = [
+        "node_smoke.mjs",
+        "run_node_smoke.sh",
+    ],
+)
