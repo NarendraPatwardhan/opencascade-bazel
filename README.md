@@ -4,6 +4,8 @@ Hermetic [Bazel](https://bazel.build/) packaging of [OpenCASCADE Technology](htt
 
 The goal is not a C++ CAD app. OCCT is C++ under the hood; this repository exists so callers never have to write C++. The public surface is **`occ_c`** — a stable C ABI for polyglot FFI (Rust, Zig, Go, Python, WASM, etc.), shaped after [build123d](https://github.com/gumyr/build123d)'s modeling surface.
 
+**Status:** Native `libocc_c` and browser **Wasm** both build and run. Wasm is a first-class product path (`//api:libocc_c_wasm`) — release-optimized, Binaryen-shrunk, and size-gated — not a prototype.
+
 ## Product: the C API
 
 | Path | Role |
@@ -11,7 +13,7 @@ The goal is not a C++ CAD app. OCCT is C++ under the hood; this repository exist
 | [`api/include/occ_c.h`](api/include/occ_c.h) | Public C header — **this is the API** |
 | [`api/src/occ_c.cc`](api/src/occ_c.cc) | Thin C++ implementation (implementation detail only) |
 | [`//api:libocc_c`](api/BUILD.bazel) | Native shared library (`libocc_c.so`) for FFI |
-| [`//api:libocc_c_wasm`](api/BUILD.bazel) | Browser / Wasm module (`libocc_c.js` + `.wasm`) via Emscripten |
+| [`//api:libocc_c_wasm`](api/BUILD.bazel) | Browser / Wasm module (`libocc_c.js` + `.wasm`) via Emscripten — **working** |
 | [`//examples/c_smoke`](examples/c_smoke/) | Canonical smoke test — **pure C** |
 
 Design notes:
@@ -64,25 +66,48 @@ Invocations appear at the `https://app.buildbuddy.io/invocation/...` URL Bazel p
 
 Public repo does **not** by itself enable RBE. Unauthenticated BES-only uploads are possible without a key, but cache + remote execution require the API key from `bb login`.
 
-### Browser / Wasm
+### Browser / Wasm (works — always release / size pipeline)
 
-```bash
-# Local (slow for full OCCT):
-bazel build //api:libocc_c_wasm
+**Wasm compiles and works.** The same `occ_c` C API is exported to the browser via Emscripten (`wasm_cc_binary` + hermetic `@emsdk`). Builds have been verified on BuildBuddy RBE end-to-end (link + Binaryen optimize + size gate).
 
-# Remote (preferred for the heavy compile):
-bb build --config=buildbuddy //api:libocc_c_wasm
+Wasm is **always built at `-c opt`** (even if the CLI is fastbuild), with size-oriented emcc flags and a post-link Binaryen pass:
+
+```text
+force_opt (-c opt) → emcc -Os (ASSERTIONS=0) → wasm-opt -Oz --converge → size_limit (≤32 MiB)
 ```
 
-`//api:libocc_c_wasm` uses `wasm_cc_binary` so the Emscripten toolchain is applied via a configuration transition. Outputs: `libocc_c.js` (MODULARIZE export name `createOccModule`) and `libocc_c.wasm`, with `occ_*` symbols exported for `ccall` / `cwrap`. Tagged `manual` so it is not part of `//...`.
+Typical optimized artifact sizes for the current BRep-focused OCCT subset (order of magnitude; exact bytes move with API growth):
+
+| Artifact | Approx. size |
+|----------|----------------|
+| `libocc_c.wasm` (after `wasm-opt -Oz`) | ~27–28 MiB raw |
+| Same, gzipped over the wire | ~7 MiB |
+| `libocc_c.js` glue | ~200 KiB |
+
+```bash
+# Remote (preferred for the heavy OCCT+emcc compile):
+bb build --config=buildbuddy //api:libocc_c_wasm
+
+# Local (hermetic emsdk; no system Emscripten install required):
+bazel build //api:libocc_c_wasm
+```
+
+| Output | Role |
+|--------|------|
+| `libocc_c.js` | MODULARIZE glue; export name `createOccModule` |
+| `libocc_c.wasm` | Binaryen-optimized module (`occ_*` + `malloc`/`free`) |
+
+Use from JS with `createOccModule()`, then `ccall` / `cwrap` on the exported `occ_*` symbols (or allocate paths with `_malloc` / `_free`). The target is tagged `manual` (not in bare `//...`). CI size gate: `//api:libocc_c_wasm_size_limit` (fails if `.wasm` exceeds 32 MiB).
 
 ## Layout
 
 ```text
 api/                  # C API (primary product) + Wasm packaging
+bazel/                # force_opt, wasm_opt, size_limit helpers
 examples/c_smoke/     # Pure C end-to-end smoke test
 third_party/occt/     # Bazel packaging for a modeling-focused OCCT subset
-MODULE.bazel          # Bzlmod; OCCT 7.9.3 + emsdk
+third_party/binaryen/ # wasm-opt packaging (Binaryen release)
+MODULE.bazel          # Bzlmod; OCCT 7.9.3 + emsdk + hermetic_cc
 buildbuddy.yaml       # Optional BuildBuddy Workflows CI
 AGENTS.md             # Conventions for AI agents working in this repo
 ```

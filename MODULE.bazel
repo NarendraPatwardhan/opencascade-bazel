@@ -5,6 +5,7 @@ module(
 
 bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
 
 # Hermetic C/C++ via zig cc (clang-based). Used for native //api and OCCT
 # builds on local hosts and BuildBuddy RBE — no host gcc required.
@@ -23,13 +24,50 @@ register_toolchains(
 # Native C++ uses hermetic_cc above; browser/Wasm still uses emcc via this module.
 bazel_dep(name = "emsdk", version = "6.0.3")
 
-# OCCT source fetched via http_archive; BUILD is vendored in third_party/occt/occt.BUILD.
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# OCCT source fetched via http_archive; BUILD is vendored in third_party/occt/occt.BUILD.
 http_archive(
     name = "occt",
     build_file = "//third_party/occt:occt.BUILD",
     strip_prefix = "OCCT-7_9_3",
     urls = ["https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz"],
     sha256 = "5ecf094ec6b12d5413dfb851d8c3590c354058aee556e32e408bdfbf8c357d57",
+)
+
+# Binaryen 131 — hermetic wasm-opt for the post-link size pass (//bazel:wasm_opt.bzl).
+# Platform packages selected via //third_party/binaryen:wasm-opt.
+_BINARYEN_BUILD = "//third_party/binaryen:binaryen.BUILD"
+_BINARYEN_PREFIX = "binaryen-version_131"
+
+http_archive(
+    name = "binaryen_linux_x64",
+    build_file = _BINARYEN_BUILD,
+    sha256 = "b5bf1f0eaf17c63ee588ff7a5954dc8f6ce2c26989051c66f24dfe9ece3e46db",
+    strip_prefix = _BINARYEN_PREFIX,
+    urls = ["https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-linux.tar.gz"],
+)
+
+http_archive(
+    name = "binaryen_linux_arm64",
+    build_file = _BINARYEN_BUILD,
+    sha256 = "ba991f677edd9a21d2bc96c0144bc8ac5b112d4d98a3eb266e075e22e557df2a",
+    strip_prefix = _BINARYEN_PREFIX,
+    urls = ["https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-aarch64-linux.tar.gz"],
+)
+
+http_archive(
+    name = "binaryen_darwin_x64",
+    build_file = _BINARYEN_BUILD,
+    sha256 = "d209fadd8a894bdaf3bd3612a23c32a0af184d2f4a979b8c789e6e4f6a4de883",
+    strip_prefix = _BINARYEN_PREFIX,
+    urls = ["https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-macos.tar.gz"],
+)
+
+http_archive(
+    name = "binaryen_darwin_arm64",
+    build_file = _BINARYEN_BUILD,
+    sha256 = "e441b48dc22163d209b4f05e44dc7210909b01237642b6c9ae48fd710a3ef83e",
+    strip_prefix = _BINARYEN_PREFIX,
+    urls = ["https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-arm64-macos.tar.gz"],
 )

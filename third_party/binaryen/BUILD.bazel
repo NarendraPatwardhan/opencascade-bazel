@@ -1,0 +1,44 @@
+# Platform-selected hermetic Binaryen wasm-opt (exec configuration).
+package(default_visibility = ["//visibility:public"])
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "macos_x86_64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "macos_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+alias(
+    name = "wasm-opt",
+    actual = select({
+        ":linux_x86_64": "@binaryen_linux_x64//:wasm-opt",
+        ":linux_aarch64": "@binaryen_linux_arm64//:wasm-opt",
+        ":macos_x86_64": "@binaryen_darwin_x64//:wasm-opt",
+        ":macos_arm64": "@binaryen_darwin_arm64//:wasm-opt",
+    }),
+)

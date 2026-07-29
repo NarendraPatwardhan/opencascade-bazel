@@ -47,7 +47,7 @@ When adding or changing API:
 
 - New capability for consumers → add to `occ_c.h` + `occ_c.cc` + exercise in **C** (`c_smoke` or a new pure-C example/test).
 - Do not solve user problems by documenting “call `BRepPrimAPI_MakeBox` from C++”.
-- When adding `OCC_API` symbols, also update `_OCC_C_EXPORTS` in [`api/BUILD.bazel`](api/BUILD.bazel) so Wasm exports stay in sync.
+- When adding `OCC_API` symbols, also update `_OCC_C_EXPORTS` in [`api/BUILD.bazel`](api/BUILD.bazel) so Wasm exports stay in sync (and re-check `//api:libocc_c_wasm_size_limit`).
 
 ## OCCT packaging
 
@@ -104,11 +104,14 @@ Bazel version: see `.bazelversion`. C++17, `-fPIC`, hidden visibility, BuildBudd
 | Path | Toolchain | Module |
 |------|-----------|--------|
 | Native `//api`, `@occt`, `//examples/c_smoke` | **zig cc** via `hermetic_cc_toolchain` | `hermetic_cc_toolchain` in `MODULE.bazel` |
-| Browser `//api:libocc_c_wasm` | **emcc** via `wasm_cc_binary` | `emsdk` in `MODULE.bazel` |
+| Browser `//api:libocc_c_wasm` | **emcc** (always `-c opt`) + Binaryen `wasm-opt` | `emsdk` + Binaryen 131 |
 
 - Host gcc/clang auto-detect is **disabled** (`BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1`).
 - Do **not** use `rules_zig` for the C toolchain — that is for Zig language code. Hermetic C++ is `hermetic_cc_toolchain` only.
 - Do **not** hand-roll an emscripten `cc_toolchain`; keep `@emsdk`.
+- Wasm is **always release**: `force_opt` pins `compilation_mode=opt` on the emcc subgraph. Never ship fastbuild Wasm.
+- Size pipeline (see `api/BUILD.bazel`, `bazel/wasm_opt.bzl`): emcc `-Os` / `ASSERTIONS=0` → Binaryen `-Oz --converge` → `size_limit` (32 MiB). Keep exceptions enabled for OCCT.
+- When adding `OCC_API` symbols, update `_OCC_C_EXPORTS` **and** expect a full Wasm rebuild.
 
 ## Language bindings / WASM
 

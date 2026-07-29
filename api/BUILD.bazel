@@ -1,5 +1,9 @@
 load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_shared_library")
+load("//bazel:force_opt.bzl", "force_opt")
+load("//bazel:pick_file.bzl", "pick_file")
+load("//bazel:size_limit.bzl", "size_limit")
+load("//bazel:wasm_opt.bzl", "wasm_opt")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -33,19 +37,21 @@ cc_shared_library(
 )
 
 # ---------------------------------------------------------------------------
-# Browser / Wasm product (Emscripten via @emsdk)
+# Browser / Wasm product (Emscripten via @emsdk) — always RELEASE size pipeline
 # ---------------------------------------------------------------------------
 #
-# Build with:
+# Pipeline (AgentOS-style):
+#   1. force_opt  → compilation_mode=opt on the whole Wasm subgraph
+#   2. emcc -Os   → size-oriented compile/link (assertions off)
+#   3. wasm_opt   → Binaryen -Oz --converge post-link
+#   4. size_limit → CI fails if the .wasm exceeds the budget
+#
+# Build:
 #   bazel build //api:libocc_c_wasm
+#   bb build --config=buildbuddy //api:libocc_c_wasm
 #
-# Produces libocc_c.js + libocc_c.wasm. The JS module is MODULARIZE'd as
-# createOccModule(); call that from the browser, then use Module.ccall /
-# cwrap / HEAP* against the exported occ_* symbols.
-#
-# The underlying cc_binary is tagged manual so `bazel build //...` does not
-# try to link it with the host toolchain (it has no main; --no-entry is
-# emscripten-only).
+# Shipping outputs: libocc_c.js + libocc_c.wasm (optimized).
+# Tagged manual: OCCT+emcc is heavy; keep out of bare `//...`.
 
 # Keep in sync with OCC_API symbols in include/occ_c.h (C names need a
 # leading underscore for Emscripten). malloc/free let JS allocate for paths.
@@ -108,36 +114,109 @@ _OCC_C_EXPORTS = ",".join([
     "_occ_mesh_free",
 ])
 
+# Size-first Emscripten link (maps AgentOS -Copt-level=z / strip / no-assert).
+# Exceptions stay on: OCCT + occ_c catch at the FFI boundary (unlike panic=abort).
+# Fat LTO is intentionally omitted here — Binaryen post-link carries whole-module
+# DCE without multi-hour OCCT LTO; enable -flto separately if needed.
+_WASM_SIZE_COPTS = [
+    "-Os",
+    "-DNDEBUG",
+]
+
 _WASM_LINKOPTS = [
+    "-Os",
     "--no-entry",
     "-sMODULARIZE=1",
     "-sEXPORT_NAME=createOccModule",
     "-sENVIRONMENT=web,worker,node",
     "-sALLOW_MEMORY_GROWTH=1",
+    "-sASSERTIONS=0",
+    "-sSTACK_OVERFLOW_CHECK=0",
     # OCCT + occ_c catch C++ exceptions at the FFI boundary.
     "-fexceptions",
     "-sDISABLE_EXCEPTION_CATCHING=0",
-    # STEP/BREP path IO uses libc filesystem (MEMFS by default in the browser).
+    # STEP/BREP path IO uses libc filesystem (MEMFS in the browser).
     "-sFILESYSTEM=1",
     "-sEXPORTED_FUNCTIONS=[%s]" % _OCC_C_EXPORTS,
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8','lengthBytesUTF8','getValue','setValue','HEAPU8','HEAP8','HEAP16','HEAP32','HEAPF32','HEAPF64']",
+    # FS exported so JS can read MEMFS paths after STEP/BREP write (smoke/tests).
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8','lengthBytesUTF8','getValue','setValue','HEAPU8','HEAP8','HEAP16','HEAP32','HEAPF32','HEAPF64','FS']",
 ]
 
 cc_binary(
     name = "libocc_c_wasm_bin",
     srcs = ["wasm_stub.c"],
     deps = [":occ_c_lib"],
+    copts = _WASM_SIZE_COPTS,
     linkopts = _WASM_LINKOPTS,
     tags = ["manual"],
 )
 
+# Emscripten package (js + wasm). Always built under -c opt via force_opt below.
 wasm_cc_binary(
-    name = "libocc_c_wasm",
+    name = "libocc_c_wasm_emcc",
     cc_target = ":libocc_c_wasm_bin",
     outputs = [
-        "libocc_c.js",
-        "libocc_c.wasm",
+        "libocc_c_emcc.js",
+        "libocc_c_emcc.wasm",
     ],
-    # Opt-in: compiling OCCT with emcc is heavy; keep out of `bazel build //...`.
+    tags = ["manual"],
+)
+
+# Always release: ignore the top-level -c and force opt on the Wasm subgraph.
+force_opt(
+    name = "libocc_c_wasm_emcc_release",
+    target = ":libocc_c_wasm_emcc",
+    tags = ["manual"],
+)
+
+pick_file(
+    name = "libocc_c_emcc_js",
+    src = ":libocc_c_wasm_emcc_release",
+    extension = ".js",
+    out = "libocc_c.js",
+    tags = ["manual"],
+)
+
+pick_file(
+    name = "libocc_c_emcc_wasm",
+    src = ":libocc_c_wasm_emcc_release",
+    extension = ".wasm",
+    out = "libocc_c_emcc_raw.wasm",
+    tags = ["manual"],
+)
+
+# Binaryen post-link size pass (AgentOS -Oz --converge).
+# Output file: libocc_c_opt.wasm (renamed for shipping via genrule below).
+wasm_opt(
+    name = "libocc_c_opt",
+    wasm = ":libocc_c_emcc_wasm",
+    tags = ["manual"],
+)
+
+# Stable shipping name expected by docs and smoke scripts.
+genrule(
+    name = "libocc_c_wasm_file",
+    srcs = [":libocc_c_opt"],
+    outs = ["libocc_c.wasm"],
+    cmd = "cp $< $@",
+    tags = ["manual"],
+)
+
+# Product alias: JS glue + optimized Wasm.
+filegroup(
+    name = "libocc_c_wasm",
+    srcs = [
+        ":libocc_c_emcc_js",  # libocc_c.js
+        ":libocc_c_wasm_file",  # libocc_c.wasm
+    ],
+    tags = ["manual"],
+)
+
+# Hard ceiling after the full size pipeline (unoptimized was ~44 MiB).
+# Tighten deliberately as the subset / exports shrink.
+size_limit(
+    name = "libocc_c_wasm_size_limit",
+    file = ":libocc_c_wasm_file",
+    max_bytes = 32 * 1024 * 1024,  # 32 MiB
     tags = ["manual"],
 )

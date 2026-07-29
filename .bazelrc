@@ -20,8 +20,14 @@ build --copt=-fvisibility=hidden
 build --copt=-fexceptions
 build --define=occt_linux=1
 
-# Silence OCCT's warnings without hiding our own.
-build --per_file_copt=external/occt/.*@-w
+# Silence warnings from vendored/external code (not our //api sources).
+# Bzlmod materializes OCCT as e.g. external/+http_archive+occt/... — the old
+# external/occt/.* pattern never matched, so BuildBuddy was flooded with OCCT
+# -Wunused-template etc. -w keeps real compile *errors* visible.
+build --per_file_copt=external/.*@-w
+# Also match sources under the http_archive strip prefix if reported without
+# the external/ prefix in some configs.
+build --per_file_copt=.*[/+]occt([/+].*)?@-w
 
 # Reduce link surface; we don't need layering-check fussiness on vendored code.
 build --features=-layering_check
@@ -73,12 +79,17 @@ common:buildbuddy --remote_download_minimal
 common:buildbuddy --remote_cache_compression
 # Overlap cache uploads/downloads with execution.
 common:buildbuddy --remote_cache_async
+# UI noise: only print action stdout/stderr for our packages. Failures in
+# @occt still fail the build; with -w above they rarely need verbose warn spam.
+# Drop this line temporarily if you need to debug an OCCT compile error.
+common:buildbuddy --output_filter=^//(api|examples|third_party|bazel)(/|:)
 
-# Optional: build wasm targets with --config=wasm (also used by wasm_cc_binary
-# transitions; this config is for ad-hoc native→emcc experimentation).
+# Optional: ad-hoc emcc platform (//api:libocc_c_wasm forces -c opt via force_opt
+# regardless of this config).
 build:wasm --platforms=@emsdk//:platform_wasm
 build:wasm --cpu=wasm
 build:wasm --copt=-fexceptions
+build:wasm --compilation_mode=opt
 
-# Performance opt builds (explicit; default remains fastbuild).
+# Performance opt builds for native (Wasm product always opts via force_opt).
 build:release --compilation_mode=opt
