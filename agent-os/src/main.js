@@ -14,6 +14,9 @@ local part = solid.cut(block, drill)
 solid.finish(part, { name = "block_hole" })
 `;
 
+/** Debounce for Phase B luau-analyze markers (ms). */
+const ANALYZE_DEBOUNCE_MS = 550;
+
 const els = {
   editorHost: document.querySelector("#editor"),
   run: document.querySelector("#run"),
@@ -34,6 +37,17 @@ let worker = null;
 const pending = new Map();
 /** @type {Promise<void> | null} */
 let configReady = null;
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let analyzeTimer = null;
+/** Monotonic generation so stale analyze replies are ignored. */
+let analyzeGen = 0;
+/** @type {Promise<void> | null} */
+let analyzeInFlight = null;
+/** Last analyze error count (for idle status). */
+let lastAnalyzeErrors = 0;
+/** True while execute is running — avoid overwriting run status with analyze. */
+let isRunning = false;
 
 function setStatus(text, isError = false) {
   els.status.textContent = text;
@@ -60,8 +74,15 @@ function ensureWorker() {
     const slot = pending.get(msg.id);
     if (!slot) return;
     pending.delete(msg.id);
-    if (msg.code === 0) slot.resolve(msg);
-    else slot.reject(new Error(msg.error || `worker code ${msg.code}`));
+    // Analyze always resolves (markers live in diagnostics); execute rejects on code≠0.
+    if (msg.kind === "analyze" || msg.code === 0) slot.resolve(msg);
+    else {
+      const err = new Error(msg.error || `worker code ${msg.code}`);
+      /** @type {any} */ (err).diagnostics = msg.diagnostics;
+      /** @type {any} */ (err).stdout = msg.stdout;
+      /** @type {any} */ (err).stderr = msg.stderr;
+      slot.reject(err);
+    }
   };
   worker.onerror = (ev) => {
     setStatus(`Worker error: ${ev.message}`, true);
@@ -103,12 +124,83 @@ async function ensureConfigured() {
   if (configReady) await configReady;
 }
 
+/**
+ * Phase B: run luau-analyze and paint Monaco markers.
+ * @param {string} source
+ * @param {{ quiet?: boolean }} [opts]
+ */
+async function runAnalyze(source, opts = {}) {
+  const gen = ++analyzeGen;
+  const quiet = opts.quiet === true || isRunning;
+  try {
+    await ensureConfigured();
+    if (!quiet) setStatus("Analyzing…");
+    const reply = await callWorker(
+      { kind: "analyze", source },
+      120_000,
+    );
+    if (gen !== analyzeGen) return; // superseded
+    const diags = reply.diagnostics || [];
+    lastAnalyzeErrors = diags.filter((d) => d.severity === "error").length;
+    editor?.setAnalyzeMarkers?.(diags);
+    if (!isRunning) {
+      if (lastAnalyzeErrors > 0) {
+        setStatus(
+          `Analyze: ${lastAnalyzeErrors} error${lastAnalyzeErrors === 1 ? "" : "s"}` +
+            (diags.length > lastAnalyzeErrors
+              ? ` (${diags.length} diagnostics)`
+              : ""),
+          true,
+        );
+      } else if (diags.length > 0) {
+        setStatus(`Analyze: ${diags.length} warning(s)`);
+      } else {
+        setStatus("Ready — no analyze errors. Run (or Mod-Enter).");
+      }
+    }
+  } catch (err) {
+    if (gen !== analyzeGen) return;
+    // Analyzer bootstrap failures should not hard-block editing.
+    appendLog(`analyze failed: ${err.message}`);
+    if (!isRunning) setStatus(`Analyze unavailable: ${err.message}`, true);
+  }
+}
+
+function scheduleAnalyze(source) {
+  if (analyzeTimer) clearTimeout(analyzeTimer);
+  analyzeTimer = setTimeout(() => {
+    analyzeTimer = null;
+    analyzeInFlight = runAnalyze(source).finally(() => {
+      analyzeInFlight = null;
+    });
+  }, ANALYZE_DEBOUNCE_MS);
+}
+
+/**
+ * Apply diagnostics if present (execute path may attach them).
+ * @param {unknown} diags
+ */
+function applyDiagnostics(diags) {
+  if (!editor?.setAnalyzeMarkers) return;
+  if (Array.isArray(diags) && diags.length) {
+    editor.setAnalyzeMarkers(diags);
+    lastAnalyzeErrors = diags.filter((d) => d.severity === "error").length;
+  }
+}
+
 async function runSource() {
+  if (analyzeTimer) {
+    clearTimeout(analyzeTimer);
+    analyzeTimer = null;
+  }
   els.run.disabled = true;
+  isRunning = true;
   setStatus("Running Luau…");
   els.log.textContent = "";
   try {
     await ensureConfigured();
+    // Fresh analyze so markers match what we execute (Phase B).
+    await runAnalyze(getSource(), { quiet: true });
     const reply = await callWorker(
       {
         kind: "execute",
@@ -117,6 +209,8 @@ async function runSource() {
       },
       300_000,
     );
+    applyDiagnostics(reply.diagnostics);
+    if (!reply.diagnostics?.length) editor?.clearAnalyzeMarkers?.();
     const m = reply.mesh;
     if (!m?.positions || !m?.indices) throw new Error("no mesh in reply");
     setStatus(
@@ -136,9 +230,13 @@ async function runSource() {
       volume: m.volume,
     });
   } catch (err) {
+    applyDiagnostics(/** @type {any} */ (err).diagnostics);
     setStatus(err.message, true);
     appendLog(`error: ${err.message}`);
+    const stderr = /** @type {any} */ (err).stderr;
+    if (stderr) appendLog(String(stderr).trim());
   } finally {
+    isRunning = false;
     els.run.disabled = false;
   }
 }
@@ -171,10 +269,15 @@ mountLuauEditor({
   onRun: () => {
     void runSource();
   },
+  onChange: (doc) => {
+    scheduleAnalyze(doc);
+  },
 })
   .then((handle) => {
     editor = handle;
-    setStatus("Ready — Warm once, then Run (or Mod-Enter).");
+    setStatus("Ready — Warm once, then Run (or Mod-Enter). Completions: solid.");
+    // Initial analyze after VM can load (debounced so warm isn't forced immediately).
+    scheduleAnalyze(handle.getValue());
   })
   .catch((err) => {
     setStatus(`Editor failed to load: ${err.message}`, true);
@@ -193,6 +296,9 @@ mountLuauEditor({
       },
       focus: () => ta.focus(),
       destroy: () => undefined,
+      setAnalyzeMarkers: () => undefined,
+      clearAnalyzeMarkers: () => undefined,
     };
+    ta.addEventListener("input", () => scheduleAnalyze(ta.value));
     setStatus("Ready (plain textarea fallback) — Run Luau.");
   });

@@ -2,7 +2,7 @@
 
 export const PROTOCOL = 1;
 
-/** @typedef {"warm"|"execute"|"cancel"} CadRequestKind */
+/** @typedef {"config"|"warm"|"analyze"|"execute"|"cancel"} CadRequestKind */
 
 /**
  * @typedef {object} CadExecuteRequest
@@ -14,9 +14,24 @@ export const PROTOCOL = 1;
  */
 
 /**
+ * @typedef {object} CadAnalyzeRequest
+ * @property {number} id
+ * @property {"analyze"} kind
+ * @property {string} source
+ */
+
+/**
  * @typedef {object} CadWarmRequest
  * @property {number} id
  * @property {"warm"} kind
+ */
+
+/**
+ * @typedef {object} CadDiagnostic
+ * @property {number} line
+ * @property {number} column
+ * @property {string} message
+ * @property {"error"|"warning"|"info"} severity
  */
 
 /**
@@ -31,8 +46,9 @@ export const PROTOCOL = 1;
 /**
  * @typedef {object} CadSuccess
  * @property {number} id
+ * @property {string} [kind]
  * @property {number} code  // 0 ok
- * @property {string[]} diagnostics
+ * @property {CadDiagnostic[]} diagnostics
  * @property {CadMesh} [mesh]
  * @property {object} [meta]
  * @property {string} [stdout]
@@ -42,8 +58,9 @@ export const PROTOCOL = 1;
 /**
  * @typedef {object} CadFailure
  * @property {number} id
+ * @property {string} [kind]
  * @property {number} code  // nonzero
- * @property {string[]} diagnostics
+ * @property {CadDiagnostic[]} diagnostics
  * @property {string} error
  * @property {string} [stdout]
  * @property {string} [stderr]

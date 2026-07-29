@@ -14,9 +14,19 @@ Apache-2.0 **`libocc_c` Wasm**.
 Browser main (demo) ──postMessage──► runtime-worker
                                         ├─ mc-core + kernel + loom
                                         ├─ host tool "cad call"
+                                        ├─ luau-analyze (markers, no OCCT)
                                         └─ createOccModule (libocc_c)
                                              └─ mesh → main → Three.js view
 ```
+
+### Editor (Phase A / B)
+
+| Feature | How |
+|---------|-----|
+| Completions / hover | Closed catalog in `src/cad-api-catalog.js` → Monaco providers |
+| Squiggles | Worker stages `/tmp/cad/{main,solid,tools,json}.luau` and runs `luau-analyze` (debounced); markers are for **user** `main.luau` only |
+| Module graph | Analyzer follows real files: `solid` + typed stubs under `batteries/analyze/` (runtime still uses AgentOS builtins for `tools`/`json`) |
+| Run | Executes via `vm.luau` + host mesh; analyze does not block Run yet |
 
 ## Quick start
 

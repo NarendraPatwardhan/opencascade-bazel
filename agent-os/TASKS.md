@@ -65,12 +65,31 @@ Scratch items with `[x]` as they land. Goal: **browser demo** where Luau runs in
 - [x] Viewer: Three.js when WebGL available; SVG bbox fallback when not (headless)
 - [x] Failure path: bad Luau surfaces in UI (`luau: … Incomplete statement…`) without killing the tab
 
-## 7. Follow-ups (after first green — not blocking demo)
+## 7. Editor intelligence (Phase A / B)
+
+### Phase A — catalog-driven complete + hover
+
+- [x] `cad-api-catalog.js` — closed surface aligned with `solid.luau` + host ops
+- [x] `monaco-cad-complete.js` — completion provider (`solid.*`, require modules, snippets, keywords)
+- [x] Hover provider (methods, modules, param field names)
+- [x] Wired from `luau-editor.js` on Monaco init; quickSuggestions + trigger chars
+
+### Phase B — `luau-analyze` → Monaco markers
+
+- [x] `analyze-parse.js` — parse `path:line:col: message` (+ path filter)
+- [x] Analyze workspace `/tmp/cad/`: `main.luau` (user) + `solid.luau` + typed `tools`/`json` stubs
+  - No `--!nonstrict`; bare `require("solid")` resolves next to entry; solid’s tools/json rewritten to `./` for the analyzer only
+- [x] Worker `kind: "analyze"` — VM only (no OCCT); markers filtered to user entry
+- [x] `luau-editor.setAnalyzeMarkers` / `clearAnalyzeMarkers` (owner `luau-analyze`)
+- [x] Main: debounced analyze on edit (~550ms); status line for error count
+- [x] Execute path re-analyzes quietly; surfaces diagnostics on runtime failure when parseable
+- [ ] Optional hard gate: block Run when analyze reports errors (deferred — markers only for now)
+
+## 8. Follow-ups (after first green — not blocking demo)
 
 - [ ] Integrity manifest (search-experience style sha256 map)
 - [ ] `pkg_tar` one-directory release under `agent-os/`
 - [ ] GLB export + `<model-viewer>` path
-- [ ] `luau-analyze` gate before execute
 - [ ] Param re-run / Adam-like chrome
 
 ---

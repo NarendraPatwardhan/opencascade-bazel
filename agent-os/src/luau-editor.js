@@ -1,13 +1,14 @@
 /**
- * Monaco Editor + Luau Monarch language (not CodeMirror legacy-modes).
+ * Monaco Editor + Luau Monarch language.
  *
- * Loader: @monaco-editor/loader (jsDelivr ESM) → monaco-editor AMD bundle.
- * Language: ./monaco-luau-language.js (adapted from icebearc/monaco-luau MIT).
- *
- * API mirrors the previous CM helper so main.js stays small.
+ * Loader: @monaco-editor/loader → monaco-editor AMD bundle.
+ * Language: monaco-luau-language.js (icebearc/monaco-luau MIT lineage).
+ * Phase A: cad-api-catalog completions + hover.
+ * Phase B: markers applied from luau-analyze (via setAnalyzeMarkers).
  */
 
 import { registerLuauLanguage } from "./monaco-luau-language.js";
+import { registerCadCompletions } from "./monaco-cad-complete.js";
 
 /**
  * @typedef {object} LuauEditorHandle
@@ -15,7 +16,13 @@ import { registerLuauLanguage } from "./monaco-luau-language.js";
  * @property {(doc: string) => void} setValue
  * @property {() => void} focus
  * @property {() => void} destroy
+ * @property {() => import('monaco-editor').editor.ITextModel | null} getModel
+ * @property {(diags: import('./analyze-parse.js').CadDiagnostic[]) => void} setAnalyzeMarkers
+ * @property {() => void} clearAnalyzeMarkers
+ * @property {import('monaco-editor')} monaco
  */
+
+const MARKER_OWNER = "luau-analyze";
 
 let monacoPromise;
 
@@ -24,7 +31,6 @@ async function loadMonaco() {
   monacoPromise = (async () => {
     const loaderMod = await import("https://cdn.jsdelivr.net/npm/@monaco-editor/loader@1.5.0/+esm");
     const loader = loaderMod.default;
-    // Pin monaco-editor build used by the loader.
     loader.config({
       paths: {
         vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs",
@@ -32,6 +38,7 @@ async function loadMonaco() {
     });
     const monaco = await loader.init();
     registerLuauLanguage(monaco);
+    registerCadCompletions(monaco);
     return monaco;
   })();
   return monacoPromise;
@@ -66,12 +73,17 @@ export async function mountLuauEditor(opts) {
     tabSize: 2,
     renderLineHighlight: "line",
     padding: { top: 10, bottom: 10 },
-    // Avoid worker CDN issues for demo: disable features that need workers if they fail.
-    quickSuggestions: false,
-    suggestOnTriggerCharacters: false,
+    quickSuggestions: {
+      other: true,
+      comments: false,
+      strings: true,
+    },
+    suggestOnTriggerCharacters: true,
+    wordBasedSuggestions: "off",
+    snippetSuggestions: "inline",
+    parameterHints: { enabled: true },
   });
 
-  // Ctrl/Cmd-Enter → run (same as agent-os-search mc-editor)
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
     opts.onRun?.(editor.getValue());
   });
@@ -82,12 +94,43 @@ export async function mountLuauEditor(opts) {
 
   if (opts.autoFocus) editor.focus();
 
+  const severityMap = {
+    error: monaco.MarkerSeverity.Error,
+    warning: monaco.MarkerSeverity.Warning,
+    info: monaco.MarkerSeverity.Info,
+  };
+
   return {
+    monaco,
     getValue: () => editor.getValue(),
     setValue: (doc) => {
       if (editor.getValue() !== doc) editor.setValue(doc);
     },
     focus: () => editor.focus(),
     destroy: () => editor.dispose(),
+    getModel: () => editor.getModel(),
+    clearAnalyzeMarkers: () => {
+      const model = editor.getModel();
+      if (model) monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
+    },
+    setAnalyzeMarkers: (diags) => {
+      const model = editor.getModel();
+      if (!model) return;
+      const markers = (diags || []).map((d) => {
+        const line = Math.min(Math.max(1, d.line), model.getLineCount());
+        const lineLen = model.getLineMaxColumn(line);
+        const col = Math.min(Math.max(1, d.column), lineLen);
+        return {
+          severity: severityMap[d.severity] ?? monaco.MarkerSeverity.Error,
+          message: d.message,
+          startLineNumber: line,
+          startColumn: col,
+          endLineNumber: line,
+          endColumn: Math.min(lineLen, col + 1),
+          source: "luau-analyze",
+        };
+      });
+      monaco.editor.setModelMarkers(model, MARKER_OWNER, markers);
+    },
   };
 }
