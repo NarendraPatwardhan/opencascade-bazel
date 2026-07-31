@@ -19,7 +19,7 @@ Hermetic [Bazel](https://bazel.build/) packaging of [OCCT](https://github.com/Op
   <a href="#build">Build</a> ·
   <a href="#agentos-scripting">AgentOS scripting</a> ·
   <a href="#licensing">Licensing</a> ·
-  <a href="docs/aiboost-agentic-cad.md">Architecture notes</a>
+  <a href="SYSTEM.md">System</a> · <a href="docs/README.md">Docs</a>
 </p>
 
 <p>
@@ -70,8 +70,7 @@ The image above is the working vertical slice: **Luau in AgentOS → host CAD to
 | `solid.*` batteries | Thin Luau over host `cad.call` → `occ_*` |
 | Mesh panel | Expert-visible geometry + kernel version metadata |
 
-Architecture trade-offs and decision log:  
-**[`docs/aiboost-agentic-cad.md`](docs/aiboost-agentic-cad.md)** · **[`docs/process-decisions.md`](docs/process-decisions.md)** · screenshot [`docs/browser-demo.png`](docs/browser-demo.png)
+Architecture and decisions live in **[`SYSTEM.md`](SYSTEM.md)**. Doc index: **[`docs/README.md`](docs/README.md)**. Screenshot: [`docs/browser-demo.png`](docs/browser-demo.png).
 
 ## Build
 
@@ -138,7 +137,8 @@ Luau (sandbox) ──tools.call──► host ──occ_*──► OCCT Wasm ─
 api/                  # Apache-2.0 — C API + Wasm packaging
 examples/c_api/       # Apache-2.0 — pure C API demo
 agent-os/             # BSL 1.1 — AgentOS CAD scripting + browser demo
-docs/                 # Architecture notes + demo screenshot
+docs/                 # Doc index, clean-room report, literate-sections, demo screenshot
+SYSTEM.md             # North star + design decisions
 bazel/                # force_opt, wasm_opt, size_limit
 third_party/occt/     # OCCT toolkit subset packaging
 third_party/binaryen/ # wasm-opt

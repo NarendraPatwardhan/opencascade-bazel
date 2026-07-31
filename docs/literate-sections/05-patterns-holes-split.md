@@ -1486,7 +1486,7 @@ assert(occ_fuse_many(two, 2, &fused) == OCC_OK);
 
 ---
 
-## Supersedes slim draft in `occ-c-p0-literate-api.md`
+## Supersedes slim draft in `occ-c-literate-api.md`
 
 The main literate file embeds minimal `occ_pattern_*` / `occ_drill_hole_*` inside `occ_c_route.cc` with a `fuse` flag and **radius** args. **This section owns the dedicated modules**:
 

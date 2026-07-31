@@ -5,7 +5,7 @@
 **Audience:** Humans and AI agents working on this project  
 **Status:** Living document — update when intent changes; do not silently drift  
 **Last restated:** 2026-07-31  
-**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`docs/aiboost-agentic-cad.md`](docs/aiboost-agentic-cad.md) (trust boundary) · [`docs/process-decisions.md`](docs/process-decisions.md) (rejected alternatives) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning)
+**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/occ-c-literate-api.md`](docs/occ-c-literate-api.md) (kernel expansion hub)
 
 ---
 
@@ -129,11 +129,12 @@ Deep research into **SolidWorks / Onshape / Fusion** was requested to inform an 
 
 | Document | Purpose |
 |----------|---------|
-| **`SYSTEM.md` (this file)** | **Why** we exist, **what** we build, **what we refuse**, dual goals, stack thesis, prioritization law |
+| **`SYSTEM.md` (this file)** | **Why** we exist, **what** we build, **what we refuse**, dual goals, stack thesis, **design decisions**, prioritization law |
 | **`AGENTS.md`** | **How** to code in this repo (C ABI rules, Bazel/bb, license boundary, anti-patterns) |
-| **`docs/aiboost-agentic-cad.md`** | Trust-boundary architecture notes for agentic CAD on `occ_c` |
-| **`docs/process-decisions.md`** | Short decision log of rejected alternatives |
+| **`docs/README.md`** | Index of remaining docs (no pointer-only stubs) |
 | **`docs/cleanroom-featurescript-std-report.md`** | Team A clean-room learning: FS std architecture, dual-goal capability matrix, IR sketches |
+| **`docs/occ-c-literate-api.md`** | Hub → `docs/literate-sections/` (extractable P0/P1 C expansion) |
+| **`docs/literate-sections/`** | Authoritative literate C sources (Parts 00–08) |
 | **`agent-os/TASKS.md`** | Implementation checklist for the browser scripting vertical slice |
 | **`README.md`** | User-facing C-API-first overview |
 
@@ -570,7 +571,7 @@ When someone proposes a feature, score:
 - Pure-C example.  
 - AgentOS path: Luau → host tools → `occ_*` → mesh; browser Monaco + viewer; node smoke.  
 - Analyze markers path (Phase A/B largely done).  
-- Architecture docs: AI-BOOST notes, process decisions, **clean-room FS report** committed.
+- Architecture docs consolidated into **SYSTEM.md** + **clean-room FS report** + **literate-sections/**.
 
 ### 12.2 Not done (the real spine)
 
@@ -649,11 +650,78 @@ WIN CONDITION:   reviewable IR → real BRep → export + clash + demos
 
 ---
 
+
+---
+
+## 15b. Design decisions (absorbed from former `process-decisions.md`)
+
+Short record of structural choices. Prefer this over digging through chat history.
+
+### D1 — C ABI is the public product
+
+**Decision:** Ship `occ_c` (opaque handles, status codes, no C++ in the header).  
+**Why:** Polyglot FFI, browser Wasm, and host tools need a stable boundary. Full OCCT class graphs do not.  
+**Consequence:** New capability → extend `occ_c` and exercise it in pure C first.
+
+### D2 — AgentOS for scripting
+
+**Decision:** Use AgentOS **loom** release artifacts and host tools for Luau CAD scripting.  
+**Why:** Filesystem, tools broker, analyze, and fuel already exist; a freestanding Luau World would rebuild them.  
+**Note:** Freestanding designs may exist as notes; they are not the product path.
+
+### D3 — OCCT stays on the Emscripten host
+
+**Decision:** Do not freestanding-port or run full OCCT under wasmi as an AgentOS guest.  
+**Why:** Exceptions, MEMFS, large binary; nested interpretation is not viable.  
+**Consequence:** Two Wasm modules (AgentOS kernel + `libocc_c`) joined by host tools and shape IDs.
+
+### D4 — License split
+
+**Decision:** Apache-2.0 for kernel and examples; BSL only under `agent-os/`.  
+**Why:** Kernel consumers need not take AgentOS; scripting product can still use it.
+
+### D5 — Remote builds for heavy work on constrained hosts
+
+**Decision:** Prefer BuildBuddy RBE (`bb --config=buildbuddy`) for OCCT/Wasm compiles when the machine is not a build rig.  
+**Why:** Full toolkit links dominate small laptops; end users with stronger machines can still use bare `bazel`.
+
+### D6 — Pin AgentOS releases
+
+**Decision:** Consume GitHub release **v0.4.0** by digest (`http_file` / fetch script); do not rebuild AgentOS in this repo.  
+**Why:** Hermetic, reviewable platform version.
+
+### D7 — Monaco + Luau Monarch
+
+**Decision:** Editor is Monaco; language is a Monarch Luau definition adapted from icebearc/monaco-luau (MIT).  
+**Why:** No first-party Monaco Luau package; built-in language is Lua-only. Monarch is Monaco’s supported tokenizer API.
+
+### D8 — Prove the bridge before domain depth
+
+**Decision:** Ship Luau → boolean solid → mesh → browser UI before assemblies, drawings, or FEA.  
+**Why:** Later automation is worthless if the geometry path is not real BRep under a sandbox.
+
+### D9 — Oversight is structural
+
+**Decision:** Guest has no ambient host access; UI owns Run; errors do not take down the page.  
+**Why:** Untrusted scripts and planners must not share the host’s authority.
+
+### Vertical slice (from former `aiboost-agentic-cad.md`)
+
+Proof we cleared:
+
+> Real Luau, in real AgentOS, calling real `occ_*`, producing a non-empty mesh, visible in a browser; failures leave the page usable.
+
+Demo path: Luau box + cylinder cut → host `cad.call` → `occ_*` → `occ_mesh_compute` → Monaco + mesh panel. Screenshot: [`docs/browser-demo.png`](docs/browser-demo.png).
+
+Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; run full OCCT as wasmi guest; freestanding Luau World as product path; Python/OCP/build123d in the Bazel graph.
+
+
 ## 16. Change log
 
 | Date | Change |
 |------|--------|
 | 2026-07-31 | Initial SYSTEM.md: restated owner intent, dual goals, IR/Luau/kernel laws, clean-room + AI-BOOST + robot scope, prioritization order |
+| 2026-07-31 | Doc consolidation: absorbed `process-decisions.md` + `aiboost-agentic-cad.md`; literate hub points at `literate-sections/` only |
 
 ---
 

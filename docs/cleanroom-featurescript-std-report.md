@@ -1229,7 +1229,7 @@ Changing joint angles should prefer **transform-only** updates of occurrences (`
 | `api/` (`occ_c`) | Host mutators/measures — **expand** per P0 kernel gaps |
 | `agent-os/` Luau `solid.*` | Seed of Luau libraries — **grow modules**, keep conventions |
 | Portable IR | **Not yet a first-class artifact** — highest novelty gap |
-| `docs/aiboost-agentic-cad.md` | Trust boundary thesis — IR plugs in as “intent stage” |
+| `SYSTEM.md` | Trust boundary + north star — IR plugs in as “intent stage” |
 | BuildBuddy + Starlark | Reproducible builds of kernel + future IR golden tests |
 
 **Recommended implementation order:**

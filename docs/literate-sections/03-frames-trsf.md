@@ -1415,7 +1415,7 @@ occ_frame_at_wire_end(route_wire, /*at_start=*/1, &port);
 
 1. Add `occ_c_frames.cc` and `occ_c_trsf.cc` to `//api:occ_c_lib` (or equivalent).
 2. Install headers `occ_c_frames.h`, `occ_c_trsf.h` next to `occ_c.h`.
-3. Ensure `OCC_ERR_FRAME` and `OCC_ERR_GEOM` exist in `occ_status_t` (see §3 of `docs/occ-c-p0-literate-api.md`).
+3. Ensure `OCC_ERR_FRAME` and `OCC_ERR_GEOM` exist in `occ_status_t` (see §3 of `docs/occ-c-literate-api.md`).
 4. Wasm size: these TUs pull `BRepBuilderAPI_Transform` + adaptors only — no boolean kernel.
 
 ---

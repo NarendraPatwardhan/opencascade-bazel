@@ -726,7 +726,7 @@ done:
 
 Usage:
   python3 scripts/extract_literate.py docs/literate-sections/08-smoke-dual-goal.md
-  python3 scripts/extract_literate.py docs/occ-c-p0-literate-api.md --root . --force
+  python3 scripts/extract_literate.py docs/occ-c-literate-api.md --root . --force
   python3 scripts/extract_literate.py section.md --dry-run --list
 
 A fenced block is extractable iff its first non-empty line matches:
@@ -975,7 +975,7 @@ filegroup(
 
 ```bash
 python3 scripts/extract_literate.py \
-  docs/occ-c-p0-literate-api.md \
+  docs/occ-c-literate-api.md \
   docs/literate-sections/08-smoke-dual-goal.md \
   --root . --force
 

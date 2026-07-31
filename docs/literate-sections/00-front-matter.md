@@ -14,7 +14,7 @@
 ## How to use this file (literate extract)
 
 1. Blocks whose first line is `// === file: <relative-path>` are **authoritative source**.  
-2. Run `python3 scripts/extract_literate.py docs/occ-c-literate-api.md` (script embedded in Part 08).  
+2. Run extract on individual parts or `cat docs/literate-sections/0{0..8}-*.md` then extract (see `docs/occ-c-literate-api.md`). Script is in Part 08.  
 3. Extract lands under `api/include/`, `api/src/`, `examples/`.  
 4. Baseline `api/src/occ_c.cc` **stays** — this document is additive modules + a unified header patch.  
 5. Units: **meters**, **radians**, topology indices **1-based**.  
@@ -22,7 +22,7 @@
 7. Product-layer items (mate **solver**, NL parse, FEA solve, sketch **constraint** solve, catalog DB) are explicitly **out of C** — marked OUT below.
 
 ```text
-docs/occ-c-literate-api.md   (this file; assembled from literate-sections/)
+docs/literate-sections/*.md  (authoritative; hub is docs/occ-c-literate-api.md)
         │ extract_literate.py
         ▼
 api/include/occ_c.h              (baseline + extended enums/prototypes)
@@ -338,4 +338,4 @@ typedef enum {
 | 07 | sweeps-helix-ext | extrude extents, helix, thicken |
 | 08 | smoke-dual-goal | skid + robot + flange smokes, extract script |
 
-Each part is self-contained literate source. Concatenate in order for the canonical `docs/occ-c-literate-api.md`.
+Each part is self-contained literate source. Concatenate in order only if you want a single extract input; the hub does not duplicate full text.
