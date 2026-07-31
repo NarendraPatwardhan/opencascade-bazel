@@ -726,6 +726,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Doc consolidation: absorbed `process-decisions.md` + `aiboost-agentic-cad.md`; literate hub points at `literate-sections/` only |
 | 2026-07-31 | Added **DISPLAY.md** (viewport / camera / Option B infinite grid) |
 | 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
+| 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |
 
 ---
 

@@ -5,13 +5,25 @@
 **Audience:** Humans and agents implementing the mesh review panel next to Monaco / AgentOS  
 **Status:** Living — update when viewport scope changes  
 **Last restated:** 2026-07-31  
-**Related:** [`SYSTEM.md`](SYSTEM.md) (north star) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`AGENTS.md`](AGENTS.md) (coding rules) · [`docs/README.md`](docs/README.md) · [`agent-os/src/mesh-view.js`](agent-os/src/mesh-view.js) (current implementation)
+**Related:** [`SYSTEM.md`](SYSTEM.md) (north star) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals / CADAM **param** steals) · [`AGENTS.md`](AGENTS.md) (coding rules) · [`docs/README.md`](docs/README.md) · [`agent-os/src/mesh-view.js`](agent-os/src/mesh-view.js) (current implementation)
 
 ---
 
 ## 0. One-sentence mission
 
 > Ship a **WebGL2 CAD review viewport** that consumes **`occ_mesh_*` buffers**, navigates like an **industrial editor** (not a product-turntable), and includes a **true infinite ground grid (shader plane)** — without adopting Bevy, `<model-viewer>`, or WebGPU as the runtime.
+
+---
+
+## 0.1 Doc split rule
+
+| Question | Document |
+|----------|----------|
+| Does it change the **model** or **when we re-eval**? | [`REACTIVITY.md`](REACTIVITY.md) |
+| Does it change how we **see / navigate** a given mesh? | **This file (DISPLAY)** |
+
+CADAM **view cube, ortho/persp, lighting, grid intent** → here.  
+CADAM **parameter sheet, debounce, smart updates** → REACTIVITY only.
 
 ---
 
@@ -34,10 +46,10 @@
 
 | Document | Purpose |
 |----------|---------|
-| **`DISPLAY.md` (this file)** | Viewport, camera, infinite grid, steal list, non-goals, implementation order |
+| **`DISPLAY.md` (this file)** | Viewport, camera, infinite grid, view chrome steals, non-goals, implementation order |
+| **`REACTIVITY.md`** | Params, tiered re-eval, param sheet, scene **param** gimbals |
 | **`SYSTEM.md`** | Product intent, IR, trust boundary, dual goals |
 | **`docs/literate-sections/`** | Extractable **kernel** C API expansion |
-| **`docs/cleanroom-…`** | CAD façade learning (not rendering) |
 
 ---
 
@@ -69,9 +81,10 @@
 | [Bevy infinite grid example](https://bevy.org/examples/dev-tools/infinite-grid/) | Editor ground intent + settings surface (`InfiniteGrid` / `InfiniteGridSettings`) | Steal API *shape* and UX |
 | Community infinite-grid crates (e.g. historical `bevy_infinite_grid` lineage) | Shader fade / true-infinite fragment patterns | Reimplement shader; do not vendor Bevy |
 | [google/model-viewer](https://github.com/google/model-viewer) `SmoothControls` / `Damper` | **Only** damper curves, multi-touch bookkeeping | Skip AR, staging, web component |
+| [Adam-CAD/CADAM](https://github.com/Adam-CAD/CADAM) viewer | **View cube**, ortho toggle, lighting polish (steal list **D**) | GPL app — reimplement patterns; param sheet → REACTIVITY |
 | Our `mesh-view.js` | Buffer upload, edges, lights, fallback | Keep and grow |
 
-**Steal means:** reimplement behavior under **our** names. Do not paste Bevy plugins into the browser. Do not depend on Bevy at runtime.
+**Steal means:** reimplement behavior under **our** names. Do not paste Bevy plugins into the browser. Do not depend on Bevy at runtime. Do not vendor CADAM GPL sources without a license decision.
 
 ---
 
@@ -117,7 +130,7 @@ Priority: **P0** = must for “not a toy”; **P1** = strong polish; **P2** = la
 | A13 | Separate **perspective** vs **orthographic** settings | P1 | Prep for engineering views | same |
 | A14 | **Persp ↔ ortho without view jump** (warp about anchor) | P1 | Drawing-like views | `projection-morph.ts` |
 | A15 | **f64 math on CPU**, f32 on GPU | P1 | Large assemblies / tiny holes | same |
-| A16 | Documented **bindings contract** | P0 | See §9 | `bindings.ts` |
+| A16 | Documented **bindings contract** | P0 | See §10 | `bindings.ts` |
 
 ### A — do not steal from Bevy cam
 
@@ -181,32 +194,67 @@ model-viewer’s `SmoothControls` is a **fixed-target spherical orbit** — fine
 
 ---
 
-## 9. Input bindings (default contract)
+## 9. Steal list D — [CADAM](https://github.com/Adam-CAD/CADAM) (**view chrome only**)
+
+CADAM’s viewer (`src/components/viewer/*`) is a strong reference for **orientation chrome** and **presentation**.  
+**Parameter sheet / debounce / AI-free rebuild** are **not** listed here — see [`REACTIVITY.md` §7](REACTIVITY.md).
+
+| # | Steal | Pri | Where in CADAM | Our mapping |
+|---|--------|-----|----------------|-------------|
+| D1 | **View cube gizmo** with **canonical snap** (avoid camera.up drift after face clicks) | P1 | `ViewGizmo.tsx` (`GizmoHelper` + `GizmoViewcube` + custom onClick) | `view-cube.ts`; reconcile with editor-cam target/up |
+| D2 | **Orthographic ↔ perspective toggle** without losing the model framing intent | P1 | `OrthographicPerspectiveToggle.tsx`, `ThreeScene.tsx` | Complements A13–A14 |
+| D3 | **Lighting rig** (multi directional + ambient; optional env) | P2 | `ThreeScene.tsx`, `LightingControls.tsx` | Optional quality preset; industrial default can stay simpler |
+| D4 | **Infinite grid intent** in a web CAD viewer | P0 (as reminder) | Commented `Grid` / `infiniteGrid` in `ThreeScene.tsx` | Implement via **Option B shader** (§5–§7), **not** drei `Grid` as final |
+
+### D — pick vs camera (param handles)
+
+Scene **param** gimbals (rotate rings, arrows) are specified in [`REACTIVITY.md` §9](REACTIVITY.md). Display rules:
+
+| Rule | Detail |
+|------|--------|
+| Handle hit | Suppress orbit/pan start for that gesture |
+| Handle miss | Normal editor-cam bindings (§10) |
+| Drawing | Handles rendered in viewport layer; **values** owned by param store |
+
+### D — do not steal from CADAM (display scope)
+
+| Skip | Why |
+|------|-----|
+| OpenSCAD / their mesh pipeline | Our buffers come from `occ_mesh_*` |
+| GPL vendoring of their React tree | Reimplement; license review if ever copying |
+| Param slider components | **REACTIVITY** |
+| drei `Stage` as mandatory | Optional polish only |
+| OrbitControls as long-term camera | Prefer steal list **A** |
+
+---
+
+## 10. Input bindings (default contract)
 
 | Input | Action | Notes |
 |-------|--------|-------|
-| LMB drag | **Orbit** about anchor | Turntable + world up (A12) |
+| LMB drag | **Orbit** about anchor | Turntable + world up (A12); yield to param handle if hit (D pick rules) |
 | MMB drag | **Pan** (pixel-perfect) | Fallback: **Shift + LMB** |
 | Wheel | **Zoom to cursor** | Not FOV-only zoom |
 | RMB drag | Optional pan or orbit (pick one; document) | Avoid fighting context menu |
 | Double-click | Optional focus / set anchor | P1 |
 | `F` | Fit all | P0 |
 | `G` | Toggle ground grid | P0 |
-| `Numpad 1/3/7` or buttons | Front / Right / Top (optional) | P2 |
+| View cube faces | Snap camera to orthographic-ish dirs | D1 |
+| `Numpad 1/3/7` or buttons | Front / Right / Top (optional) | P2 / E3 |
 | Touch: 1 finger | Orbit | C2 |
 | Touch: 2 finger drag | Pan | C2 |
 | Touch: pinch | Zoom to midpoint | C2 |
 
 ---
 
-## 10. CAD chrome (build ourselves — not in cam/grid repos)
+## 11. CAD chrome (build ourselves — not in cam/grid repos)
 
 | # | Feature | Pri | Notes |
 |---|---------|-----|--------|
 | E1 | World **triad** (corner or origin) | P1 | Independent of grid |
-| E2 | **Fit all** / frame bbox with padding | P0 | After every successful Run |
-| E3 | View presets (Top / Front / Right / Iso) | P2 | Uses same `EditorCam` |
-| E4 | **Named frames** as axis gizmos | P1 | Robot joints, pipe nozzles (`AttachFrame`) |
+| E2 | **Fit all** / frame bbox with padding | P0 | After every successful Run / rebuild |
+| E3 | View presets (Top / Front / Right / Iso) | P2 | Uses same `EditorCam`; cube (D1) is related |
+| E4 | **Named frames** as axis gizmos | P1 | Draw only; **param binding** in REACTIVITY |
 | E5 | **Clash paint** (multi-mesh colors) | P1 | Dual-goal KPI |
 | E6 | Ray pick → body/face id | P2 | Better anchors than bbox; feeds A3 |
 | E7 | Section plane | P2 | Not required for Spark narrative |
@@ -214,31 +262,33 @@ model-viewer’s `SmoothControls` is a **fixed-target spherical orbit** — fine
 
 ---
 
-## 11. Keep list D — current `mesh-view.js`
+## 12. Keep list K — current `mesh-view.js`
 
 | # | Keep | Upgrade path |
 |---|------|----------------|
-| D1 | Upload `positions` / `normals` / `indices` from `occ_mesh_*` | Multi-body `Group` later |
-| D2 | `WebGLRenderer` + ambient/key/fill lights | Optional quality presets |
-| D3 | `MeshStandardMaterial` + double-side | Per-body color / clash materials |
-| D4 | `EdgesGeometry` overlay | Tunable threshold; body-colored edges |
-| D5 | ResizeObserver + aspect | Keep |
-| D6 | SVG bbox **fallback** when no WebGL | Keep for smoke/CI |
-| D7 | Simple spherical orbit | **Replace** with §6 EditorCam |
+| K1 | Upload `positions` / `normals` / `indices` from `occ_mesh_*` | Multi-body `Group` later |
+| K2 | `WebGLRenderer` + ambient/key/fill lights | Optional CADAM-like rig (D3) |
+| K3 | `MeshStandardMaterial` + double-side | Per-body color / clash materials |
+| K4 | `EdgesGeometry` overlay | Tunable threshold; body-colored edges |
+| K5 | ResizeObserver + aspect | Keep; DPR clamp (C4) |
+| K6 | SVG bbox **fallback** when no WebGL | Keep for smoke/CI |
+| K7 | Simple spherical orbit | **Replace** with §6 EditorCam |
 
 ---
 
-## 12. Target module layout
+## 13. Target module layout
 
 ```text
 agent-os/src/view/
   cad-viewport.ts      # scene, renderer, resize, public showMesh / setMeshes
   editor-cam.ts        # §6 A1–A16
   ground-grid.ts       # §7 B1–B13 (Option B shader)
-  bindings.ts          # §9
+  view-cube.ts         # §9 D1
+  bindings.ts          # §10
   fit.ts               # E2
   triad.ts             # E1
-  fallback.ts          # D6
+  gimbals.ts           # draw + pick; values from REACTIVITY param store
+  fallback.ts          # K6
   materials.ts         # optional shared materials
 ```
 
@@ -265,7 +315,7 @@ Mesh payload (unchanged kernel contract):
 
 ---
 
-## 13. Implementation order
+## 14. Implementation order
 
 | Phase | Work | Exit criteria |
 |-------|------|----------------|
@@ -273,14 +323,15 @@ Mesh payload (unchanged kernel contract):
 | **1** | **B** infinite grid shader + toggle `G` | Visible infinite floor under solid |
 | **2** | **A3–A6, A12, A16** orbit/pan/zoom-to-cursor + turntable | Feels like editor, not product spin |
 | **3** | **A4, A7, A9** fallback depth, zoom limits, light smoothing | No fly-away; stable scales |
-| **4** | **E2 fit** + **D4 edges** polish + triad **E1** | Run → frame → readable BRep |
-| **5** | **A13–A14** ortho path | Optional engineering view |
-| **6** | **E4 frames** + **E5 clash** multi-mesh | Dual-goal demos |
-| **7** | **A10 momentum**, **C1 damper**, pick **E6** | Polish only |
+| **4** | **E2 fit** + **K4 edges** polish + triad **E1** | Run → frame → readable BRep |
+| **5** | **D1 view cube** + **D2 / A13–A14** ortho path | CADAM-level orientation chrome |
+| **6** | **E4 frames** draw + **E5 clash** multi-mesh | Dual-goal demos |
+| **7** | Param handle **pick vs cam** (with REACTIVITY R4+) | Handles and orbit coexist |
+| **8** | **A10 momentum**, **C1 damper**, pick **E6** | Polish only |
 
 ---
 
-## 14. Quality bar (viewport)
+## 15. Quality bar (viewport)
 
 | Check | Pass condition |
 |-------|----------------|
@@ -291,13 +342,14 @@ Mesh payload (unchanged kernel contract):
 | Zoom | Toward cursor; limited by size-per-pixel |
 | Grid | Infinite look; fades; no z-fight with mesh |
 | Fit | `F` / auto-fit frames whole bbox with margin |
+| View cube | Face click → stable canonical orientation (D1) |
 | Mobile | Touch orbit/pan/pinch usable ~390 px width |
 | Perf | 60 fps class for typical demo meshes (not 10M tris) |
 | Bundle | No Bevy; three stays loadable (CDN or pinned dep) |
 
 ---
 
-## 15. Explicit non-goals
+## 16. Explicit non-goals
 
 | Non-goal | Why |
 |----------|-----|
@@ -308,20 +360,21 @@ Mesh payload (unchanged kernel contract):
 | In-kernel rendering / OCCT AIS in Wasm | Display is host JS |
 | Full CAD sketcher in WebGL | Authoring is Luau/IR + kernel |
 | Pixel-perfect print drawings | Different product |
+| Param sheet / rebuild policy | **REACTIVITY** sole owner |
 
 ---
 
-## 16. Dual-goal display checklist
+## 17. Dual-goal display checklist
 
 | Goal | Viewport needs |
 |------|----------------|
 | **AI-BOOST skid** | Infinite ground for elevation read; multi-body colors; clash red/green; fit whole skid; optional nozzle frames |
 | **6-DOF robot** | Joint **frame gizmos**; base on ground; pan/orbit around links; fit arm; optional TCP triad |
-| **Shared** | Editor cam (A), infinite grid (B), fit, edges, dark industrial chrome |
+| **Shared** | Editor cam (A), infinite grid (B), fit, edges, dark industrial chrome, view cube (D1) |
 
 ---
 
-## 17. Relationship to trust boundary
+## 18. Relationship to trust boundary
 
 ```text
 Untrusted Luau (AgentOS guest)
@@ -335,14 +388,16 @@ Untrusted Luau (AgentOS guest)
 | Viewport never calls OCCT directly from the guest | Only host-provided buffers / ids |
 | No ambient FS from viewer | Load paths stay in host |
 | Run / approve stays in UI | Display does not auto-execute scripts |
+| Param writes | Host / REACTIVITY — display only reflects |
 
 ---
 
-## 18. Change log
+## 19. Change log
 
 | Date | Change |
 |------|--------|
-| 2026-07-31 | Initial DISPLAY.md: WebGL2/three decision, Option B infinite grid, steal tables A–C, keep list D, CAD chrome E, module layout, phased plan |
+| 2026-07-31 | Initial DISPLAY.md: WebGL2/three decision, Option B infinite grid, steal tables A–C, keep list, module layout, phased plan |
+| 2026-07-31 | **CADAM view steals (D1–D4)** moved here; param steals stay in REACTIVITY; doc split rule §0.1 |
 
 ---
 

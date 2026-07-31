@@ -5,13 +5,24 @@
 **Audience:** Humans and agents implementing Luau/IR parameters, live re-eval, and scene handles  
 **Status:** Living  
 **Last restated:** 2026-07-31  
-**Related:** [`SYSTEM.md`](SYSTEM.md) · [`DISPLAY.md`](DISPLAY.md) · [`AGENTS.md`](AGENTS.md) · Matt Keeter [Ao](https://www.mattkeeter.com/projects/ao/) / [libfive Studio](https://libfive.com/) · [Adam-CAD/CADAM](https://github.com/Adam-CAD/CADAM)
+**Related:** [`SYSTEM.md`](SYSTEM.md) · [`DISPLAY.md`](DISPLAY.md) (viewport; CADAM **view** steals) · [`AGENTS.md`](AGENTS.md) · Matt Keeter [Ao](https://www.mattkeeter.com/projects/ao/) / [libfive Studio](https://libfive.com/) · [Adam-CAD/CADAM](https://github.com/Adam-CAD/CADAM)
 
 ---
 
 ## 0. One-sentence mission
 
 > Treat the **model as a program with free parameters**; bind **sliders and scene gimbals** to those parameters; re-evaluate on a **tiered** path (`view` / `xform` / `rebuild`) so humans and agents can scrub intent without fighting the trust boundary or remeshing on every mouse pixel.
+
+---
+
+## 0.1 Doc split rule (CADAM and friends)
+
+| Question | Document |
+|----------|----------|
+| Does it change the **model** or **when we re-eval**? | **This file (REACTIVITY)** |
+| Does it change how we **see / navigate** a given mesh? | **[`DISPLAY.md`](DISPLAY.md)** |
+
+CADAM mixes both in one app. **We do not.** Param sheet, debounce, smart updates stay here. View cube, ortho/persp, lighting, grid steals live only in DISPLAY.
 
 ---
 
@@ -137,7 +148,7 @@ params:
 | **Rotate gimbal** | Angle param | Ring about `frame` + `axis` |
 | **Translate arrow** | Length / offset | Arrow along frame axis |
 | **Point handle** | Route node coords | Drag node → rebuild `RoutePath` |
-| **View cube / triad** | Camera only | Not a model param (see CADAM §7) |
+| **View cube / triad** | Camera only | **Not** a model param — see [`DISPLAY.md`](DISPLAY.md) |
 | **Reset to default** | `default` field | Per-param or per-group |
 
 **P0 product rule:** handles edit **parameters / IR inputs**, not arbitrary topology. (Studio-style direct modeling that rewrites scripts is P2+.)
@@ -166,41 +177,40 @@ DISPLAY
 
 ---
 
-## 7. Steal list — [CADAM](https://github.com/Adam-CAD/CADAM) (Adam-CAD)
+## 7. Steal list — [CADAM](https://github.com/Adam-CAD/CADAM) (**params / eval only**)
 
-CADAM is an open-source **text → parametric OpenSCAD** web app (three.js / R3F viewer + parameter sheet). It is **not** our kernel, but its **param + viewer UX** is excellent reference.  
-Inspected tree: `src/components/parameter/*`, `src/components/viewer/*`, `shared/types.ts` (`Parameter`), `shared/parseParameters.ts`.
+CADAM is an open-source **text → parametric OpenSCAD** web app. It is **not** our kernel.  
+**This section steals only the parameter-sheet and recompile loop.** Viewer chrome (view cube, ortho, lights, grid) is documented exclusively in [`DISPLAY.md` § steal list D](DISPLAY.md).
 
-### 7.1 What CADAM does well
+Inspected tree for this list: `src/components/parameter/*`, `shared/types.ts` (`Parameter`), `shared/parseParameters.ts`, README parametric features.
+
+### 7.1 Param / eval steals
 
 | # | Steal | Where in CADAM | Our mapping |
 |---|--------|----------------|-------------|
 | C1 | **Structured `Parameter` type** — name, displayName, value, defaultValue, type, range, options, group, description | `shared/types.ts` | §3.1 param contract |
-| C2 | **Parameter extraction from code** — parse adjustable dimensions from generated script (OpenSCAD customizer-style) | `parseParameters` / README “Parameter Extraction” | Extract from Luau tables + IR `params` (agents must emit metadata) |
+| C2 | **Parameter extraction from code** — parse adjustable dimensions from generated script | `parseParameters` / README “Parameter Extraction” | Luau tables + IR `params` (agents emit metadata) |
 | C3 | **Smart updates without re-prompting AI** — param change recompiles model only | README “Smart Updates” | Param scrub never re-calls NL planner |
 | C4 | **Slider `onValueChange` vs `onValueCommit`** — live UI value while dragging; commit for heavier work | `ParameterSlider.tsx` | change → local state; commit / debounce → xform or rebuild |
 | C5 | **Debounced rebuild (~200 ms)** + flush pending on unmount | `ParameterSection.tsx` | Same pattern for `scrub: rebuild` |
 | C6 | **Group params** (dimensions vs colors; collapsible sections) | `ParameterSection.tsx` | `group: Piping \| Joints \| Display` |
 | C7 | **Range / step helpers** from param magnitude | `parameterUtils` | Auto step from unit/scale if missing |
-| C8 | **View cube gizmo** (orientation preset) with **canonical snap** (fix drei drift) | `ViewGizmo.tsx` + comment on camera.up drift | Port idea into DISPLAY view presets; not a model param |
-| C9 | **Ortho / perspective toggle** | `OrthographicPerspectiveToggle.tsx`, `ThreeScene.tsx` | DISPLAY A13–A14 |
-| C10 | **OrbitControls damping** + staged lighting / environment | `ThreeScene.tsx` | Optional; prefer DISPLAY editor-cam long-term |
-| C11 | **Infinite grid commented intent** (`infiniteGrid={true}` on drei Grid) | `ThreeScene.tsx` (commented) | We use **Option B shader** per DISPLAY.md — not drei Grid |
-| C12 | **Export after param explore** (STL/SCAD/DXF) | Download menu + parameter section | STEP/mesh/robot package after human gate |
-| C13 | **Default marker on slider** (show authored default) | Slider `defaultValue` / default marker | Reset affordance |
-| C14 | **Worker / async compile** so UI stays responsive | OpenSCAD wasm worker path | Keep eval on AgentOS / occ worker; never block Monaco |
+| C8 | **Export after param explore** | Download menu + parameter section | STEP/mesh/robot package after human gate |
+| C9 | **Default marker on slider** (show authored default) | Slider `defaultValue` / default marker | Reset affordance |
+| C10 | **Worker / async compile** so UI stays responsive | OpenSCAD wasm worker path | Keep eval on AgentOS / occ worker; never block Monaco |
 
-### 7.2 CADAM “gimbals” — clarify terminology
+### 7.2 Terminology (what is *not* in this file)
 
-| User language | In CADAM codebase | Steal as |
-|---------------|-------------------|----------|
-| **View gimbal / view cube** | `ViewGizmo` (`GizmoHelper` + `GizmoViewcube`) | Camera orientation widget (DISPLAY) |
-| **Parametric controls** | `ParameterSlider` / `ParameterInput` sheet | Primary reactive surface (this doc) |
-| **3D transform gimbals on the part** | **Not** a first-class CADAM feature in the inspected tree | We still want **rotate/translate handles at frames** (Matt Ao + robot) as **our** P1 |
+| User language | In CADAM | Where we document |
+|---------------|----------|-------------------|
+| **View gimbal / view cube** | `ViewGizmo` | [`DISPLAY.md`](DISPLAY.md) steal list **D** |
+| **Ortho / persp, lighting, grid** | `ThreeScene` etc. | **DISPLAY** |
+| **Parametric sheet controls** | `ParameterSlider` / `ParameterInput` | **This file** (C1–C10) |
+| **3D transform gimbals on the part** | Not first-class in CADAM | **This file** §9 (our design) |
 
-CADAM’s strength is **sheet-driven parametric scrub + polished view chrome**, not libfive-style in-scene dimension gimbals. We steal the former; we **design** the latter.
+CADAM’s param strength is **sheet-driven scrub without AI**. In-scene dimension gimbals are **our** design (Ao + robot), not a CADAM port.
 
-### 7.3 CADAM patterns to copy almost verbatim
+### 7.3 Param patterns to copy almost verbatim
 
 ```text
 drag slider
@@ -208,7 +218,7 @@ drag slider
   → debounce 200ms OR onValueCommit
        → onParameterChange(full param list)
             → recompile / re-mesh in worker
-            → swap geometry in viewer
+            → hand new buffers to DISPLAY (swap geometry)
 ```
 
 | Pattern | Why |
@@ -217,16 +227,16 @@ drag slider
 | Debounce + unmount flush | No lost last edit |
 | Full param list replace | Simple, serializable, agent-friendly |
 | No AI on param path | Planner ≠ evaluator (our trust story) |
+| DISPLAY only swaps mesh | Reactivity owns *when*; display owns *how* |
 
-### 7.4 Do not steal from CADAM
+### 7.4 Do not steal from CADAM (reactivity scope)
 
 | Skip | Why |
 |------|-----|
 | OpenSCAD as geometry kernel | We are OCCT / `occ_c` B-rep |
 | Text-to-CAD planner as core | Optional intake; not reactivity itself |
-| GPL entanglement of their UI code | Reimplement patterns; don’t copy large GPL sources into Apache tree without license review |
-| drei `Stage`+HDR as required | Nice; not P0 for industrial review |
-| Finite/comment-only grid | DISPLAY Option B |
+| GPL copy-paste of their UI | Reimplement patterns; license review before any vendoring |
+| Viewer chrome items | Live in **DISPLAY** only (see §0.1) |
 
 ---
 
@@ -256,10 +266,11 @@ F-rep kernel ideas stay **out** of `occ_c`; only the **reactive parameter** prod
 
 | Implementation note | Detail |
 |---------------------|--------|
-| Hit testing | Separate handle pick layer; DISPLAY editor-cam ignores orbit when handle active |
+| Hit testing | Separate handle pick layer; DISPLAY editor-cam ignores orbit when handle active ([`DISPLAY.md`](DISPLAY.md) bindings) |
 | Units | Draw scale from bbox so handles stay ~visible |
 | Feedback | Ghost previous pose optional; live mesh for xform |
 | Rebuild handles | Show spinner / dim mesh while worker runs |
+| Drawing of handles | Viewport concern — implement under DISPLAY `view/gimbals` but **state** owned by params store |
 
 ---
 
@@ -268,7 +279,7 @@ F-rep kernel ideas stay **out** of `occ_c`; only the **reactive parameter** prod
 ```text
 1. Load document: Luau and/or IR + params{}
 2. Materialize UI:
-     - Parameter sheet from params metadata (CADAM C1–C7)
+     - Parameter sheet from params metadata (CADAM C1–C7, C9)
      - Scene gimbals from params with frame/axis (§9)
 3. On param event:
      a. Validate min/max/step
@@ -278,7 +289,7 @@ F-rep kernel ideas stay **out** of `occ_c`; only the **reactive parameter** prod
           xform   → recompute poses; upload matrices; redraw
           rebuild → debounce → worker: lower IR → occ_* → mesh → showMesh
 4. On failure: keep last good mesh; error line; do not clear gimbals
-5. Export: only from last good eval + human action
+5. Export: only from last good eval + human action (C8)
 ```
 
 | Live mode | Behavior |
@@ -297,16 +308,15 @@ agent-os/src/
     types.ts           # Parameter type (C1)
     store.ts           # host param state
     extract.ts         # from IR / Luau metadata (C2)
-    sheet.tsx          # CADAM-like section/slider (C4–C7)
+    sheet.tsx          # CADAM-like section/slider (C4–C7, C9)
   eval/
     tiers.ts           # view | xform | rebuild
     debounce.ts        # C5
     run-rebuild.ts     # worker occ path
     run-xform.ts       # ComposeChain / instances
-  view/
-    gimbals.ts         # §9 scene handles
-    view-cube.ts       # C8
-    ...                # DISPLAY.md modules
+  view/                # DISPLAY.md owns most of this package
+    gimbals.ts         # §9 scene handles (param-driven; pick vs cam)
+    # view-cube, ground-grid, editor-cam → see DISPLAY.md only
 ```
 
 Apache tree: reimplement in our code. Do not vendor CADAM GPL sources without a conscious license decision.
@@ -318,13 +328,15 @@ Apache tree: reimplement in our code. Do not vendor CADAM GPL sources without a 
 | Phase | Work | Exit criteria |
 |-------|------|----------------|
 | **R0** | `params` types + sheet bound to demo script | Change number → shows in UI |
-| **R1** | Debounced rebuild on commit (CADAM C4–C5) | Drag slider → remesh without AI |
+| **R1** | Debounced rebuild on commit (C4–C5) | Drag slider → remesh without AI |
 | **R2** | `scrub: xform` for one robot joint | Instant pose, no remesh |
 | **R3** | Live toggle for rebuild | Default off; on = debounced |
 | **R4** | One rotate gimbal at `AttachFrame` | Drag ring → param → xform |
 | **R5** | Route node point handles | Drag → rebuild pipe |
-| **R6** | View cube (C8) + param groups | CADAM-level chrome |
+| **R6** | Param groups + default markers (C6, C9) | Sheet UX parity with CADAM params |
 | **R7** | Agent emits full `params{}` metadata | No bare dimensions in P0 demos |
+
+View cube / ortho / lighting: track under **DISPLAY** implementation order, not here.
 
 ---
 
@@ -336,7 +348,7 @@ Apache tree: reimplement in our code. Do not vendor CADAM GPL sources without a 
 | Rebuild not on every pointermove | debounce / commit |
 | xform joint scrub ≥ interactive | no full OCCT |
 | Failed rebuild keeps last mesh | no blank viewport |
-| Export gated | human action |
+| Export gated | human action (C8) |
 | Gimbals don’t steal camera when not hit | DISPLAY bindings |
 | Params serializable in IR | round-trip JSON/YAML |
 
@@ -351,6 +363,7 @@ Apache tree: reimplement in our code. Do not vendor CADAM GPL sources without a 
 | Copy CADAM GPL UI into Apache tree blindly | License boundary |
 | Rebuild-everything reactivity | Kills Wasm UX |
 | Params only in closure locals | Not inspectable by sheet/agents |
+| Documenting view cube / grid here | **DISPLAY** sole owner |
 
 ---
 
@@ -359,8 +372,8 @@ Apache tree: reimplement in our code. Do not vendor CADAM GPL sources without a 
 | Doc | Boundary |
 |-----|----------|
 | **SYSTEM.md** | Why IR + Luau + trust exist |
-| **DISPLAY.md** | How we draw mesh, camera, infinite grid |
-| **REACTIVITY.md** (this) | How params drive re-eval and handles |
+| **DISPLAY.md** | Mesh draw, camera, infinite grid, **CADAM view steals (D)** |
+| **REACTIVITY.md** (this) | Params, tiered re-eval, sheet, scene **param** gimbals, **CADAM param steals (C)** |
 | **literate-sections/** | Kernel ops that rebuild/xform call |
 
 ```text
@@ -377,7 +390,8 @@ Agent / human
 
 | Date | Change |
 |------|--------|
-| 2026-07-31 | Initial REACTIVITY.md: Ao-style reactive scripts, tiered eval, param contract, CADAM steal tables (sheet + view gizmo), scene gimbal plan |
+| 2026-07-31 | Initial REACTIVITY.md: Ao-style reactive scripts, tiered eval, param contract, CADAM + scene gimbals |
+| 2026-07-31 | **Split CADAM steals:** params/eval only here; view cube / ortho / lights / grid moved to DISPLAY |
 
 ---
 
