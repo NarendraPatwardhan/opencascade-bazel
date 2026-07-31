@@ -70,7 +70,7 @@ The image above is the working vertical slice: **Luau in AgentOS → host CAD to
 | `solid.*` batteries | Thin Luau over host `cad.call` → `occ_*` |
 | Mesh panel | Expert-visible geometry + kernel version metadata |
 
-Architecture and decisions live in **[`SYSTEM.md`](SYSTEM.md)**. Viewport / camera / grid: **[`DISPLAY.md`](DISPLAY.md)**. Doc index: **[`docs/README.md`](docs/README.md)**. Screenshot: [`docs/browser-demo.png`](docs/browser-demo.png).
+Architecture and decisions live in **[`SYSTEM.md`](SYSTEM.md)**. Viewport / camera / grid: **[`DISPLAY.md`](DISPLAY.md)**. Live params / gimbals: **[`REACTIVITY.md`](REACTIVITY.md)**. Doc index: **[`docs/README.md`](docs/README.md)**. Screenshot: [`docs/browser-demo.png`](docs/browser-demo.png).
 
 ## Build
 
@@ -140,6 +140,7 @@ agent-os/             # BSL 1.1 — AgentOS CAD scripting + browser demo
 docs/                 # Doc index, clean-room report, literate-sections, demo screenshot
 SYSTEM.md             # North star + design decisions
 DISPLAY.md            # Browser CAD viewport (WebGL, camera, infinite grid)
+REACTIVITY.md         # Parametric reactivity, gimbals, CADAM/Ao patterns
 bazel/                # force_opt, wasm_opt, size_limit
 third_party/occt/     # OCCT toolkit subset packaging
 third_party/binaryen/ # wasm-opt

@@ -6,6 +6,7 @@ Canonical docs for this repository. Prefer **one home per topic** — do not rei
 |----------|------|
 | [`../SYSTEM.md`](../SYSTEM.md) | **North star** — product intent, architecture, trust boundary, design decisions (D1–D9), dual goals |
 | [`../DISPLAY.md`](../DISPLAY.md) | **Viewport** — WebGL review UI, editor camera, infinite ground grid, steal lists |
+| [`../REACTIVITY.md`](../REACTIVITY.md) | **Params / gimbals** — reactive scripts, tiered re-eval, CADAM steal list |
 | [`../AGENTS.md`](../AGENTS.md) | How to code here (C ABI, Bazel/bb, license boundary) |
 | [`../README.md`](../README.md) | User-facing product overview |
 | [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Clean-room FeatureScript std learning + dual-goal capability matrix + IR sketches |
@@ -27,4 +28,5 @@ Canonical docs for this repository. Prefer **one home per topic** — do not rei
 1. `SYSTEM.md` — why / what / refuse  
 2. `AGENTS.md` — how to change code  
 3. `DISPLAY.md` — browser mesh viewport / camera / grid  
-4. Task doc: clean-room report and/or `literate-sections/` as needed  
+4. `REACTIVITY.md` — live parameters / gimbals  
+5. Task doc: clean-room report and/or `literate-sections/` as needed  

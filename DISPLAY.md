@@ -5,7 +5,7 @@
 **Audience:** Humans and agents implementing the mesh review panel next to Monaco / AgentOS  
 **Status:** Living — update when viewport scope changes  
 **Last restated:** 2026-07-31  
-**Related:** [`SYSTEM.md`](SYSTEM.md) (north star) · [`AGENTS.md`](AGENTS.md) (coding rules) · [`docs/README.md`](docs/README.md) · [`agent-os/src/mesh-view.js`](agent-os/src/mesh-view.js) (current implementation)
+**Related:** [`SYSTEM.md`](SYSTEM.md) (north star) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`AGENTS.md`](AGENTS.md) (coding rules) · [`docs/README.md`](docs/README.md) · [`agent-os/src/mesh-view.js`](agent-os/src/mesh-view.js) (current implementation)
 
 ---
 

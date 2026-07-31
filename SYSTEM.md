@@ -5,7 +5,7 @@
 **Audience:** Humans and AI agents working on this project  
 **Status:** Living document — update when intent changes; do not silently drift  
 **Last restated:** 2026-07-31  
-**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/occ-c-literate-api.md`](docs/occ-c-literate-api.md) (kernel expansion hub)
+**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/occ-c-literate-api.md`](docs/occ-c-literate-api.md) (kernel expansion hub)
 
 ---
 
@@ -132,6 +132,7 @@ Deep research into **SolidWorks / Onshape / Fusion** was requested to inform an 
 | **`SYSTEM.md` (this file)** | **Why** we exist, **what** we build, **what we refuse**, dual goals, stack thesis, **design decisions**, prioritization law |
 | **`AGENTS.md`** | **How** to code in this repo (C ABI rules, Bazel/bb, license boundary, anti-patterns) |
 | **`DISPLAY.md`** | Browser **mesh viewport**: WebGL2/three, editor camera, infinite ground grid, steal lists |
+| **`REACTIVITY.md`** | Reactive **params / gimbals**: tiered re-eval, CADAM + Ao steal lists |
 | **`docs/README.md`** | Index of remaining docs (no pointer-only stubs) |
 | **`docs/cleanroom-featurescript-std-report.md`** | Team A clean-room learning: FS std architecture, dual-goal capability matrix, IR sketches |
 | **`docs/occ-c-literate-api.md`** | Hub → `docs/literate-sections/` (extractable P0/P1 C expansion) |
@@ -724,6 +725,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Initial SYSTEM.md: restated owner intent, dual goals, IR/Luau/kernel laws, clean-room + AI-BOOST + robot scope, prioritization order |
 | 2026-07-31 | Doc consolidation: absorbed `process-decisions.md` + `aiboost-agentic-cad.md`; literate hub points at `literate-sections/` only |
 | 2026-07-31 | Added **DISPLAY.md** (viewport / camera / Option B infinite grid) |
+| 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
 
 ---
 
