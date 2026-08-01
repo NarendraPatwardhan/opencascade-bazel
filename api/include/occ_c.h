@@ -1,6 +1,10 @@
 // occ_c.h — C API over OCCT, modeled on build123d's public surface.
 // All exports use extern "C" linkage and return int (0 = OCC_OK).
 // Shapes are owning handles; pass to occ_shape_free when done.
+//
+// Expansion modules (session, construct, frames, route, …) are included
+// at the bottom so a single #include "occ_c.h" exposes the full surface.
+// Prefer #include "occ_c_all.h" for explicit one-stop inclusion.
 
 #ifndef OCC_C_H_
 #define OCC_C_H_
@@ -29,7 +33,38 @@ typedef enum {
   OCC_ERR_IO            = 5,
   OCC_ERR_INDEX         = 6,
   OCC_ERR_EXCEPTION     = 7,
+  /* v2 expansions — keep 0–7 numeric-stable */
+  OCC_ERR_NO_SESSION    = 8,
+  OCC_ERR_UNKNOWN_OP    = 9,
+  OCC_ERR_BAD_QUERY     = 10,
+  OCC_ERR_CAPACITY      = 11,
+  OCC_ERR_NOT_FOUND     = 12,
+  OCC_ERR_MATH          = 13,
+  OCC_ERR_UNSUPPORTED   = 14,
+  OCC_ERR_GEOM          = 15,
+  OCC_ERR_FRAME         = 16,
+  OCC_ERR_CLASH         = 17,
+  OCC_ERR_BUILD         = 18,
 } occ_status_t;
+
+typedef enum {
+  OCC_SHAPE_UNKNOWN   = 0,
+  OCC_SHAPE_COMPOUND  = 1,
+  OCC_SHAPE_COMPSOLID = 2,
+  OCC_SHAPE_SOLID     = 3,
+  OCC_SHAPE_SHELL     = 4,
+  OCC_SHAPE_FACE      = 5,
+  OCC_SHAPE_WIRE      = 6,
+  OCC_SHAPE_EDGE      = 7,
+  OCC_SHAPE_VERTEX    = 8,
+  OCC_SHAPE_SHAPE     = 9,
+} occ_shape_kind_t;
+
+typedef enum {
+  OCC_CLASH_SEPARATED = 0,
+  OCC_CLASH_CLEARANCE = 1,
+  OCC_CLASH_INTERFERE = 2,
+} occ_clash_status_t;
 
 OCC_API const char* occ_version(void);
 OCC_API const char* occ_last_error(void);
@@ -139,5 +174,8 @@ OCC_API void occ_mesh_free(occ_mesh_t m);
 #ifdef __cplusplus
 }  // extern "C"
 #endif
+
+/* Expansion modules are NOT included here (avoids circular includes when a
+ * module header does #include "occ_c.h"). Use occ_c_all.h for the full surface. */
 
 #endif  // OCC_C_H_

@@ -1,0 +1,44 @@
+# Dual-goal pure-C smoke binaries for occ_c expansion (Apache-2.0).
+# Canonical c_api demo remains under //examples/c_api.
+
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+SMOKE_COPTS = [
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Wno-unused-parameter",
+]
+
+OCC_C_DEP = "//api:occ_c_lib"
+
+cc_binary(
+    name = "smoke_pipe_skid",
+    srcs = ["smoke_pipe_skid.c"],
+    copts = SMOKE_COPTS,
+    deps = [OCC_C_DEP],
+)
+
+cc_binary(
+    name = "smoke_robot_6dof",
+    srcs = ["smoke_robot_6dof.c"],
+    copts = SMOKE_COPTS,
+    deps = [OCC_C_DEP],
+)
+
+cc_binary(
+    name = "smoke_flange_bolt_circle",
+    srcs = ["smoke_flange_bolt_circle.c"],
+    copts = SMOKE_COPTS,
+    deps = [OCC_C_DEP],
+)
+
+cc_binary(
+    name = "c_api_session_smoke",
+    srcs = ["c_api_session_smoke.c"],
+    copts = SMOKE_COPTS,
+    deps = [OCC_C_DEP],
+)
+

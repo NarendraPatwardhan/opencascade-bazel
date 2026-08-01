@@ -1,6 +1,7 @@
 // C API over OCCT — thin wrappers, extern "C" linkage.
 
 #include "occ_c.h"
+#include "occ_c_internal.hxx"
 
 #include <cstring>
 #include <string>
@@ -70,40 +71,10 @@
 
 namespace {
 
-thread_local std::string g_last_error;
-
-void set_last(const char* msg) {
-  g_last_error = msg ? msg : "";
-}
-
-TopoDS_Shape* as_shape(occ_shape_t s) {
-  return reinterpret_cast<TopoDS_Shape*>(s);
-}
-
-occ_shape_t to_handle(const TopoDS_Shape& s) {
-  return reinterpret_cast<occ_shape_t>(new TopoDS_Shape(s));
-}
-
-#define OCC_GUARD_BEGIN try {
-#define OCC_GUARD_END                                                   \
-  }                                                                     \
-  catch (Standard_Failure & e) {                                        \
-    set_last(e.GetMessageString() ? e.GetMessageString() : "OCCT failure"); \
-    return OCC_ERR_EXCEPTION;                                           \
-  }                                                                     \
-  catch (std::exception & e) {                                          \
-    set_last(e.what());                                                 \
-    return OCC_ERR_EXCEPTION;                                           \
-  }                                                                     \
-  catch (...) {                                                         \
-    set_last("unknown exception");                                      \
-    return OCC_ERR_EXCEPTION;                                           \
-  }
-
-#define REQ(cond, code)             \
-  do {                              \
-    if (!(cond)) return (code);     \
-  } while (0)
+using occ_c_detail::as_shape;
+using occ_c_detail::g_last_error;
+using occ_c_detail::set_last;
+using occ_c_detail::to_handle;
 
 gp_Ax2 axis(double cx, double cy, double cz, double ax, double ay, double az) {
   return gp_Ax2(gp_Pnt(cx, cy, cz), gp_Dir(ax, ay, az));

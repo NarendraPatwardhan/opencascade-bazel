@@ -9,15 +9,48 @@ package(default_visibility = ["//visibility:public"])
 
 # Static/internal cc_library. Name chosen so the implicit libocc_c_lib.so
 # output doesn't collide with the cc_shared_library below.
+#
+# Baseline + literate expansion modules (session, construct, frames, route, …).
 cc_library(
     name = "occ_c_lib",
-    srcs = ["src/occ_c.cc"],
-    hdrs = ["include/occ_c.h"],
-    includes = ["include"],
+    srcs = [
+        "src/occ_c.cc",
+        "src/occ_c_session.cc",
+        "src/occ_c_construct.cc",
+        "src/occ_c_frames.cc",
+        "src/occ_c_trsf.cc",
+        "src/occ_c_route.cc",
+        "src/occ_c_pattern.cc",
+        "src/occ_c_hole.cc",
+        "src/occ_c_boolean_ext.cc",
+        "src/occ_c_query.cc",
+        "src/occ_c_sweep_ext.cc",
+    ],
+    hdrs = [
+        "include/occ_c.h",
+        "include/occ_c_all.h",
+        "include/occ_c_status.h",
+        "include/occ_c_session.h",
+        "include/occ_c_construct.h",
+        "include/occ_c_frames.h",
+        "include/occ_c_trsf.h",
+        "include/occ_c_route.h",
+        "include/occ_c_pattern.h",
+        "include/occ_c_hole.h",
+        "include/occ_c_boolean_ext.h",
+        "include/occ_c_query.h",
+        "include/occ_c_sweep_ext.h",
+    ],
+    # Private shared glue for all occ_c*.cc TUs (not installed).
+    textual_hdrs = [
+        "src/occ_c_internal.hxx",
+    ],
+    includes = ["include", "src"],
     deps = ["@occt//:occt"],
     copts = [
         "-Wno-deprecated-declarations",
         "-Wno-unused-variable",
+        "-Wno-unused-parameter",
     ],
 )
 
