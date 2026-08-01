@@ -7,7 +7,8 @@
 local tools = require("tools")
 local json = require("json")
 
-export type ShapeId = number
+-- Host shape ids are numbers. While solid.use_ir(true) records to IR, handles are "@…" strings.
+export type ShapeId = number | string
 
 export type BoxOpts = {
 	dx: number?,
@@ -16,6 +17,8 @@ export type BoxOpts = {
 	x: number?,
 	y: number?,
 	z: number?,
+	--- IR tape only: "origin" | "centered_xy_bottom"
+	corner: string?,
 }
 
 export type CylinderOpts = {
@@ -192,6 +195,44 @@ export type StepWriteOpts = {
 
 local solid = {}
 
+-- Lazy require so Path B works even if ir/ is not staged (pure solid smoke).
+local function tape_mod(): any?
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	if ok then
+		return t
+	end
+	return nil
+end
+
+local function recording(): boolean
+	local t = tape_mod()
+	return t ~= nil and t.is_enabled()
+end
+
+--- Enable IR tape: subsequent solid.* geometry calls record cad.ir ops instead of
+--- calling the host immediately. solid.finish evaluates the IR document.
+--- Pass false to return to direct host Path B.
+function solid.use_ir(on: boolean?)
+	local t = tape_mod()
+	if not t then
+		if on == false then
+			return
+		end
+		error('solid.use_ir: require("ir.tape") unavailable — stage batteries/ir/')
+	end
+	if on == false then
+		t.end_recording()
+	else
+		t.begin("solid_tape")
+	end
+end
+
+function solid.ir_recording(): boolean
+	return recording()
+end
+
 local function call(op: string, args: { [string]: any }): any
 	local payload: { [string]: any } = {}
 	for k, v in pairs(args) do
@@ -216,16 +257,29 @@ end
 
 function solid.box(opts: BoxOpts?): ShapeId
 	local o: BoxOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).prim_box(o)
+	end
 	local data = call("make_box", {
 		dx = o.dx or o.x or 10,
 		dy = o.dy or o.y or 10,
 		dz = o.dz or o.z or 10,
 	})
-	return data.shapeId
+	local id = data.shapeId
+	-- Direct host has no corner param; approximate centered_xy_bottom
+	if o.corner == "centered_xy_bottom" then
+		local dx = o.dx or o.x or 10
+		local dy = o.dy or o.y or 10
+		id = call("translate", { id = id, dx = -dx / 2, dy = -dy / 2, dz = 0 }).shapeId
+	end
+	return id
 end
 
 function solid.cylinder(opts: CylinderOpts?): ShapeId
 	local o: CylinderOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).prim_cylinder(o)
+	end
 	local origin = o.origin or {}
 	local axis = o.axis or { 0, 0, 1 }
 	local data = call("make_cylinder", {
@@ -243,6 +297,9 @@ end
 
 function solid.sphere(opts: SphereOpts?): ShapeId
 	local o: SphereOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).prim_sphere(o)
+	end
 	local origin = o.origin or {}
 	local data = call("make_sphere", {
 		cx = origin[1] or o.cx or 0,
@@ -289,19 +346,31 @@ function solid.torus(opts: TorusOpts?): ShapeId
 end
 
 function solid.fuse(a: ShapeId, b: ShapeId): ShapeId
+	if recording() then
+		return (tape_mod() :: any).bool("union", a :: string, b :: string)
+	end
 	return call("fuse", { a = a, b = b }).shapeId
 end
 
 function solid.cut(a: ShapeId, b: ShapeId): ShapeId
+	if recording() then
+		return (tape_mod() :: any).bool("subtract", a :: string, b :: string)
+	end
 	return call("cut", { a = a, b = b }).shapeId
 end
 
 function solid.intersect(a: ShapeId, b: ShapeId): ShapeId
+	if recording() then
+		return (tape_mod() :: any).bool("intersect", a :: string, b :: string)
+	end
 	return call("intersect", { a = a, b = b }).shapeId
 end
 
 function solid.translate(id: ShapeId, opts: TranslateOpts?): ShapeId
 	local o: TranslateOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).translate(id :: string, o)
+	end
 	return call("translate", {
 		id = id,
 		dx = o.dx or 0,
@@ -312,6 +381,9 @@ end
 
 function solid.rotate(id: ShapeId, opts: RotateOpts?): ShapeId
 	local o: RotateOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).rotate(id :: string, o)
+	end
 	local origin = o.origin or {}
 	local axis = o.axis or {}
 	return call("rotate", {
@@ -374,6 +446,9 @@ end
 
 function solid.pattern_linear(id: ShapeId, opts: PatternLinearOpts?): ShapeId
 	local o: PatternLinearOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).pattern_linear(id :: string, o)
+	end
 	return call("pattern_linear", {
 		id = id,
 		dx = o.dx or 0,
@@ -385,6 +460,9 @@ end
 
 function solid.pattern_polar(id: ShapeId, opts: PatternPolarOpts?): ShapeId
 	local o: PatternPolarOpts = if opts then opts else {}
+	if recording() then
+		return (tape_mod() :: any).pattern_polar(id :: string, o)
+	end
 	local origin = o.origin or {}
 	local axis = o.axis or {}
 	return call("pattern_polar", {
@@ -609,7 +687,17 @@ function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 end
 
 -- Emit a single JSON result line the host can parse.
+-- If IR tape is active (or rootId is a tape handle "@…"), evaluate the IR document first.
 function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
+	local t = tape_mod()
+	if t and (t.is_enabled() or t.is_handle(rootId)) then
+		if not t.is_enabled() then
+			error("solid.finish: tape handle without active recording")
+		end
+		local hostId = t.finish(rootId :: string, extra)
+		t.end_recording()
+		return if hostId ~= 0 then hostId else rootId
+	end
 	local payload: { [string]: any } = {
 		schema = 1,
 		root = rootId,

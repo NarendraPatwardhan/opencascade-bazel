@@ -54,6 +54,7 @@ const IR_LUAU_FILES = [
   "eval.luau",
   "demo.luau",
   "canonical.luau",
+  "tape.luau",
   "ops/prims.luau",
   "ops/boolean.luau",
   "ops/xform.luau",

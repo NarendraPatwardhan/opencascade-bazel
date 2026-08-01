@@ -1,9 +1,9 @@
 /**
  * Main parametric demo: flange-style plate (base + boss + bore + bolt circle).
  *
- * Host owns params (BLOCK_HOLE_PARAMS); editor shows clean Luau only.
- * Geometry is authored as an IR document and evaluated through cad.ir
- * (Luau → IR → Luau eval → host/occ_c) — same UX as the original demo.
+ * Host owns params (BLOCK_HOLE_PARAMS); editor shows **clean Luau** only.
+ * solid.use_ir(true) records solid.* into cad.ir; solid.finish evaluates IR.
+ * Users do not write IR tables — they write solid.box / fuse / cut / pattern.
  */
 
 /** @type {import('../params/types.js').Parameter[]} */
@@ -141,153 +141,77 @@ export const BLOCK_HOLE_PARAMS = [
   },
 ];
 
-/**
- * mm display param → meters (SI) for IR / occ_c.
- * @param {number} mm
- */
+/** @param {number} mm */
 function m(mm) {
   return (Number(mm) || 0) / 1000;
 }
 
 /**
- * Clean Luau for the editor / worker. Builds IR then evaluates via cad.ir.
- * User still sees a short parametric script — not raw IR JSON editing.
+ * Clean Luau for the editor / worker.
+ * solid.use_ir(true) → solid.* records IR → solid.finish evaluates IR.
  * @param {Record<string, any>} values
  */
 export function blockHoleSource(values) {
-  const wMm = Number(values.width) || 40;
-  const dMm = Number(values.depth) || 40;
-  const hMm = Number(values.height) || 8;
-  const bossHMm = Number(values.boss_h) || 10;
-  const bossRMm = Number(values.boss_r) || 12;
-  const holeRMm = Number(values.hole_r) || 5;
+  const w = m(Number(values.width) || 40);
+  const d = m(Number(values.depth) || 40);
+  const h = m(Number(values.height) || 8);
+  const bossH = m(Number(values.boss_h) || 10);
+  const bossR = m(Number(values.boss_r) || 12);
+  const holeR = m(Number(values.hole_r) || 5);
   const boltN = Math.max(2, Math.min(12, Math.round(Number(values.bolt_n) || 4)));
-  const boltRMm = Number(values.bolt_r) || 2;
-  const pcdMm = Number(values.pcd) || 28;
-
-  // SI meters for IR
-  const w = m(wMm);
-  const d = m(dMm);
-  const h = m(hMm);
-  const bossH = m(bossHMm);
-  const bossR = m(bossRMm);
-  const holeR = m(holeRMm);
-  const boltR = m(boltRMm);
-  const pcd = m(pcdMm);
+  const boltR = m(Number(values.bolt_r) || 2);
+  const pcd = m(Number(values.pcd) || 28);
   const step = (2 * Math.PI) / boltN;
-  // Tool lengths slightly past solids
   const throughH = h + bossH + m(4);
   const zTool = -m(2);
 
-  return `-- Flange-style plate via IR (Luau builds IR → ir.eval → occ_c)
--- Base plate + raised boss + center bore + polar bolt circle.
-local ir = require("ir")
+  return `-- Flange plate: clean Luau → IR tape → eval → mesh
+-- (solid.use_ir records cad.ir ops; finish evaluates them)
+local solid = require("solid")
 
-local doc = {
-  ir_schema = "cad.ir/v0",
-  id = "demo_flange_plate",
-  version = "0.1.0",
-  units = { length = "meter", angle = "radian", store = "SI" },
-  params = {},
-  ops = {
-    -- 1) Rectangular base, centered on XY so yaw pivots cleanly
-    {
-      id = "base",
-      op = "PrimBox",
-      params = {
-        dx = ${w},
-        dy = ${d},
-        dz = ${h},
-        corner = "centered_xy_bottom",
-      },
-    },
-    -- 2) Raised cylindrical boss on top of the base
-    {
-      id = "boss",
-      op = "PrimCylinder",
-      params = {
-        radius = ${bossR},
-        height = ${bossH},
-        origin = { 0, 0, ${h} },
-        axis = { 0, 0, 1 },
-      },
-    },
-    {
-      id = "body",
-      op = "BoolCombine",
-      params = { mode = "union" },
-      refs = {
-        target = { created_by = "base", entity = "body" },
-        tools = { { created_by = "boss", entity = "body" } },
-      },
-    },
-    -- 3) Center through-bore
-    {
-      id = "bore_tool",
-      op = "PrimCylinder",
-      params = {
-        radius = ${holeR},
-        height = ${throughH},
-        origin = { 0, 0, ${zTool} },
-        axis = { 0, 0, 1 },
-      },
-    },
-    {
-      id = "with_bore",
-      op = "BoolCombine",
-      params = { mode = "subtract" },
-      refs = {
-        target = { created_by = "body", entity = "body" },
-        tools = { { created_by = "bore_tool", entity = "body" } },
-      },
-    },
-    -- 4) Bolt hole seed on the pitch circle, then polar pattern
-    {
-      id = "bolt_seed",
-      op = "PrimCylinder",
-      params = {
-        radius = ${boltR},
-        height = ${throughH},
-        origin = { ${pcd / 2}, 0, ${zTool} },
-        axis = { 0, 0, 1 },
-      },
-    },
-    {
-      id = "bolt_pattern",
-      op = "PatternPolar",
-      params = {
-        origin = { 0, 0, 0 },
-        axis = { 0, 0, 1 },
-        angle_step = ${step},
-        count = ${boltN},
-      },
-      refs = {
-        shape = { created_by = "bolt_seed", entity = "body" },
-      },
-    },
-    {
-      id = "part",
-      op = "BoolCombine",
-      params = { mode = "subtract" },
-      refs = {
-        target = { created_by = "with_bore", entity = "body" },
-        tools = { { created_by = "bolt_pattern", entity = "body" } },
-      },
-    },
-  },
-  meta = {
-    author = "demo",
-    goals = { "browser-demo" },
-    lib_versions = { cad_ir = "0.1.0", occ_c = "7.9.3-api", occt = "7.9.3" },
-    kernel_version = "7.9.3",
-    strict = true,
-  },
-}
+solid.use_ir(true)
 
-local res = ir.run_demo(doc, { root = "part" })
-if type(res) == "table" and res.ok == false then
-  local e = res.error or {}
-  error(tostring(e.message or e.code or "IR eval failed"))
-end
+-- Base plate (centered on XY)
+local base = solid.box({
+  dx = ${w},
+  dy = ${d},
+  dz = ${h},
+  corner = "centered_xy_bottom",
+})
+
+-- Raised boss
+local boss = solid.cylinder({
+  radius = ${bossR},
+  height = ${bossH},
+  origin = { 0, 0, ${h} },
+  axis = { 0, 0, 1 },
+})
+local body = solid.fuse(base, boss)
+
+-- Center through-bore
+local bore = solid.cylinder({
+  radius = ${holeR},
+  height = ${throughH},
+  origin = { 0, 0, ${zTool} },
+  axis = { 0, 0, 1 },
+})
+body = solid.cut(body, bore)
+
+-- Bolt circle
+local bolt = solid.cylinder({
+  radius = ${boltR},
+  height = ${throughH},
+  origin = { ${pcd / 2}, 0, ${zTool} },
+  axis = { 0, 0, 1 },
+})
+local bolts = solid.pattern_polar(bolt, {
+  origin = { 0, 0, 0 },
+  axis = { 0, 0, 1 },
+  angle_step = ${step},
+  count = ${boltN},
+})
+local part = solid.cut(body, bolts)
+
+solid.finish(part, { name = "flange_plate" })
 `;
 }

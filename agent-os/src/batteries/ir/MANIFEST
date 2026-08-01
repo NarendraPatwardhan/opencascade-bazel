@@ -11,6 +11,7 @@ resolve.luau
 eval.luau
 demo.luau
 canonical.luau
+tape.luau
 ops/prims.luau
 ops/boolean.luau
 ops/xform.luau
