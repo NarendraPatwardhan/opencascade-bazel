@@ -10,6 +10,7 @@ filegroup(
         "node_smoke.mjs",
         "ir_smoke.mjs",
         "ir_unit_smoke.mjs",
+        "solid_api_smoke.mjs",
         "run_node_smoke.sh",
     ],
 )

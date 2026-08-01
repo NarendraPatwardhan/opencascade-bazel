@@ -311,8 +311,20 @@ expect(res2.shapes.place0 ~= place_before, "eval_pose new place id")
 expect(res1.shapes.place0 == place_before, "prior_env place unchanged")
 local tcp2 = res2.measures.fk.final
 expect(type(tcp2) == "table" and #tcp2 == 16, "pose final matrix")
--- TCP z translation may change with θ about Z depending on chain; just ensure finite and different measure n
 expect(res2.measures.fk.n == 1, "pose chain n")
+-- θ about Z at origin: rotation block must change (tx/ty/tz may stay 0 for this mini chain)
+local function mat_diff(a, b)
+  local d = 0
+  for i = 1, 16 do
+    d += math.abs((a[i] or 0) - (b[i] or 0))
+  end
+  return d
+end
+expect(type(tcp1) == "table" and #tcp1 == 16, "tcp1 final matrix")
+expect(mat_diff(tcp1, tcp2) > 1e-6, "eval_pose final matrix changes with θ")
+-- Cosine of joint angle appears in R00 for RotZ: θ=0 → ~1, θ=1.2 → cos(1.2)
+expect(math.abs((tcp1[1] or 0) - 1.0) < 1e-5, "θ=0 R00≈1")
+expect(math.abs((tcp2[1] or 0) - math.cos(1.2)) < 1e-4, "θ=1.2 R00≈cos(1.2)")
 
 -- emit dummy CAD result so CadEngine.execute is happy
 local box = solid.box({ dx = 1, dy = 1, dz = 1 })

@@ -137,6 +137,59 @@ export type FinishExtra = {
 	[string]: any,
 }
 
+export type RevolveOpts = {
+	px: number?,
+	py: number?,
+	pz: number?,
+	ax: number?,
+	ay: number?,
+	az: number?,
+	angle: number?,
+	angle_rad: number?,
+	origin: { number }?,
+	axis: { number }?,
+}
+
+export type OffsetOpts = {
+	offset: number?,
+	distance: number?,
+}
+
+export type ShellOpts = {
+	faces: { number },
+	thickness: number?,
+	t: number?,
+}
+
+export type DrillOpts = {
+	origin: { number }?,
+	cx: number?,
+	cy: number?,
+	cz: number?,
+	ox: number?,
+	oy: number?,
+	oz: number?,
+	direction: { number }?,
+	dx: number?,
+	dy: number?,
+	dz: number?,
+	diameter: number?,
+	d: number?,
+	depth: number?,
+}
+
+export type MemberSweepRectOpts = {
+	width: number?,
+	height: number?,
+	w: number?,
+	h: number?,
+}
+
+export type StepWriteOpts = {
+	path: string?,
+	file: string?,
+}
+
 local solid = {}
 
 local function call(op: string, args: { [string]: any }): any
@@ -363,6 +416,198 @@ function solid.bbox(id: ShapeId): any
 	return call("bbox", { id = id }).bbox
 end
 
+function solid.mesh_stats(id: ShapeId, deflection: number?): any
+	return call("mesh_stats", { id = id, deflection = deflection or 0.1 })
+end
+
+function solid.mass_properties(id: ShapeId, density: number?): any
+	return call("mass_properties", { id = id, density = density or 1 })
+end
+
+--- Planar rectangle face (profile for extrude/revolve). Center + normal + width×height.
+function solid.face_rectangle(opts: {
+	cx: number?,
+	cy: number?,
+	cz: number?,
+	origin: { number }?,
+	normal: { number }?,
+	nx: number?,
+	ny: number?,
+	nz: number?,
+	width: number?,
+	height: number?,
+	dx: number?,
+	dy: number?,
+}?): ShapeId
+	local o = opts or ({} :: any)
+	local origin = o.origin or {}
+	local normal = o.normal or {}
+	local width = o.width or o.dx
+	local height = o.height or o.dy
+	if type(width) ~= "number" or type(height) ~= "number" then
+		error("solid.face_rectangle: width and height required")
+	end
+	return call("make_face_rectangle", {
+		cx = origin[1] or o.cx or 0,
+		cy = origin[2] or o.cy or 0,
+		cz = origin[3] or o.cz or 0,
+		nx = normal[1] or o.nx or 0,
+		ny = normal[2] or o.ny or 0,
+		nz = normal[3] or o.nz or 1,
+		width = width,
+		height = height,
+	}).shapeId
+end
+
+--- Revolve a profile about an axis by angle (radians).
+function solid.revolve(profile: ShapeId, opts: RevolveOpts?): ShapeId
+	local o: RevolveOpts = if opts then opts else {}
+	local origin = o.origin or {}
+	local axis = o.axis or {}
+	return call("revolve", {
+		profile = profile,
+		px = origin[1] or o.px or 0,
+		py = origin[2] or o.py or 0,
+		pz = origin[3] or o.pz or 0,
+		ax = axis[1] or o.ax or 0,
+		ay = axis[2] or o.ay or 0,
+		az = axis[3] or o.az or 1,
+		angle = o.angle or o.angle_rad or (2 * math.pi),
+	}).shapeId
+end
+
+--- Uniform 3D offset of a solid. Offset distance required (number or opts.offset).
+function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
+	local offset: number?
+	if type(opts) == "number" then
+		offset = opts
+	elseif type(opts) == "table" then
+		local o = opts :: OffsetOpts
+		offset = o.offset or o.distance
+	end
+	if type(offset) ~= "number" then
+		error("solid.offset: offset (or distance) required")
+	end
+	return call("offset_3d", { id = id, offset = offset }).shapeId
+end
+
+--- Shell (hollow) by opening 1-based face indices with thickness.
+function solid.shell(id: ShapeId, opts: ShellOpts): ShapeId
+	local o = opts
+	if type(o) ~= "table" or type(o.faces) ~= "table" then
+		error("solid.shell: opts.faces (1-based indices) required")
+	end
+	return call("shell", {
+		id = id,
+		faces = o.faces,
+		thickness = o.thickness or o.t or 0.1,
+	}).shapeId
+end
+
+--- Through cylindrical hole (tool length auto-sized from solid bbox).
+--- diameter required. Seed home for holes; future cad.holes may re-export.
+function solid.drill_through(id: ShapeId, opts: DrillOpts): ShapeId
+	local o = opts or ({} :: any)
+	local origin = o.origin or {}
+	local dir = o.direction or {}
+	local diameter = o.diameter or o.d
+	if type(diameter) ~= "number" then
+		error("solid.drill_through: diameter required")
+	end
+	return call("drill_hole_through", {
+		id = id,
+		cx = origin[1] or o.cx or o.ox or 0,
+		cy = origin[2] or o.cy or o.oy or 0,
+		cz = origin[3] or o.cz or o.oz or 0,
+		dx = dir[1] or o.dx or 0,
+		dy = dir[2] or o.dy or 0,
+		dz = dir[3] or o.dz or 1,
+		diameter = diameter,
+	}).shapeId
+end
+
+--- Blind cylindrical hole of given depth along +direction from origin.
+--- diameter and depth required. Seed home for holes; future cad.holes may re-export.
+function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
+	local o = opts or ({} :: any)
+	local origin = o.origin or {}
+	local dir = o.direction or {}
+	local diameter = o.diameter or o.d
+	if type(diameter) ~= "number" then
+		error("solid.drill_blind: diameter required")
+	end
+	if type(o.depth) ~= "number" then
+		error("solid.drill_blind: depth required")
+	end
+	return call("drill_hole_blind", {
+		id = id,
+		ox = origin[1] or o.ox or o.cx or 0,
+		oy = origin[2] or o.oy or o.cy or 0,
+		oz = origin[3] or o.oz or o.cz or 0,
+		dx = dir[1] or o.dx or 0,
+		dy = dir[2] or o.dy or 0,
+		dz = dir[3] or o.dz or 1,
+		diameter = diameter,
+		depth = o.depth,
+	}).shapeId
+end
+
+--- Rectangular structural member swept along a spine wire (also route.member_sweep_rect).
+--- width and height required. Seed home; future cad.structure may re-export.
+function solid.member_sweep_rect(spine: ShapeId, opts: MemberSweepRectOpts): ShapeId
+	local o = opts or ({} :: any)
+	local width = o.width or o.w
+	local height = o.height or o.h
+	if type(width) ~= "number" or type(height) ~= "number" then
+		error("solid.member_sweep_rect: width and height required")
+	end
+	return call("member_sweep_rect", {
+		width = width,
+		height = height,
+		spine = spine,
+	}).shapeId
+end
+
+--- Apply row-major 4×4 rigid transform (copy) → new shape id.
+function solid.trsf_apply(id: ShapeId, matrix4x4: { number }): ShapeId
+	if type(matrix4x4) ~= "table" or #matrix4x4 < 16 then
+		error("solid.trsf_apply: matrix4x4 length 16 required")
+	end
+	return call("trsf_apply", { id = id, matrix4x4 = matrix4x4 }).shapeId
+end
+
+--- Place shape by 4×4 matrix only (alias of trsf_apply). For chain FK use frames.place_at_chain.
+function solid.place(id: ShapeId, matrix4x4: { number }): ShapeId
+	return solid.trsf_apply(id, matrix4x4)
+end
+
+--- Free one host shape id (best-effort).
+function solid.free(id: ShapeId)
+	call("shape_free", { id = id })
+end
+
+--- Free all host shapes (Path B cleanup / IR K17 parity).
+function solid.free_all()
+	call("free_all", {})
+end
+
+--- Write STEP to Emscripten MEMFS path (browser/Node wasm FS only in v0).
+--- Prefer a unique path (e.g. "/tmp/part_<name>.step"); default is easy to clobber.
+--- Seed home for IO; future cad.io may re-export.
+function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
+	local path: string
+	if type(opts) == "string" then
+		path = opts
+	else
+		local o = (opts or {}) :: StepWriteOpts
+		path = o.path or o.file
+	end
+	if type(path) ~= "string" or path == "" then
+		error('solid.step_write: path required (e.g. "/tmp/part.step")')
+	end
+	return call("step_write", { id = id, path = path })
+end
+
 -- Emit a single JSON result line the host can parse.
 function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 	local payload: { [string]: any } = {
@@ -379,3 +624,4 @@ function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 end
 
 return solid
+

@@ -434,7 +434,18 @@ Do **not** invent or market a new language.
 
 ### 5.4 Present seed
 
-Today’s vertical slice: `agent-os` batteries `solid.luau` + host tools (partial bridge over `occ_c`) → mesh. That is **Path B**. Full module map, IR schema freeze, and `cad.ir` eval are still product growth — not a second kernel.
+Today’s dual-goal Path B / Path A seed under `agent-os` batteries:
+
+| Module | Path | Role |
+|--------|------|------|
+| `solid` | `solid.luau` | Primitives, booleans, transforms, extrude/revolve, holes, place/trsf, STEP MEMFS |
+| `route` | `route.luau` | Centerline + bends + pipe annulus + member sweep |
+| `frames` | `frames.luau` | `from_axes`, `compose_chain` FK, `place_at_chain` |
+| `query` | `query.luau` | Clash, distance, volume/bbox, mesh_stats, mass_properties |
+| `ir` | `ir/` | Portable `cad.ir/v0` load/bind/validate/eval |
+| `cad` | `cad.luau` | Aggregator: `cad.solid` / `.route` / `.frames` / `.query` / `.ir` |
+
+Host path: Luau → `tools.call` → OccBridge → `occ_*` → mesh. Full SYSTEM §5.2 map (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch, …) remains product growth — seed modules may later re-export into those names.
 
 ### 5.5 AgentOS structural Luau tooling ≠ CAD IR
 
@@ -661,12 +672,11 @@ When someone proposes a feature, score:
 
 ### 12.2 Not done (the real spine)
 
-- First-class **portable IR** artifact + evaluator.  
-- Full Luau module map (only `solid.*` seed).  
-- Assembly layer / FK.  
-- RoutePath / piping catalog / structural frame recipes.  
-- Clash API.  
-- History selectors / frames as host primitives.  
+- IR schema / goldens polish beyond v0 demos; native IR VM optional.  
+- Full Luau module map beyond dual-goal seed (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch…).  
+- Assembly mates / multi-body document; FK place is seeded on `frames` only.  
+- Piping fittings catalog + structural frame recipes (member sweep is primitive-only).  
+- History selectors / session face filters (freestanding IR only today).  
 - Competition-grade NL/2D intake.  
 - Integrity manifests / one-directory release polish.
 

@@ -5,6 +5,10 @@
 
 import {
   SOLID_METHODS,
+  ROUTE_METHODS,
+  FRAMES_METHODS,
+  QUERY_METHODS,
+  IR_METHODS,
   MODULES,
   SNIPPETS,
   LUAU_KEYWORDS,
@@ -12,6 +16,23 @@ import {
 
 const LANG = "luau";
 let registered = false;
+
+/** @type {{ prefix: string, methods: import('./cad-api-catalog.js').CadMethod[] }[]} */
+const DOT_TABLES = [
+  { prefix: "solid", methods: SOLID_METHODS },
+  { prefix: "route", methods: ROUTE_METHODS },
+  { prefix: "frames", methods: FRAMES_METHODS },
+  { prefix: "query", methods: QUERY_METHODS },
+  { prefix: "ir", methods: IR_METHODS },
+];
+
+const ALL_METHODS = [
+  ...SOLID_METHODS,
+  ...ROUTE_METHODS,
+  ...FRAMES_METHODS,
+  ...QUERY_METHODS,
+  ...IR_METHODS,
+];
 
 /**
  * @param {import('monaco-editor')} monaco
@@ -38,19 +59,37 @@ export function registerCadCompletions(monaco) {
       /** @type {import('monaco-editor').languages.CompletionItem[]} */
       const suggestions = [];
 
-      // solid.<method>
-      const solidDot = until.match(/solid\s*\.\s*([A-Za-z_]*)$/);
-      if (solidDot) {
-        for (const m of SOLID_METHODS) {
+      // mod.<method> for solid / route / frames / query / ir
+      for (const { prefix, methods } of DOT_TABLES) {
+        const re = new RegExp(`\\b${prefix}\\s*\\.\\s*([A-Za-z_]*)$`);
+        if (re.test(until)) {
+          for (const m of methods) {
+            suggestions.push({
+              label: m.name,
+              kind: Kind.Method,
+              detail: m.returns ? `→ ${m.returns}` : prefix,
+              documentation: { value: methodMarkdown(m) },
+              insertText: m.insertText,
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              range,
+              sortText: `0_${m.name}`,
+            });
+          }
+          return { suggestions };
+        }
+      }
+
+      // cad.solid / cad.route / … (aggregator fields)
+      if (/\bcad\s*\.\s*([A-Za-z_]*)$/.test(until)) {
+        for (const name of ["solid", "route", "frames", "query", "ir"]) {
           suggestions.push({
-            label: m.name,
-            kind: Kind.Method,
-            detail: m.returns ? `→ ${m.returns}` : "solid",
-            documentation: { value: methodMarkdown(m) },
-            insertText: m.insertText,
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            label: name,
+            kind: Kind.Module,
+            detail: "cad.*",
+            documentation: MODULES.find((m) => m.name === name)?.documentation,
+            insertText: name,
             range,
-            sortText: `0_${m.name}`,
+            sortText: `0_${name}`,
           });
         }
         return { suggestions };
@@ -73,18 +112,20 @@ export function registerCadCompletions(monaco) {
         return { suggestions };
       }
 
-      // After "local solid = " or general: solid module + methods as solid.x + snippets + keywords
-      for (const m of SOLID_METHODS) {
-        suggestions.push({
-          label: m.label,
-          kind: Kind.Method,
-          detail: m.returns ? `→ ${m.returns}` : undefined,
-          documentation: { value: methodMarkdown(m) },
-          insertText: `solid.${m.insertText}`,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          range,
-          sortText: `1_${m.name}`,
-        });
+      // General: methods as prefix.x + modules + snippets + keywords
+      for (const { prefix, methods } of DOT_TABLES) {
+        for (const m of methods) {
+          suggestions.push({
+            label: m.label,
+            kind: Kind.Method,
+            detail: m.returns ? `→ ${m.returns}` : undefined,
+            documentation: { value: methodMarkdown(m) },
+            insertText: `${prefix}.${m.insertText}`,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range,
+            sortText: `1_${prefix}_${m.name}`,
+          });
+        }
       }
 
       for (const mod of MODULES) {
@@ -130,25 +171,28 @@ export function registerCadCompletions(monaco) {
       if (!word) return null;
       const name = word.word;
 
-      // solid.method: hover on method name after a dot
       const line = model.getLineContent(position.lineNumber);
       const before = line.slice(0, word.startColumn - 1);
-      if (/\bsolid\s*\.\s*$/.test(before) || before.endsWith("solid.")) {
-        const method = SOLID_METHODS.find((m) => m.name === name);
-        if (method) {
-          return {
-            range: new monaco.Range(
-              position.lineNumber,
-              word.startColumn,
-              position.lineNumber,
-              word.endColumn,
-            ),
-            contents: [{ value: methodMarkdown(method) }],
-          };
+
+      for (const { prefix, methods } of DOT_TABLES) {
+        const re = new RegExp(`\\b${prefix}\\s*\\.\\s*$`);
+        if (re.test(before) || before.endsWith(`${prefix}.`)) {
+          const method = methods.find((m) => m.name === name);
+          if (method) {
+            return {
+              range: new monaco.Range(
+                position.lineNumber,
+                word.startColumn,
+                position.lineNumber,
+                word.endColumn,
+              ),
+              contents: [{ value: methodMarkdown(method) }],
+            };
+          }
         }
       }
 
-      const method = SOLID_METHODS.find((m) => m.name === name);
+      const method = ALL_METHODS.find((m) => m.name === name);
       if (method) {
         return {
           range: new monaco.Range(
@@ -173,7 +217,7 @@ export function registerCadCompletions(monaco) {
 
       // Param field names inside tables: dx, dy, radius, …
       const paramHits = [];
-      for (const m of SOLID_METHODS) {
+      for (const m of ALL_METHODS) {
         for (const p of m.params || []) {
           if (p.name === name) paramHits.push({ method: m.label, param: p });
         }

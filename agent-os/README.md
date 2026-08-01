@@ -24,8 +24,8 @@ Browser main (demo) ──postMessage──► runtime-worker
 | Feature | How |
 |---------|-----|
 | Completions / hover | Closed catalog in `src/cad-api-catalog.js` → Monaco providers |
-| Squiggles | Worker stages `/tmp/cad/{main,solid,tools,json}.luau` and runs `luau-analyze` (debounced); markers are for **user** `main.luau` only |
-| Module graph | Analyzer follows real files: `solid` + typed stubs under `batteries/analyze/` (runtime still uses AgentOS builtins for `tools`/`json`) |
+| Squiggles | Worker stages `/tmp/cad/{main,solid,route,frames,query,cad,ir/**,tools,json}.luau` and runs `luau-analyze` (debounced); markers are for **user** `main.luau` only |
+| Module graph | Analyzer follows real batteries + `ir/` + typed stubs under `batteries/analyze/` (runtime still uses AgentOS builtins for `tools`/`json`) |
 | Run | Executes via `vm.luau` + host mesh; analyze does not block Run yet |
 
 ## Quick start
@@ -52,8 +52,11 @@ export SOLID_LUAU=$PWD/agent-os/src/batteries/solid.luau
 node agent-os/smoke/node_smoke.mjs
 
 # 3b) Portable CAD IR (cad.ir/v0) — validate/bind units + Path A demos
-node agent-os/smoke/ir_unit_smoke.mjs   # bind/validate/canonical (no dual-goal geom)
+node agent-os/smoke/ir_unit_smoke.mjs   # bind/validate/canonical + eval_pose
 node agent-os/smoke/ir_smoke.mjs        # box-cut + pipe skid + robot FK via require("ir")
+
+# 3c) Path B dual-goal Luau surface (route/frames/query/cad + high-ROI solid)
+node agent-os/smoke/solid_api_smoke.mjs
 
 # 4) Browser demo (stages + serves)
 ./agent-os/scripts/dev.sh

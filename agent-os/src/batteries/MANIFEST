@@ -1,0 +1,7 @@
+# Top-level Path B batteries staged under /opt/cad/*.luau
+# Keep runtime-worker.js TOP_BATTERY_LUAU in sync with this list.
+solid.luau
+route.luau
+frames.luau
+query.luau
+cad.luau

@@ -265,6 +265,78 @@ export class OccBridge {
           num(args.xx, 1), num(args.xy, 0), num(args.xz, 0),
           num(args.zx, 0), num(args.zy, 0), num(args.zz, 1),
         );
+      case "make_face_rectangle":
+        return {
+          shapeId: this.#makeFaceRectangle(
+            num(args.cx, 0), num(args.cy, 0), num(args.cz, 0),
+            num(args.nx, 0), num(args.ny, 0), num(args.nz, 1),
+            num(args.width ?? args.dx),
+            num(args.height ?? args.dy),
+          ),
+        };
+      case "revolve":
+        return {
+          shapeId: this.#revolve(
+            idOf(args.profile ?? args.id ?? args.shape),
+            num(args.px, 0), num(args.py, 0), num(args.pz, 0),
+            num(args.ax, 0), num(args.ay, 0), num(args.az, 1),
+            num(args.angle ?? args.angle_rad),
+          ),
+        };
+      case "offset_3d":
+        return {
+          shapeId: this.#offset3d(
+            idOf(args.id ?? args.shape),
+            num(args.offset ?? args.distance),
+          ),
+        };
+      case "shell":
+        return {
+          shapeId: this.#shell(
+            idOf(args.id ?? args.shape),
+            intList(args.faces ?? args.face_idx ?? args.faceIdx, "faces"),
+            num(args.thickness ?? args.t),
+          ),
+        };
+      case "drill_hole_through":
+        return {
+          shapeId: this.#drillHoleThrough(
+            idOf(args.id ?? args.shape ?? args.solid),
+            num(args.cx ?? args.ox, 0), num(args.cy ?? args.oy, 0), num(args.cz ?? args.oz, 0),
+            num(args.dx, 0), num(args.dy, 0), num(args.dz, 1),
+            num(args.diameter ?? args.d),
+          ),
+        };
+      case "drill_hole_blind":
+        return {
+          shapeId: this.#drillHoleBlind(
+            idOf(args.id ?? args.shape ?? args.solid),
+            num(args.ox ?? args.cx, 0), num(args.oy ?? args.cy, 0), num(args.oz ?? args.cz, 0),
+            num(args.dx, 0), num(args.dy, 0), num(args.dz, 1),
+            num(args.diameter ?? args.d),
+            num(args.depth),
+          ),
+        };
+      case "member_sweep_rect":
+        return {
+          shapeId: this.#memberSweepRect(
+            num(args.width ?? args.w),
+            num(args.height ?? args.h),
+            idOf(args.spine ?? args.path),
+          ),
+        };
+      case "mass_properties":
+        return this.#massProperties(
+          idOf(args.id ?? args.shape),
+          num(args.density, 1),
+        );
+      case "step_write": {
+        const path = args.path ?? args.file;
+        if (path == null || String(path) === "") {
+          throw new Error("step_write: path string required (MEMFS)");
+        }
+        return this.#stepWrite(idOf(args.id ?? args.shape), String(path));
+      }
       default:
         throw new Error(`unknown cad op: ${op}`);
     }
@@ -827,6 +899,180 @@ export class OccBridge {
     }
   }
 
+  /** Planar rectangle face (for revolve / extrude profiles). */
+  #makeFaceRectangle(cx, cy, cz, nx, ny, nz, width, height) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_make_face_rectangle", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [cx, cy, cz, nx, ny, nz, width, height, out],
+      );
+      if (rc !== 0) throw new Error(`occ_make_face_rectangle failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /** Revolve profile about axis by angle_rad (radians). */
+  #revolve(profileId, px, py, pz, ax, ay, az, angleRad) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_revolve", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(profileId), px, py, pz, ax, ay, az, angleRad, out],
+      );
+      if (rc !== 0) throw new Error(`occ_revolve failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /** Uniform 3D offset of a solid (BRepOffsetAPI_MakeOffsetShape). */
+  #offset3d(id, offset) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_offset_3d", "number",
+        ["number", "number", "number"],
+        [this.#ptr(id), offset, out],
+      );
+      if (rc !== 0) throw new Error(`occ_offset_3d failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /**
+   * Shell (MakeThickSolid): open faces listed by 1-based indices.
+   * @param {number} id
+   * @param {number[]} faceIdx 1-based face indices to open
+   * @param {number} thickness
+   */
+  #shell(id, faceIdx, thickness) {
+    if (!faceIdx || faceIdx.length < 1) {
+      throw new Error("shell: faces array (1-based indices) required");
+    }
+    const n = faceIdx.length;
+    const idxPtr = this.mod._malloc(n * 4);
+    if (!idxPtr) throw new Error("malloc failed for face indices");
+    const out = this.#outPtr();
+    try {
+      for (let i = 0; i < n; i++) {
+        this.mod.setValue(idxPtr + i * 4, faceIdx[i] | 0, "i32");
+      }
+      const rc = this.mod.ccall(
+        "occ_shell", "number",
+        ["number", "number", "number", "number", "number"],
+        [this.#ptr(id), idxPtr, n, thickness, out],
+      );
+      if (rc !== 0) throw new Error(`occ_shell failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(idxPtr);
+      this.mod._free(out);
+    }
+  }
+
+  #drillHoleThrough(solidId, cx, cy, cz, dx, dy, dz, diameter) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_drill_hole_through", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(solidId), cx, cy, cz, dx, dy, dz, diameter, out],
+      );
+      if (rc !== 0) throw new Error(`occ_drill_hole_through failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #drillHoleBlind(solidId, ox, oy, oz, dx, dy, dz, diameter, depth) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_drill_hole_blind", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(solidId), ox, oy, oz, dx, dy, dz, diameter, depth, out],
+      );
+      if (rc !== 0) throw new Error(`occ_drill_hole_blind failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /** Rectangular structural member along spine wire. */
+  #memberSweepRect(width, height, spineId) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_member_sweep_rect", "number",
+        ["number", "number", "number", "number"],
+        [width, height, this.#ptr(spineId), out],
+      );
+      if (rc !== 0) throw new Error(`occ_member_sweep_rect failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /**
+   * Density-scaled mass properties (kg if density kg/m³ and geometry SI).
+   * @returns {{ mass: number, com: number[], inertia: number[], density: number }}
+   */
+  #massProperties(id, density) {
+    const massP = this.mod._malloc(8);
+    const comP = this.mod._malloc(3 * 8);
+    const inertiaP = this.mod._malloc(9 * 8);
+    if (!massP || !comP || !inertiaP) {
+      if (massP) this.mod._free(massP);
+      if (comP) this.mod._free(comP);
+      if (inertiaP) this.mod._free(inertiaP);
+      throw new Error("malloc failed for mass_properties");
+    }
+    try {
+      const rc = this.mod.ccall(
+        "occ_mass_properties", "number",
+        ["number", "number", "number", "number", "number"],
+        [this.#ptr(id), density, massP, comP, inertiaP],
+      );
+      if (rc !== 0) throw new Error(`occ_mass_properties failed (${rc}): ${this.lastError()}`);
+      return {
+        mass: this.mod.getValue(massP, "double"),
+        com: this.#readDoubles(comP, 3),
+        inertia: this.#readDoubles(inertiaP, 9),
+        density,
+      };
+    } finally {
+      this.mod._free(massP);
+      this.mod._free(comP);
+      this.mod._free(inertiaP);
+    }
+  }
+
+  /**
+   * Write STEP to Emscripten MEMFS path (browser/Node wasm FS).
+   * @returns {{ path: string, ok: true }}
+   */
+  #stepWrite(id, path) {
+    if (!path || typeof path !== "string") throw new Error("step_write: path string required");
+    const rc = this.mod.ccall(
+      "occ_step_write", "number",
+      ["number", "string"],
+      [this.#ptr(id), path],
+    );
+    if (rc !== 0) throw new Error(`occ_step_write failed (${rc}): ${this.lastError()}`);
+    return { path, ok: true };
+  }
+
   /** @param {number[]} arr */
   #allocDoubles(arr) {
     const bytes = arr.length * 8;
@@ -1076,6 +1322,23 @@ function flatMat4(m) {
   if (!Array.isArray(m)) throw new Error("matrix4x4 must be an array");
   if (m.length < 16) throw new Error("matrix4x4 length 16 required");
   return m.slice(0, 16).map((x) => num(x));
+}
+
+/**
+ * Coerce Luau/JSON number array to int list (e.g. 1-based face indices).
+ * @param {unknown} v
+ * @param {string} label
+ * @returns {number[]}
+ */
+function intList(v, label) {
+  if (v == null) throw new Error(`missing ${label}`);
+  if (!Array.isArray(v)) throw new Error(`${label} must be an array`);
+  if (v.length < 1) throw new Error(`${label} must be non-empty`);
+  return v.map((x, i) => {
+    const n = Number(x);
+    if (!Number.isInteger(n)) throw new Error(`${label}[${i}] not an integer: ${x}`);
+    return n;
+  });
 }
 
 /** occ_clash_status_t names (OCC_CLASH_*). IR normalizes to lowercase. */

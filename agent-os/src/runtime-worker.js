@@ -25,8 +25,21 @@ let warmingFull = null;
 const EXECUTE_PRELUDE_LINES = 1;
 
 /**
+ * Top-level Path B batteries under /opt/cad/*.luau (require("solid") / require("route") / …).
+ * Keep in sync with agent-os/src/batteries/MANIFEST (and batteries/*.luau not subdirs).
+ */
+const TOP_BATTERY_LUAU = [
+  "solid.luau",
+  "route.luau",
+  "frames.luau",
+  "query.luau",
+  "cad.luau",
+];
+
+/**
  * cad.ir package files under /opt/cad/ir/ (require("ir") → ir/init.luau).
  * Keep in sync with agent-os/src/batteries/ir/** (manifest also at batteries/ir/MANIFEST).
+ * Staged for both execute and analyze (cad.luau eagerly requires "ir").
  */
 const IR_LUAU_FILES = [
   "init.luau",
@@ -51,9 +64,9 @@ const IR_LUAU_FILES = [
 ];
 
 /**
- * Analyze workspace: user entry + solid + typed stubs for tools/json.
- * Bare require("solid") resolves via package.path ./?.luau next to main.
- * solid's require("tools")/require("json") are rewritten to relative paths
+ * Analyze workspace: user entry + Path B batteries + ir package + tools/json stubs.
+ * Bare require("solid"|"cad"|"ir"|…) resolves via package.path next to main.
+ * Batteries' require("tools")/require("json") are rewritten to relative paths
  * because the analyzer does not load AgentOS embedded builtins.
  */
 const ANALYZE_DIR = "/tmp/cad";
@@ -153,11 +166,25 @@ async function mkdirp(path) {
 
 async function stageBatteries() {
   const b = base();
-  const solid = await fetchText(new URL("batteries/solid.luau", b).href);
   await mkdirp("/opt/cad");
   await mkdirp("/opt/cad/ir");
   await mkdirp("/opt/cad/ir/ops");
-  await vm.fs.write("/opt/cad/solid.luau", solid);
+
+  let solidOk = false;
+  await Promise.all(
+    TOP_BATTERY_LUAU.map(async (name) => {
+      try {
+        const text = await fetchText(new URL(`batteries/${name}`, b).href);
+        await vm.fs.write(`/opt/cad/${name}`, text);
+        if (name === "solid.luau") solidOk = true;
+      } catch (e) {
+        log("battery skip", name, e?.message || e);
+      }
+    }),
+  );
+  if (!solidOk) {
+    throw new Error('batteries/solid.luau missing — cannot stage Path B solid');
+  }
 
   let initOk = false;
   await Promise.all(
@@ -178,24 +205,69 @@ async function stageBatteries() {
 
 /**
  * Stage module graph for luau-analyze (no package.path prelude on user source).
+ * Includes top-level Path B batteries + full ir/ package so require("cad") works
+ * (cad.luau eagerly requires "ir").
  * @param {string} userSource
  */
 async function stageAnalyzeWorkspace(userSource) {
   const b = base();
-  const [solidSrc, toolsStub, jsonStub] = await Promise.all([
-    fetchText(new URL("batteries/solid.luau", b).href),
+  const [toolsStub, jsonStub, ...batterySrcs] = await Promise.all([
     fetchText(new URL("batteries/analyze/tools.luau", b).href),
     fetchText(new URL("batteries/analyze/json.luau", b).href),
+    ...TOP_BATTERY_LUAU.map(async (name) => {
+      try {
+        return { name, text: await fetchText(new URL(`batteries/${name}`, b).href) };
+      } catch {
+        return { name, text: null };
+      }
+    }),
   ]);
-  // Point solid at local stubs so the analyzer can load tools/json types.
-  const solidForAnalyze = solidSrc
-    .replace(/require\("tools"\)/g, 'require("./tools")')
-    .replace(/require\("json"\)/g, 'require("./json")');
 
   await mkdirp(ANALYZE_DIR);
+  await mkdirp(`${ANALYZE_DIR}/ir`);
+  await mkdirp(`${ANALYZE_DIR}/ir/ops`);
   await vm.fs.write(`${ANALYZE_DIR}/tools.luau`, toolsStub);
   await vm.fs.write(`${ANALYZE_DIR}/json.luau`, jsonStub);
-  await vm.fs.write(`${ANALYZE_DIR}/solid.luau`, solidForAnalyze);
+
+  // Point batteries at local stubs so the analyzer can load tools/json types.
+  // Peer requires (solid/route/ir) stay bare — same dir / ir package layout.
+  for (const { name, text } of batterySrcs) {
+    if (!text) continue;
+    const forAnalyze = text
+      .replace(/require\("tools"\)/g, 'require("./tools")')
+      .replace(/require\("json"\)/g, 'require("./json")');
+    await vm.fs.write(`${ANALYZE_DIR}/${name}`, forAnalyze);
+  }
+
+  // Stage ir package so require("ir") / require("cad").ir resolves under analyze.
+  // ir.host uses require("tools") — rewrite to ../tools for /tmp/cad/ir/*.luau.
+  // Nested ops use require("ir.host") etc. — leave bare (package-style).
+  let irInitOk = false;
+  await Promise.all(
+    IR_LUAU_FILES.map(async (rel) => {
+      try {
+        let text = await fetchText(new URL(`batteries/ir/${rel}`, b).href);
+        // From /tmp/cad/ir/*.luau → ../tools; from ops/*.luau → ../../tools
+        if (rel.startsWith("ops/")) {
+          text = text
+            .replace(/require\("tools"\)/g, 'require("../../tools")')
+            .replace(/require\("json"\)/g, 'require("../../json")');
+        } else {
+          text = text
+            .replace(/require\("tools"\)/g, 'require("../tools")')
+            .replace(/require\("json"\)/g, 'require("../json")');
+        }
+        await vm.fs.write(`${ANALYZE_DIR}/ir/${rel}`, text);
+        if (rel === "init.luau") irInitOk = true;
+      } catch (e) {
+        log("analyze ir skip", rel, e?.message || e);
+      }
+    }),
+  );
+  if (!irInitOk) {
+    log("analyze: ir/init.luau missing — require(\"cad\") / require(\"ir\") may fail analyze");
+  }
+
   await vm.fs.write(ANALYZE_ENTRY, userSource ?? "");
 }
 

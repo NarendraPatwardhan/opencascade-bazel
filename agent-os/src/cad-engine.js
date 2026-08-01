@@ -119,17 +119,35 @@ export class CadEngine {
   }
 
   /**
-   * Stage solid.luau + cad.ir package under /opt/cad for package.path.
-   * Writes ir/init.luau and ir/*.luau so require("ir") / require("ir.load") resolve.
+   * Stage Path B batteries + cad.ir under /opt/cad for package.path.
+   * Top-level *.luau (solid, route, frames, query, cad, …) + ir/ tree.
    */
   async stageBatteries() {
     await this.#mkdirp("/opt/cad/ir/ops");
 
-    const solid = await this.#text(this.paths.solidLuau);
-    await this.vm.fs.write("/opt/cad/solid.luau", solid);
-
     const batteriesDir = this.paths.batteriesDir
       || dirname(this.paths.solidLuau);
+
+    // Top-level batteries: solid + route + frames + query + cad aggregator
+    try {
+      const entries = readdirSync(batteriesDir);
+      for (const name of entries) {
+        if (!name.endsWith(".luau") && !name.endsWith(".lua")) continue;
+        const hostPath = join(batteriesDir, name);
+        try {
+          if (!statSync(hostPath).isFile()) continue;
+        } catch {
+          continue;
+        }
+        const text = await this.#text(hostPath);
+        await this.vm.fs.write(`/opt/cad/${name}`, text);
+      }
+    } catch {
+      // Fallback: at least stage solid.luau from configured path
+      const solid = await this.#text(this.paths.solidLuau);
+      await this.vm.fs.write("/opt/cad/solid.luau", solid);
+    }
+
     const irDir = join(batteriesDir, "ir");
     try {
       if (statSync(irDir).isDirectory()) {
