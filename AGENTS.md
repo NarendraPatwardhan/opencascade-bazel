@@ -11,6 +11,18 @@ Instructions for AI coding agents working in this repository. Prefer this file o
 - C++ exists only as an implementation detail of the wrapper and of OCCT itself.
 - **AgentOS-based Luau scripting** is a **separate BSL product path** under [`agent-os/`](agent-os/) only.
 
+### Sketch & geometric constraint solving (binding)
+
+Parametric **Sketch2D / SolveSketch** is **not** ordinary `occ_c` growth.
+
+- **Process law:** [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md) — **depth-first**, one **Active Slice** at a time, **exceptional** algorithmic Seal bar before the next slice.  
+- **Design authority:** [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md).  
+- **MAS:** parallelize only *within* the Active Slice (implement / test / critique). Do **not** fan out across constraint types.  
+- **License:** no SolveSpace / `libslvs` link or co-ship. Clean-room only.  
+- Dual-goal smokes stay on **ExplicitCoords**; do not block them on Newton.
+
+If a sketch plan conflicts with the constitution, **the constitution wins**.
+
 ### Explicit non-goals
 
 - Do **not** expand the project into a C++ application or sample suite.

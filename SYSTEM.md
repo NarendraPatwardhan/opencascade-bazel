@@ -5,7 +5,7 @@
 **Audience:** Humans and AI agents working on this project  
 **Status:** Living document — update when intent changes; do not silently drift  
 **Last restated:** 2026-07-31  
-**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`api/include/occ_c.h`](api/include/occ_c.h) (C ABI taught in-code)
+**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md) (sketch design) · [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md) (**binding** sketch/solve process) · [`api/include/occ_c.h`](api/include/occ_c.h) (C ABI taught in-code)
 
 ---
 
@@ -390,7 +390,7 @@ Primitives (box/cyl/sphere/cone/torus/wedge), booleans, fillet/chamfer/shell/off
 
 **Done in `occ_c` (2026-08-01):** history session v0 + named frames, clash/distance, patterns, simple holes, RoutePath + pipe annulus, compose_chain FK, compounds/split, mass props. See clean-room report **§6.5–§6.6**.
 
-**Still `occ_c`-dependent and open:** primarily **Sketch2D + constraints** (design authority: [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md); dual-goal demos must not wait on Newton); richer construction; deeper selectors/attrs; optional P1 face-edit/gusset/draft.  
+**Still `occ_c`-dependent and open:** primarily **Sketch2D + constraints** — design: [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md); **process (depth-first Seal gates):** [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md). Dual-goal demos must not wait on Newton. Also: richer construction; deeper selectors/attrs; optional P1 face-edit/gusset/draft.  
 
 **Host/IR (not pure C):** assembly mate solver, catalogs/URDF, MeshPrep/NL, instance tables.
 
@@ -603,7 +603,8 @@ We do **not** claim: “open-source FeatureScript” or “Parasolid replacement
 6. Name things with **our** IR/Luau vocabulary in product code.  
 7. Every substantial capability should answer: **AI-BOOST? Robot? Pri? occ_c? IR op? Luau module?**  
 8. Ship **demoable slices** with export + failure surfacing; do not infinite-polish sheet metal.  
-9. Update this file when the owner changes intent — do not leave SYSTEM lying.
+9. Update this file when the owner changes intent — do not leave SYSTEM lying.  
+10. **Sketch / SolveSketch work** follows [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md): one Active Slice, exceptional Seal bar, MAS only within the slice — **not** wide `occ_c`-style growth.
 
 ---
 

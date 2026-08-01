@@ -5,7 +5,9 @@
 **Date:** 2026-08-01  
 **Source analyzed:** [github.com/solvespace/solvespace](https://github.com/solvespace/solvespace) — study tree `/mnt/workspace/SolveSpace` at commit `81f473ff18e2b1ffa7de389b7cf76daf1ac739c2` (shallow clone; **GPLv3 or later**). Reader reference only — **not** a product dependency.  
 **Method:** Clean-room architecture read of the SolveSpace sketch model and geometric constraint solver; dual-goal prioritization against our AI-BOOST and 6-DOF robot goals.  
-**Sister document:** Solids, features, host op façade, dual-goal solid matrix → [`docs/cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md). **This document is the authority for Sketch2D / SolveSketch only** (closes FS §6.6 **A1**).
+**Sister document:** Solids, features, host op façade, dual-goal solid matrix → [`docs/cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md). **This document is the design authority for Sketch2D / SolveSketch** (closes FS §6.6 **A1**).  
+
+**Process law (binding):** Implementation order, quality gates, and MAS rules → [`docs/sketch-solve-constitution.md`](sketch-solve-constitution.md). Depth-first Active Slices; **not** wide iterative façade growth.
 
 **Product goals (every matrix column):**
 
@@ -996,6 +998,7 @@ This report is **standalone** for Sketch2D / SolveSketch. Cross-links (not depen
 | Document | Role |
 |----------|------|
 | [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Solids, host ops, dual-goal solid matrix; §6.6 **A1** gap id only |
+| [`sketch-solve-constitution.md`](sketch-solve-constitution.md) | **Binding** depth-first process, Seal bar, MAS parallel rules, Active Slice board |
 | [`../SYSTEM.md`](../SYSTEM.md) | Product north star; dual goals; demos must not wait on Newton |
 | [`../AGENTS.md`](../AGENTS.md) | How to change Apache `api/` / Bazel; license boundary |
 | [`../api/include/occ_c.h`](../api/include/occ_c.h) | Existing construct / solid C ABI for ExplicitCoords profiles |

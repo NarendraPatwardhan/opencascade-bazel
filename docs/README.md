@@ -10,7 +10,8 @@ Canonical docs for this repository. Prefer **one home per topic**.
 | [`../AGENTS.md`](../AGENTS.md) | How to code here (C ABI, Bazel/bb, license boundary) |
 | [`../README.md`](../README.md) | User-facing product overview |
 | [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Clean-room capability matrix + IR sketches (solids / host façade) |
-| [`cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) | Clean-room **Sketch2D / SolveSketch** — parametric 2D + constraint solve only |
+| [`cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) | Clean-room **Sketch2D / SolveSketch** — parametric 2D + constraint solve design |
+| [`sketch-solve-constitution.md`](sketch-solve-constitution.md) | **Binding** sketch/solve process — depth-first Active Slice, exceptional Seal bar, MAS rules |
 | [`browser-demo.png`](browser-demo.png) | Browser vertical-slice screenshot |
 
 ## Where the C API is taught
