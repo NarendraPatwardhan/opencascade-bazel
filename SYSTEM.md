@@ -135,6 +135,7 @@ Deep research into **SolidWorks / Onshape / Fusion** was requested to inform an 
 | **`REACTIVITY.md`** | Reactive **params / gimbals**: tiered re-eval, CADAM + Ao steal lists |
 | **`docs/README.md`** | Index of remaining docs (no pointer-only stubs) |
 | **`docs/cleanroom-featurescript-std-report.md`** | Team A clean-room learning: FS std architecture, dual-goal capability matrix, IR sketches |
+| **`docs/cleanroom-solvespace-sketch-solve-report.md`** | Clean-room **Sketch2D / SolveSketch** (parametric 2D + constraints); authority for FS §6.6 A1 |
 | **`api/include/occ_c*.h` + `api/src/`** | C kernel expansion — taught via in-code comments (not a separate literate tree) |
 | **`agent-os/TASKS.md`** | Implementation checklist for the browser scripting vertical slice |
 | **`README.md`** | User-facing C-API-first overview |
@@ -389,11 +390,11 @@ Primitives (box/cyl/sphere/cone/torus/wedge), booleans, fillet/chamfer/shell/off
 
 **Done in `occ_c` (2026-08-01):** history session v0 + named frames, clash/distance, patterns, simple holes, RoutePath + pipe annulus, compose_chain FK, compounds/split, mass props. See clean-room report **§6.5–§6.6**.
 
-**Still `occ_c`-dependent and open:** primarily **Sketch2D + constraints**; richer construction; deeper selectors/attrs; optional P1 face-edit/gusset/draft.  
+**Still `occ_c`-dependent and open:** primarily **Sketch2D + constraints** (design authority: [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md); dual-goal demos must not wait on Newton); richer construction; deeper selectors/attrs; optional P1 face-edit/gusset/draft.  
 
 **Host/IR (not pure C):** assembly mate solver, catalogs/URDF, MeshPrep/NL, instance tables.
 
-See clean-room report §6–§8 / §6.6 for the authoritative remaining list.
+See clean-room report §6–§8 / §6.6 for the authoritative remaining solid/host list; sketch/solve closure plan is the sketch cleanroom doc.
 
 ### 6.5 Build / RBE
 
