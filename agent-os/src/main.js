@@ -1,35 +1,35 @@
-import { showMesh } from "./mesh-view.js";
+/**
+ * Host loop: editor + param sheet + scheduler + worker + viewport.
+ * sourceMode: 'demo' | 'editor'
+ */
+
+import { createViewport } from "./view/index.js";
 import { mountLuauEditor } from "./luau-editor.js";
+import { createParamStore } from "./params/store.js";
+import { mountParamSheet } from "./params/sheet.js";
+import { extractParams, mergeParams } from "./params/extract.js";
+import { createScheduler } from "./eval/scheduler.js";
+import {
+  BLOCK_HOLE_PARAMS,
+  blockHoleSource,
+} from "./demos/block-hole-params.js";
 
-const DEFAULT_SOURCE = `local solid = require("solid")
-
-local block = solid.box({ dx = 20, dy = 20, dz = 12 })
-local drill = solid.cylinder({
-  radius = 4,
-  height = 16,
-  origin = { 10, 10, -2 },
-  axis = { 0, 0, 1 },
-})
-local part = solid.cut(block, drill)
-solid.finish(part, { name = "block_hole" })
-`;
-
-/** Debounce for Phase B luau-analyze markers (ms). */
 const ANALYZE_DEBOUNCE_MS = 550;
 
 const els = {
   editorHost: document.querySelector("#editor"),
   run: document.querySelector("#run"),
-  warm: document.querySelector("#warm"),
   status: document.querySelector("#status"),
   log: document.querySelector("#log"),
   viewport: document.querySelector("#viewport"),
   meta: document.querySelector("#meta"),
+  params: document.querySelector("#params"),
 };
 
 /** @type {Awaited<ReturnType<typeof mountLuauEditor>> | null} */
 let editor = null;
-let disposeView = null;
+/** @type {Awaited<ReturnType<typeof createViewport>> | null} */
+let viewport = null;
 let nextId = 1;
 /** @type {Worker | null} */
 let worker = null;
@@ -40,27 +40,96 @@ let configReady = null;
 
 /** @type {ReturnType<typeof setTimeout> | null} */
 let analyzeTimer = null;
-/** Monotonic generation so stale analyze replies are ignored. */
 let analyzeGen = 0;
-/** @type {Promise<void> | null} */
-let analyzeInFlight = null;
-/** Last analyze error count (for idle status). */
 let lastAnalyzeErrors = 0;
-/** True while execute is running — avoid overwriting run status with analyze. */
 let isRunning = false;
+
+/** @type {'demo'|'editor'} */
+let sourceMode = "demo";
+
+const paramStore = createParamStore(BLOCK_HOLE_PARAMS);
+// Param scrub always rebuilds (debounced). No Live checkbox / Apply in UI.
+paramStore.setLiveRebuild(true);
+
+/** @type {ReturnType<typeof mountParamSheet> | null} */
+let paramSheet = null;
+
+const scheduler = createScheduler({
+  debounceMs: 200,
+  getLiveRebuild: () => true,
+  onView(params) {
+    const p =
+      params.find((x) => x.name === "show_grid") || paramStore.get("show_grid");
+    if (viewport && p) viewport.setOptions({ grid: !!p.value });
+  },
+  onXform(params) {
+    const yaw =
+      params.find((x) => x.name === "yaw") || paramStore.get("yaw");
+    if (viewport && yaw) applyYaw(Number(yaw.value) || 0);
+  },
+  async onRebuild(params, meta) {
+    const gen = meta.generation ?? paramStore.generation;
+    await runSource({ fromParams: true, fit: false, generation: gen });
+  },
+});
 
 function setStatus(text, isError = false) {
   els.status.textContent = text;
   els.status.dataset.error = isError ? "1" : "0";
 }
 
+/** User-facing log: drop host result markers and empty noise. */
 function appendLog(line) {
-  els.log.textContent += line + "\n";
+  const cleaned = String(line)
+    .split(/\r?\n/)
+    .filter((l) => l && !l.includes("__OCC_CAD_RESULT__"))
+    .join("\n")
+    .trim();
+  if (!cleaned) return;
+  els.log.textContent += cleaned + "\n";
   els.log.scrollTop = els.log.scrollHeight;
 }
 
+/** Yaw about world Y (input degrees from the param sheet). */
+function yawMatrixY(deg) {
+  const rad = (Number(deg) || 0) * (Math.PI / 180);
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return [
+    c, 0, -s, 0,
+    0, 1, 0, 0,
+    s, 0, c, 0,
+    0, 0, 0, 1,
+  ];
+}
+
+function applyYaw(deg) {
+  if (!viewport) return;
+  viewport.setRootMatrix(yawMatrixY(deg));
+}
+
+function sourceFromParams() {
+  return blockHoleSource(paramStore.values());
+}
+
 function getSource() {
-  return editor ? editor.getValue() : DEFAULT_SOURCE;
+  if (sourceMode === "demo") return sourceFromParams();
+  return editor ? editor.getValue() : sourceFromParams();
+}
+
+function syncEditorFromParams() {
+  if (!editor || sourceMode !== "demo") return;
+  const src = sourceFromParams();
+  if (editor.getValue() !== src) editor.setValue(src);
+}
+
+function syncParamsFromEditor() {
+  if (sourceMode !== "editor") return;
+  const src = editor?.getValue?.() || "";
+  const extracted = extractParams(src);
+  if (extracted.length) {
+    paramStore.replace(mergeParams(extracted, BLOCK_HOLE_PARAMS));
+  }
 }
 
 function ensureWorker() {
@@ -74,7 +143,6 @@ function ensureWorker() {
     const slot = pending.get(msg.id);
     if (!slot) return;
     pending.delete(msg.id);
-    // Analyze always resolves (markers live in diagnostics); execute rejects on code≠0.
     if (msg.kind === "analyze" || msg.code === 0) slot.resolve(msg);
     else {
       const err = new Error(msg.error || `worker code ${msg.code}`);
@@ -88,12 +156,11 @@ function ensureWorker() {
     setStatus(`Worker error: ${ev.message}`, true);
     appendLog(`worker error: ${ev.message}`);
   };
-  // import.meta.url is …/agent-os/src/main.js → assets at …/agent-os/
   const base = new URL("../", import.meta.url).href;
-  configReady = callWorker({ kind: "config", assetBase: base }).then(() => undefined);
-  configReady.catch((err) => {
-    appendLog(`config failed: ${err.message}`);
-  });
+  configReady = callWorker({ kind: "config", assetBase: base }).then(
+    () => undefined,
+  );
+  configReady.catch((err) => appendLog(`config failed: ${err.message}`));
   return worker;
 }
 
@@ -124,45 +191,98 @@ async function ensureConfigured() {
   if (configReady) await configReady;
 }
 
+async function ensureViewport() {
+  if (viewport) return viewport;
+  viewport = await createViewport(els.viewport, { grid: true });
+  viewport.setFrames([
+    {
+      id: "F_PART",
+      origin: [0, 0, 0],
+      axes: { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] },
+    },
+  ]);
+  refreshGimbals();
+  const grid = paramStore.get("show_grid");
+  if (grid) viewport.setOptions({ grid: !!grid.value });
+  return viewport;
+}
+
+function refreshGimbals() {
+  if (!viewport) return;
+  const bindings = paramStore
+    .list()
+    .filter((p) => p.frame && (p.scrub === "xform" || p.unit === "rad"));
+  viewport.setGimbals(bindings, {
+    onChange(name, value) {
+      paramStore.set(name, value, { phase: "change" });
+    },
+    onCommit(name, value) {
+      paramStore.set(name, value, { phase: "commit", force: true });
+    },
+  });
+}
+
 /**
- * Phase B: run luau-analyze and paint Monaco markers.
- * @param {string} source
- * @param {{ quiet?: boolean }} [opts]
+ * @param {object} m worker mesh
+ * @param {{ fit?: boolean }} [opts]
  */
+async function presentMesh(m, opts = {}) {
+  const vp = await ensureViewport();
+  if (Array.isArray(m.bodies) && m.bodies.length) {
+    vp.setBodies(m.bodies, { fit: opts.fit !== false });
+  } else {
+    vp.setBodies(
+      [
+        {
+          id: m.id || "body0",
+          positions: m.positions,
+          normals: m.normals,
+          indices: m.indices,
+          color: m.color || "#00a6ff",
+          bbox: m.bbox,
+          volume: m.volume,
+        },
+      ],
+      { fit: opts.fit !== false },
+    );
+  }
+  const yaw = paramStore.get("yaw");
+  if (yaw && typeof yaw.value === "number") applyYaw(yaw.value);
+  const grid = paramStore.get("show_grid");
+  if (grid) vp.setOptions({ grid: !!grid.value });
+  refreshGimbals();
+  return vp;
+}
+
 async function runAnalyze(source, opts = {}) {
   const gen = ++analyzeGen;
-  const quiet = opts.quiet === true || isRunning;
+  const quiet = opts.quiet === true || isRunning || scheduler.busy;
   try {
     await ensureConfigured();
     if (!quiet) setStatus("Analyzing…");
-    const reply = await callWorker(
-      { kind: "analyze", source },
-      120_000,
-    );
-    if (gen !== analyzeGen) return; // superseded
+    const reply = await callWorker({ kind: "analyze", source }, 120_000);
+    if (gen !== analyzeGen) return;
     const diags = reply.diagnostics || [];
     lastAnalyzeErrors = diags.filter((d) => d.severity === "error").length;
     editor?.setAnalyzeMarkers?.(diags);
-    if (!isRunning) {
+    if (!isRunning && !scheduler.busy) {
       if (lastAnalyzeErrors > 0) {
         setStatus(
-          `Analyze: ${lastAnalyzeErrors} error${lastAnalyzeErrors === 1 ? "" : "s"}` +
-            (diags.length > lastAnalyzeErrors
-              ? ` (${diags.length} diagnostics)`
-              : ""),
+          `Analyze: ${lastAnalyzeErrors} error${lastAnalyzeErrors === 1 ? "" : "s"}`,
           true,
         );
       } else if (diags.length > 0) {
         setStatus(`Analyze: ${diags.length} warning(s)`);
       } else {
-        setStatus("Ready — no analyze errors. Run (or Mod-Enter).");
+        setStatus("Ready");
       }
     }
   } catch (err) {
     if (gen !== analyzeGen) return;
-    // Analyzer bootstrap failures should not hard-block editing.
     appendLog(`analyze failed: ${err.message}`);
-    if (!isRunning) setStatus(`Analyze unavailable: ${err.message}`, true);
+    if (!isRunning && !scheduler.busy) {
+      setStatus(`Analyze unavailable: ${err.message}`, true);
+    }
   }
 }
 
@@ -170,16 +290,10 @@ function scheduleAnalyze(source) {
   if (analyzeTimer) clearTimeout(analyzeTimer);
   analyzeTimer = setTimeout(() => {
     analyzeTimer = null;
-    analyzeInFlight = runAnalyze(source).finally(() => {
-      analyzeInFlight = null;
-    });
+    void runAnalyze(source);
   }, ANALYZE_DEBOUNCE_MS);
 }
 
-/**
- * Apply diagnostics if present (execute path may attach them).
- * @param {unknown} diags
- */
 function applyDiagnostics(diags) {
   if (!editor?.setAnalyzeMarkers) return;
   if (Array.isArray(diags) && diags.length) {
@@ -188,105 +302,137 @@ function applyDiagnostics(diags) {
   }
 }
 
-async function runSource() {
+/**
+ * @param {{ fit?: boolean, fromParams?: boolean, generation?: number }} [opts]
+ */
+async function runSource(opts = {}) {
   if (analyzeTimer) {
     clearTimeout(analyzeTimer);
     analyzeTimer = null;
   }
-  els.run.disabled = true;
-  isRunning = true;
-  setStatus("Running Luau…");
-  els.log.textContent = "";
+  const fromParams = opts.fromParams === true;
+  const gen = opts.generation ?? paramStore.generation;
+  isRunning = !fromParams;
+
+  if (els.run) els.run.disabled = true;
+  setStatus(fromParams ? "Updating…" : "Running…");
+  if (!fromParams) els.log.textContent = "";
+
   try {
     await ensureConfigured();
-    // Fresh analyze so markers match what we execute (Phase B).
-    await runAnalyze(getSource(), { quiet: true });
+    if (fromParams && sourceMode === "demo") syncEditorFromParams();
+    const source = getSource();
+    await runAnalyze(source, { quiet: true });
+
+    if (fromParams && gen < paramStore.generation) return;
+
     const reply = await callWorker(
-      {
-        kind: "execute",
-        source: getSource(),
-        deflection: 0.2,
-      },
+      { kind: "execute", source, deflection: 0.2 },
       300_000,
     );
+
+    if (fromParams && gen < paramStore.generation) return;
+
     applyDiagnostics(reply.diagnostics);
     if (!reply.diagnostics?.length) editor?.clearAnalyzeMarkers?.();
     const m = reply.mesh;
     if (!m?.positions || !m?.indices) throw new Error("no mesh in reply");
+
     setStatus(
-      `OK — ${m.vertexCount ?? m.positions.length / 3} verts, ` +
+      `${m.vertexCount ?? m.positions.length / 3} verts · ` +
         `${((m.indexCount ?? m.indices.length) / 3) | 0} tris` +
-        (m.volume != null ? `, vol≈${m.volume.toFixed(2)}` : ""),
+        (m.volume != null ? ` · vol ${m.volume.toFixed(1)}` : ""),
     );
-    els.meta.textContent = JSON.stringify(reply.meta, null, 2);
-    if (reply.stdout) appendLog(reply.stdout.trim());
-    if (disposeView) disposeView();
-    disposeView = await showMesh(els.viewport, {
-      positions: m.positions,
-      normals: m.normals,
-      indices: m.indices,
-      color: "#00a6ff",
-      bbox: m.bbox,
-      volume: m.volume,
-    });
+    if (els.meta) {
+      els.meta.hidden = true;
+      els.meta.textContent = JSON.stringify(reply.meta, null, 2);
+    }
+    if (reply.stdout) appendLog(reply.stdout);
+
+    const fit = opts.fit !== undefined ? opts.fit : !fromParams || !viewport;
+    await presentMesh(m, { fit });
+    paramStore.markGood(gen);
+    viewport?.setOptions({ stale: false });
   } catch (err) {
     applyDiagnostics(/** @type {any} */ (err).diagnostics);
     setStatus(err.message, true);
     appendLog(`error: ${err.message}`);
     const stderr = /** @type {any} */ (err).stderr;
     if (stderr) appendLog(String(stderr).trim());
+    if (fromParams) {
+      viewport?.setOptions({
+        stale: true,
+        staleMessage: "Update failed",
+      });
+    }
   } finally {
     isRunning = false;
-    els.run.disabled = false;
+    if (els.run) els.run.disabled = false;
   }
 }
 
-els.warm.addEventListener("click", async () => {
-  els.warm.disabled = true;
-  setStatus("Warming AgentOS + OCCT (first load downloads ~35MB)…");
-  try {
-    await ensureConfigured();
-    const reply = await callWorker({ kind: "warm" }, 300_000);
-    setStatus(`Warm: OCCT ${reply.meta?.occVersion || "?"}`);
-    appendLog(`warm ok: ${JSON.stringify(reply.meta)}`);
-  } catch (err) {
-    setStatus(err.message, true);
-    appendLog(`warm failed: ${err.message}`);
-  } finally {
-    els.warm.disabled = false;
-  }
-});
+function onParamsChanged(params, meta = {}) {
+  refreshGimbals();
+  // Keep Luau panel matched to sliders while still in demo mode
+  if (sourceMode === "demo") syncEditorFromParams();
+  scheduler.dispatch(params, meta, { liveRebuild: true });
+}
+
+paramStore.subscribe(onParamsChanged);
+
+if (els.params) {
+  paramSheet = mountParamSheet(els.params, paramStore, { debounceMs: 200 });
+}
 
 els.run.addEventListener("click", () => {
-  void runSource();
+  // Run means free-edit path: execute whatever is in the editor
+  sourceMode = "editor";
+  syncParamsFromEditor();
+  void runSource({ fit: true });
 });
+
+/** Background warm: first Run / slider rebuild is already slow without this. */
+async function autoWarm() {
+  try {
+    setStatus("Loading runtime…");
+    await ensureConfigured();
+    const reply = await callWorker({ kind: "warm" }, 300_000);
+    setStatus(`Ready · OCCT ${reply.meta?.occVersion || "?"}`);
+  } catch (err) {
+    setStatus(err.message, true);
+    appendLog(`error: ${err.message}`);
+  }
+}
 
 setStatus("Loading editor…");
 mountLuauEditor({
   parent: els.editorHost,
-  doc: DEFAULT_SOURCE,
+  doc: sourceFromParams(),
   autoFocus: true,
   onRun: () => {
-    void runSource();
+    sourceMode = "editor";
+    syncParamsFromEditor();
+    void runSource({ fit: true });
   },
   onChange: (doc) => {
+    sourceMode = "editor";
     scheduleAnalyze(doc);
   },
 })
   .then((handle) => {
     editor = handle;
-    setStatus("Ready — Warm once, then Run (or Mod-Enter). Completions: solid.");
-    // Initial analyze after VM can load (debounced so warm isn't forced immediately).
-    scheduleAnalyze(handle.getValue());
+    void autoWarm().then(() => {
+      // First mesh from demo params once runtime is hot
+      void runSource({ fromParams: true, fit: true });
+    });
   })
   .catch((err) => {
-    setStatus(`Editor failed to load: ${err.message}`, true);
+    setStatus(`Editor failed: ${err.message}`, true);
     appendLog(String(err.stack || err));
-    // Fallback: plain textarea so the demo still works offline/CDN-blocked.
     const ta = document.createElement("textarea");
     ta.id = "source";
     ta.spellcheck = false;
-    ta.value = DEFAULT_SOURCE;
+    ta.value = sourceFromParams();
     ta.setAttribute("aria-label", "Luau source");
     els.editorHost.replaceWith(ta);
     editor = {
@@ -299,6 +445,9 @@ mountLuauEditor({
       setAnalyzeMarkers: () => undefined,
       clearAnalyzeMarkers: () => undefined,
     };
-    ta.addEventListener("input", () => scheduleAnalyze(ta.value));
-    setStatus("Ready (plain textarea fallback) — Run Luau.");
+    ta.addEventListener("input", () => {
+      sourceMode = "editor";
+      scheduleAnalyze(ta.value);
+    });
+    void autoWarm();
   });

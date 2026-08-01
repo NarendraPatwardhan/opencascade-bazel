@@ -3,46 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>occ_c × AgentOS — browser CAD demo</title>
+    <title>occ_c × AgentOS</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="bar">
       <div class="brand">
         <strong>occ_c</strong>
-        <span class="muted">× AgentOS loom</span>
+        <span class="muted">× AgentOS</span>
       </div>
       <div class="actions">
-        <button type="button" id="warm">Warm</button>
-        <button type="button" id="run" class="primary">Run Luau</button>
+        <button type="button" id="run" class="primary">Run</button>
       </div>
     </header>
 
     <main class="layout">
       <section class="panel editor-panel">
-        <h2>Luau <span class="hint-inline">Mod-Enter to run</span></h2>
-        <!-- Monaco + Luau Monarch (icebearc/monaco-luau lineage); Mod-Enter runs. -->
-        <div id="editor" class="editor-host" role="textbox" aria-label="Luau source" aria-multiline="true"></div>
-        <p class="hint">
-          Uses <code>require("tools")</code> host ops via <code>solid.*</code>. Call
-          <code>solid.finish(root)</code> so the host can mesh.
-        </p>
+        <h2>Luau</h2>
+        <div
+          id="editor"
+          class="editor-host"
+          role="textbox"
+          aria-label="Luau source"
+          aria-multiline="true"
+        ></div>
         <pre id="log" class="log" aria-live="polite"></pre>
       </section>
 
       <section class="panel view-panel">
-        <h2>Solid</h2>
+        <h2>View</h2>
         <div id="status" class="status">Starting…</div>
-        <div id="viewport" class="viewport" role="img" aria-label="3D mesh viewport"></div>
-        <pre id="meta" class="meta"></pre>
+        <div
+          id="viewport"
+          class="viewport"
+          role="img"
+          aria-label="3D viewport"
+        ></div>
+        <pre id="meta" class="meta" hidden></pre>
       </section>
+
+      <aside class="panel params-panel" aria-label="Parameters">
+        <div id="params"></div>
+      </aside>
     </main>
 
     <footer class="foot">
-      Apache-2.0 <code>occ_c</code> kernel · BSL AgentOS runtime under <code>/agent-os/</code>
+      Apache-2.0 <code>occ_c</code> · BSL <code>agent-os/</code>
     </footer>
 
-    <!-- App modules are served from /agent-os/src/ -->
     <script type="module" src="/agent-os/src/main.js"></script>
   </body>
 </html>
