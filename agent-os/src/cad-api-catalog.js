@@ -295,8 +295,15 @@ export const MODULES = [
   {
     name: "solid",
     label: 'require("solid")',
-    documentation: "CAD solid helpers (host-backed OCCT ops).",
+    documentation: "CAD solid helpers (host-backed OCCT ops). Path B imperative surface.",
     insertText: 'require("solid")',
+  },
+  {
+    name: "ir",
+    label: 'require("ir")',
+    documentation:
+      "Portable CAD IR runtime (cad.ir/v0). Path A: load/bind/validate/eval IR documents.",
+    insertText: 'require("ir")',
   },
   {
     name: "json",
@@ -312,6 +319,42 @@ export const MODULES = [
   },
 ];
 
+/** Host cad.call ops (OccBridge) — keep aligned with occ-bridge.js */
+export const HOST_CAD_OPS = [
+  "kernel_version",
+  "make_box",
+  "make_cylinder",
+  "make_sphere",
+  "make_cone",
+  "make_torus",
+  "fuse",
+  "cut",
+  "intersect",
+  "translate",
+  "rotate",
+  "scale",
+  "mirror",
+  "extrude",
+  "pipe",
+  "fillet_all",
+  "pattern_linear",
+  "pattern_polar",
+  "clash",
+  "distance",
+  "volume",
+  "bbox",
+  "mesh",
+  "mesh_stats",
+  "shape_free",
+  "free_all",
+  "make_route",
+  "make_route_bends",
+  "pipe_annulus",
+  "compose_chain",
+  "trsf_apply",
+  "frame_from_axes",
+];
+
 /** Snippets for common patterns */
 export const SNIPPETS = [
   {
@@ -325,6 +368,12 @@ export const SNIPPETS = [
     documentation: "Box with cylindrical hole.",
     insertText:
       'local solid = require("solid")\n\nlocal block = solid.box({ dx = ${1:20}, dy = ${2:20}, dz = ${3:12} })\nlocal drill = solid.cylinder({\n  radius = ${4:4},\n  height = ${5:16},\n  origin = { ${6:10}, ${7:10}, ${8:-2} },\n  axis = { 0, 0, 1 },\n})\nlocal part = solid.cut(block, drill)\nsolid.finish(part, { name = "${9:block_hole}" })\n',
+  },
+  {
+    label: "cad-ir-box-cut",
+    documentation: "Path A: evaluate box-cut IR document and emit demo marker.",
+    insertText:
+      'local ir = require("ir")\nlocal json = require("json")\n\nlocal doc = ir.load([==[\n${1:-- paste cad.ir/v0 JSON}\n]==])\nif ir.is_fail(doc) then error(doc.error.message) end\nlocal res = ir.run_demo(doc)\nif ir.is_fail(res) or res.ok == false then error((res.error and res.error.message) or "ir eval failed") end\n',
   },
 ];
 

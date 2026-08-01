@@ -21,8 +21,34 @@ let mcApi = null;
 let warmingVm = null;
 let warmingFull = null;
 
-/** Execute still prepends package.path (1 line) for /opt/cad solid. */
+/** Execute still prepends package.path (1 line) for /opt/cad solid + ir. */
 const EXECUTE_PRELUDE_LINES = 1;
+
+/**
+ * cad.ir package files under /opt/cad/ir/ (require("ir") → ir/init.luau).
+ * Keep in sync with agent-os/src/batteries/ir/** (manifest also at batteries/ir/MANIFEST).
+ */
+const IR_LUAU_FILES = [
+  "init.luau",
+  "errors.luau",
+  "limits.luau",
+  "registry.luau",
+  "host.luau",
+  "load.luau",
+  "bind.luau",
+  "validate.luau",
+  "resolve.luau",
+  "eval.luau",
+  "demo.luau",
+  "canonical.luau",
+  "ops/prims.luau",
+  "ops/boolean.luau",
+  "ops/xform.luau",
+  "ops/route.luau",
+  "ops/frames.luau",
+  "ops/measure.luau",
+  "ops/chain.luau",
+];
 
 /**
  * Analyze workspace: user entry + solid + typed stubs for tools/json.
@@ -126,9 +152,28 @@ async function mkdirp(path) {
 }
 
 async function stageBatteries() {
-  const solid = await fetchText(new URL("batteries/solid.luau", base()).href);
+  const b = base();
+  const solid = await fetchText(new URL("batteries/solid.luau", b).href);
   await mkdirp("/opt/cad");
+  await mkdirp("/opt/cad/ir");
+  await mkdirp("/opt/cad/ir/ops");
   await vm.fs.write("/opt/cad/solid.luau", solid);
+
+  let initOk = false;
+  await Promise.all(
+    IR_LUAU_FILES.map(async (rel) => {
+      try {
+        const text = await fetchText(new URL(`batteries/ir/${rel}`, b).href);
+        await vm.fs.write(`/opt/cad/ir/${rel}`, text);
+        if (rel === "init.luau") initOk = true;
+      } catch (e) {
+        log("ir battery skip", rel, e?.message || e);
+      }
+    }),
+  );
+  if (!initOk) {
+    throw new Error('batteries/ir/init.luau missing — cannot stage cad.ir (require("ir"))');
+  }
 }
 
 /**
@@ -197,7 +242,8 @@ async function execute(req) {
   const source = req.source;
   if (!source?.trim()) throw new Error("empty Luau source");
 
-  const wrapped = `package.path = "/opt/cad/?.luau;" .. package.path\n` + source;
+  const wrapped =
+    `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` + source;
   const result = await vm.luau(wrapped);
   if (result.exitCode !== 0) {
     const raw = `${result.stdout || ""}\n${result.stderr || ""}`;

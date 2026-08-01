@@ -1,0 +1,23 @@
+{
+  "example": "box_cut_cyl.cad.json",
+  "description": "Measure-only golden for box-cut Path A. Never assert absolute shape ids (K16).",
+  "expect": {
+    "ok": true,
+    "root": "body_cut",
+    "measures": {
+      "viz": {
+        "kind": "mesh",
+        "deflection": 0.001
+      }
+    },
+    "volume_optional": {
+      "op": "body_cut",
+      "mode": "volume",
+      "note": "If QueryGeom volume is run post-eval, volume of 0.1³ box minus cylinder is positive and less than 0.001 m³"
+    }
+  },
+  "tolerances": {
+    "length_m": 1e-6,
+    "volume_rel": 1e-6
+  }
+}

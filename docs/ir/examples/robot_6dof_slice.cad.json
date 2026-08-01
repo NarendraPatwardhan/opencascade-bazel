@@ -1,0 +1,112 @@
+{
+  "ir_schema": "cad.ir/v0",
+  "id": "robot_6dof_slice",
+  "version": "0.1.0",
+  "units": { "length": "meter", "angle": "radian", "store": "SI" },
+  "params": {
+    "L0": 0.15, "L1": 0.45, "L2": 0.40, "L3": 0.12, "L4": 0.10, "L5": 0.08,
+    "th0": 0.35, "th1": -0.60, "th2": 1.10, "th3": 0.20, "th4": -0.40, "th5": 0.80
+  },
+  "ops": [
+    {
+      "id": "link0",
+      "op": "PrimBox",
+      "params": { "dx": 0.20, "dy": 0.20, "dz": { "param": "L0" }, "corner": "centered_xy_bottom" }
+    },
+    {
+      "id": "link1",
+      "op": "PrimCylinder",
+      "params": { "radius": 0.055, "height": { "param": "L1" }, "axis": [0, 0, 1] }
+    },
+    {
+      "id": "link2",
+      "op": "PrimCylinder",
+      "params": { "radius": 0.045, "height": { "param": "L2" }, "axis": [0, 0, 1] }
+    },
+    {
+      "id": "link3",
+      "op": "PrimCylinder",
+      "params": { "radius": 0.035, "height": { "param": "L3" }, "axis": [0, 0, 1] }
+    },
+    {
+      "id": "link4",
+      "op": "PrimCylinder",
+      "params": { "radius": 0.030, "height": { "param": "L4" }, "axis": [0, 0, 1] }
+    },
+    {
+      "id": "link5",
+      "op": "PrimCylinder",
+      "params": { "radius": 0.028, "height": { "param": "L5" }, "axis": [0, 0, 1] }
+    },
+    {
+      "id": "fk",
+      "op": "ComposeChain",
+      "params": {
+        "origins": [
+          [0, 0, 0],
+          [0, 0, 0.15],
+          [0, 0, 0.45],
+          [0, 0, 0.40],
+          [0, 0, 0.12],
+          [0, 0, 0.10]
+        ],
+        "axes": [
+          [0, 0, 1],
+          [0, 1, 0],
+          [0, 1, 0],
+          [0, 0, 1],
+          [0, 1, 0],
+          [0, 0, 1]
+        ],
+        "angles": [
+          { "param": "th0" }, { "param": "th1" }, { "param": "th2" },
+          { "param": "th3" }, { "param": "th4" }, { "param": "th5" }
+        ]
+      }
+    },
+    {
+      "id": "place0",
+      "op": "RigidXform",
+      "params": { "prefix_index": 0 },
+      "refs": { "shape": { "body": "link0" }, "chain": { "op": "fk" } }
+    },
+    {
+      "id": "place1",
+      "op": "RigidXform",
+      "params": { "prefix_index": 1 },
+      "refs": { "shape": { "body": "link1" }, "chain": { "op": "fk" } }
+    },
+    {
+      "id": "place2",
+      "op": "RigidXform",
+      "params": { "prefix_index": 2 },
+      "refs": { "shape": { "body": "link2" }, "chain": { "op": "fk" } }
+    },
+    {
+      "id": "place3",
+      "op": "RigidXform",
+      "params": { "prefix_index": 3 },
+      "refs": { "shape": { "body": "link3" }, "chain": { "op": "fk" } }
+    },
+    {
+      "id": "place4",
+      "op": "RigidXform",
+      "params": { "prefix_index": 4 },
+      "refs": { "shape": { "body": "link4" }, "chain": { "op": "fk" } }
+    },
+    {
+      "id": "place5",
+      "op": "RigidXform",
+      "params": { "prefix_index": 5 },
+      "refs": { "shape": { "body": "link5" }, "chain": { "op": "fk" } }
+    }
+  ],
+  "meta": {
+    "author": "human",
+    "goals": ["robot_arm"],
+    "lib_versions": { "cad_ir": "0.1.0", "occ_c": "7.9.3-api", "occt": "7.9.3" },
+    "kernel_version": "7.9.3",
+    "strict": true,
+    "notes": "Link BREPs fixed; re-eval with new th* only updates ComposeChain + place"
+  }
+}

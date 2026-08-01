@@ -1,0 +1,20 @@
+# Files staged for require("ir") — keep runtime-worker IR_LUAU_FILES in sync.
+init.luau
+errors.luau
+limits.luau
+registry.luau
+host.luau
+load.luau
+bind.luau
+validate.luau
+resolve.luau
+eval.luau
+demo.luau
+canonical.luau
+ops/prims.luau
+ops/boolean.luau
+ops/xform.luau
+ops/route.luau
+ops/frames.luau
+ops/measure.luau
+ops/chain.luau

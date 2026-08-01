@@ -206,12 +206,65 @@ export class OccBridge {
       case "shape_free":
         this.free(idOf(args.id ?? args.shape));
         return {};
+      case "free_all":
+        this.freeAll();
+        return {};
+      case "mesh_stats":
+        return this.#meshStats(
+          idOf(args.id ?? args.shape),
+          num(args.deflection, 0.1),
+        );
       case "volume":
         return { volume: this.#volume(idOf(args.id ?? args.shape)) };
       case "bbox":
         return { bbox: this.#bbox(idOf(args.id ?? args.shape)) };
       case "mesh":
         return this.mesh(idOf(args.id ?? args.shape), num(args.deflection, 0.1));
+      case "make_route":
+        return {
+          shapeId: this.#makeRoute(
+            flatNodes(args.nodes),
+            intOf(args.n_points ?? args.nPoints, 0) || undefined,
+            args.closed ? 1 : 0,
+          ),
+        };
+      case "make_route_bends":
+        return {
+          shapeId: this.#makeRouteBends(
+            flatNodes(args.nodes),
+            intOf(args.n_points ?? args.nPoints, 0) || undefined,
+            num(args.bend_r ?? args.bend_radius ?? args.bendR),
+          ),
+        };
+      case "pipe_annulus":
+        return {
+          shapeId: this.#pipeAnnulus(
+            num(args.od),
+            num(args.inner ?? args.id_bore ?? args.inner_diameter),
+            idOf(args.spine ?? args.path),
+          ),
+        };
+      case "compose_chain":
+        return this.#composeChain(
+          intOf(args.n),
+          flatVec3n(args.origins, intOf(args.n), "origins"),
+          flatVec3n(args.axes, intOf(args.n), "axes"),
+          flatNums(args.angles, intOf(args.n), "angles"),
+          args.want_prefixes !== false && args.wantPrefixes !== false,
+        );
+      case "trsf_apply":
+        return {
+          shapeId: this.#trsfApply(
+            idOf(args.id ?? args.shape),
+            flatMat4(args.matrix4x4 ?? args.matrix ?? args.m),
+          ),
+        };
+      case "frame_from_axes":
+        return this.#frameFromAxes(
+          num(args.ox, 0), num(args.oy, 0), num(args.oz, 0),
+          num(args.xx, 1), num(args.xy, 0), num(args.xz, 0),
+          num(args.zx, 0), num(args.zy, 0), num(args.zz, 1),
+        );
       default:
         throw new Error(`unknown cad op: ${op}`);
     }
@@ -536,6 +589,269 @@ export class OccBridge {
   }
 
   /**
+   * Polyline route wire: occ_make_route_polyline.
+   * @param {number[]} nodes flat xyz (length 3n)
+   * @param {number} [nPoints]
+   * @param {number} closed 0|1
+   */
+  #makeRoute(nodes, nPoints, closed = 0) {
+    const n = nPoints && nPoints > 0 ? nPoints : (nodes.length / 3) | 0;
+    if (n < 2 || nodes.length < n * 3) {
+      throw new Error(`make_route: need n_points>=2 and nodes length >= 3n (got n=${n}, len=${nodes.length})`);
+    }
+    const xyz = this.#allocDoubles(nodes.slice(0, n * 3));
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_make_route_polyline", "number",
+        ["number", "number", "number", "number"],
+        [xyz, n, closed | 0, out],
+      );
+      if (rc !== 0) throw new Error(`occ_make_route_polyline failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(xyz);
+      this.mod._free(out);
+    }
+  }
+
+  /**
+   * Route with circular bend fillets: occ_make_route_with_bends.
+   * @param {number[]} nodes flat xyz
+   * @param {number} [nPoints]
+   * @param {number} bendR meters
+   */
+  #makeRouteBends(nodes, nPoints, bendR) {
+    const n = nPoints && nPoints > 0 ? nPoints : (nodes.length / 3) | 0;
+    if (n < 2 || nodes.length < n * 3) {
+      throw new Error(`make_route_bends: need n_points>=2 and nodes length >= 3n (got n=${n}, len=${nodes.length})`);
+    }
+    const xyz = this.#allocDoubles(nodes.slice(0, n * 3));
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_make_route_with_bends", "number",
+        ["number", "number", "number", "number"],
+        [xyz, n, bendR, out],
+      );
+      if (rc !== 0) throw new Error(`occ_make_route_with_bends failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(xyz);
+      this.mod._free(out);
+    }
+  }
+
+  /** Hollow pipe annulus solid along spine wire. */
+  #pipeAnnulus(od, inner, spineId) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_pipe_annulus", "number",
+        ["number", "number", "number", "number"],
+        [od, inner, this.#ptr(spineId), out],
+      );
+      if (rc !== 0) throw new Error(`occ_pipe_annulus failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /**
+   * Serial FK: n revolute joints → world frames + final 4×4.
+   * All heap pointers allocated inside try so finally always frees.
+   * @returns {{ n: number, prefixes: number[][], final: number[] }}
+   */
+  #composeChain(n, origins, axes, angles, wantPrefixes = true) {
+    if (n < 1) throw new Error("compose_chain: n >= 1 required");
+    if (origins.length < n * 3 || axes.length < n * 3 || angles.length < n) {
+      throw new Error(`compose_chain: array lengths (origins=${origins.length}, axes=${axes.length}, angles=${angles.length}) for n=${n}`);
+    }
+    let oPtr = 0;
+    let aPtr = 0;
+    let angPtr = 0;
+    let framesPtr = 0;
+    let finalPtr = 0;
+    let matOut = 0;
+    try {
+      oPtr = this.#allocDoubles(origins.slice(0, n * 3));
+      aPtr = this.#allocDoubles(axes.slice(0, n * 3));
+      angPtr = this.#allocDoubles(angles.slice(0, n));
+      const frameBytes = n * 12 * 8;
+      if (wantPrefixes) {
+        framesPtr = this.mod._malloc(frameBytes);
+        if (!framesPtr) throw new Error("malloc failed for frames");
+        this.mod.HEAPU8.fill(0, framesPtr, framesPtr + frameBytes);
+      }
+      finalPtr = this.mod._malloc(16 * 8);
+      if (!finalPtr) throw new Error("malloc failed for final matrix");
+      this.mod.HEAPU8.fill(0, finalPtr, finalPtr + 16 * 8);
+
+      const rc = this.mod.ccall(
+        "occ_compose_chain", "number",
+        ["number", "number", "number", "number", "number", "number"],
+        [n, oPtr, aPtr, angPtr, framesPtr || 0, finalPtr],
+      );
+      if (rc !== 0) throw new Error(`occ_compose_chain failed (${rc}): ${this.lastError()}`);
+
+      const final = this.#readDoubles(finalPtr, 16);
+      /** @type {number[][]} */
+      const prefixes = [];
+      if (wantPrefixes && framesPtr) {
+        matOut = this.mod._malloc(16 * 8);
+        if (!matOut) throw new Error("malloc failed for matrix out");
+        for (let i = 0; i < n; i++) {
+          const fPtr = framesPtr + i * 12 * 8;
+          const mrc = this.mod.ccall(
+            "occ_frame_to_matrix4x4", "number",
+            ["number", "number"],
+            [fPtr, matOut],
+          );
+          if (mrc !== 0) throw new Error(`occ_frame_to_matrix4x4 failed (${mrc}): ${this.lastError()}`);
+          prefixes.push(this.#readDoubles(matOut, 16));
+        }
+      }
+      return { n, prefixes, final };
+    } finally {
+      if (oPtr) this.mod._free(oPtr);
+      if (aPtr) this.mod._free(aPtr);
+      if (angPtr) this.mod._free(angPtr);
+      if (framesPtr) this.mod._free(framesPtr);
+      if (finalPtr) this.mod._free(finalPtr);
+      if (matOut) this.mod._free(matOut);
+    }
+  }
+
+  /**
+   * Mesh stats only (no position/normal/index arrays) for IR ExportMesh.
+   * Avoids JSON-serializing multi-MB typed arrays over the host tool channel.
+   */
+  #meshStats(id, deflection = 0.1) {
+    const meshOut = this.#outPtr();
+    let meshPtr = 0;
+    try {
+      const rc = this.mod.ccall(
+        "occ_mesh_compute", "number",
+        ["number", "number", "number"],
+        [this.#ptr(id), deflection, meshOut],
+      );
+      if (rc !== 0) throw new Error(`occ_mesh_compute failed (${rc}): ${this.lastError()}`);
+      meshPtr = this.mod.getValue(meshOut, "i32");
+      if (!meshPtr) throw new Error("null mesh");
+
+      let nvOut = 0;
+      let niOut = 0;
+      try {
+        nvOut = this.mod._malloc(4);
+        niOut = this.mod._malloc(4);
+        if (!nvOut || !niOut) throw new Error("malloc failed for mesh count outs");
+        if (this.mod.ccall("occ_mesh_vertex_count", "number", ["number", "number"], [meshPtr, nvOut]) !== 0) {
+          throw new Error(this.lastError());
+        }
+        if (this.mod.ccall("occ_mesh_index_count", "number", ["number", "number"], [meshPtr, niOut]) !== 0) {
+          throw new Error(this.lastError());
+        }
+        const nv = this.mod.getValue(nvOut, "i32");
+        const ni = this.mod.getValue(niOut, "i32");
+        let bbox;
+        let volume;
+        try {
+          bbox = this.#bbox(id);
+          volume = this.#volume(id);
+        } catch {
+          /* optional */
+        }
+        return {
+          vertexCount: nv,
+          indexCount: ni,
+          deflection,
+          bbox,
+          volume,
+          stats_only: true,
+        };
+      } finally {
+        if (nvOut) this.mod._free(nvOut);
+        if (niOut) this.mod._free(niOut);
+      }
+    } finally {
+      this.mod._free(meshOut);
+      if (meshPtr) this.mod.ccall("occ_mesh_free", null, ["number"], [meshPtr]);
+    }
+  }
+
+  /** Apply row-major 4×4 to shape → new owned shape. */
+  #trsfApply(id, matrix16) {
+    if (!matrix16 || matrix16.length < 16) {
+      throw new Error("trsf_apply: matrix4x4 length 16 required");
+    }
+    const mPtr = this.#allocDoubles(matrix16.slice(0, 16));
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_trsf_apply_shape", "number",
+        ["number", "number", "number"],
+        [this.#ptr(id), mPtr, out],
+      );
+      if (rc !== 0) throw new Error(`occ_trsf_apply_shape failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(mPtr);
+      this.mod._free(out);
+    }
+  }
+
+  /** Optional POD frame orthonormalize via occ_frame_from_axes. */
+  #frameFromAxes(ox, oy, oz, xx, xy, xz, zx, zy, zz) {
+    // occ_frame_t = 12 doubles
+    const fPtr = this.mod._malloc(12 * 8);
+    if (!fPtr) throw new Error("malloc failed for frame");
+    try {
+      const rc = this.mod.ccall(
+        "occ_frame_from_axes", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [ox, oy, oz, xx, xy, xz, zx, zy, zz, fPtr],
+      );
+      if (rc !== 0) throw new Error(`occ_frame_from_axes failed (${rc}): ${this.lastError()}`);
+      const v = this.#readDoubles(fPtr, 12);
+      return {
+        frame: {
+          ox: v[0], oy: v[1], oz: v[2],
+          xx: v[3], xy: v[4], xz: v[5],
+          yx: v[6], yy: v[7], yz: v[8],
+          zx: v[9], zy: v[10], zz: v[11],
+        },
+      };
+    } finally {
+      this.mod._free(fPtr);
+    }
+  }
+
+  /** @param {number[]} arr */
+  #allocDoubles(arr) {
+    const bytes = arr.length * 8;
+    const ptr = this.mod._malloc(bytes);
+    if (!ptr) throw new Error("malloc failed for doubles");
+    for (let i = 0; i < arr.length; i++) {
+      this.mod.setValue(ptr + i * 8, Number(arr[i]), "double");
+    }
+    return ptr;
+  }
+
+  /**
+   * @param {number} ptr
+   * @param {number} n
+   * @returns {number[]}
+   */
+  #readDoubles(ptr, n) {
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      out[i] = this.mod.getValue(ptr + i * 8, "double");
+    }
+    return out;
+  }
+
+  /**
    * @param {number} id
    * @param {number} deflection
    */
@@ -676,7 +992,93 @@ function idOf(v) {
   return n;
 }
 
-/** occ_clash_status_t names (OCC_CLASH_*). */
+/**
+ * Accept flat number[] or nested [[x,y,z],…] / mixed Luau tables.
+ * @param {unknown} nodes
+ * @returns {number[]}
+ */
+function flatNodes(nodes) {
+  if (nodes == null) throw new Error("missing nodes");
+  if (!Array.isArray(nodes)) throw new Error("nodes must be an array");
+  if (nodes.length === 0) return [];
+  // Nested: first element is array/object with x or [1]
+  const first = nodes[0];
+  if (typeof first === "number") {
+    return nodes.map((x) => num(x));
+  }
+  /** @type {number[]} */
+  const out = [];
+  for (const p of nodes) {
+    if (Array.isArray(p)) {
+      out.push(num(p[0]), num(p[1]), num(p[2]));
+    } else if (p && typeof p === "object") {
+      const o = /** @type {Record<string, unknown>} */ (p);
+      // Prefer named x/y/z; else 0-based indices before 1-based.
+      out.push(
+        num(o.x ?? o[0] ?? o[1]),
+        num(o.y ?? o[1] ?? o[2]),
+        num(o.z ?? o[2] ?? o[3]),
+      );
+    } else {
+      throw new Error("nodes entry must be [x,y,z] or flat numbers");
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} v
+ * @param {number} n
+ * @param {string} label
+ * @returns {number[]}
+ */
+function flatVec3n(v, n, label) {
+  if (v == null) throw new Error(`missing ${label}`);
+  if (!Array.isArray(v)) throw new Error(`${label} must be an array`);
+  if (v.length === 0) throw new Error(`${label} empty`);
+  if (typeof v[0] === "number") {
+    if (v.length < n * 3) throw new Error(`${label}: need ${n * 3} flat numbers`);
+    return v.slice(0, n * 3).map((x) => num(x));
+  }
+  if (v.length < n) throw new Error(`${label}: need ${n} Vec3`);
+  /** @type {number[]} */
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p = v[i];
+    if (Array.isArray(p)) {
+      out.push(num(p[0]), num(p[1]), num(p[2]));
+    } else {
+      throw new Error(`${label}[${i}] must be [x,y,z]`);
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} v
+ * @param {number} n
+ * @param {string} label
+ * @returns {number[]}
+ */
+function flatNums(v, n, label) {
+  if (v == null) throw new Error(`missing ${label}`);
+  if (!Array.isArray(v)) throw new Error(`${label} must be an array`);
+  if (v.length < n) throw new Error(`${label}: need ${n} numbers`);
+  return v.slice(0, n).map((x) => num(x));
+}
+
+/**
+ * @param {unknown} m
+ * @returns {number[]}
+ */
+function flatMat4(m) {
+  if (m == null) throw new Error("missing matrix4x4");
+  if (!Array.isArray(m)) throw new Error("matrix4x4 must be an array");
+  if (m.length < 16) throw new Error("matrix4x4 length 16 required");
+  return m.slice(0, 16).map((x) => num(x));
+}
+
+/** occ_clash_status_t names (OCC_CLASH_*). IR normalizes to lowercase. */
 const CLASH_NAMES = Object.freeze({
   0: "separated",
   1: "clearance",

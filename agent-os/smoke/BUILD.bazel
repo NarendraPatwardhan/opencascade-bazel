@@ -8,6 +8,8 @@ filegroup(
     name = "smoke_srcs",
     srcs = [
         "node_smoke.mjs",
+        "ir_smoke.mjs",
+        "ir_unit_smoke.mjs",
         "run_node_smoke.sh",
     ],
 )

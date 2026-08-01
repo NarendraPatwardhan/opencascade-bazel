@@ -51,9 +51,28 @@ export OCC_BASE=$PWD/agent-os/vendor/occ
 export SOLID_LUAU=$PWD/agent-os/src/batteries/solid.luau
 node agent-os/smoke/node_smoke.mjs
 
+# 3b) Portable CAD IR (cad.ir/v0) — validate/bind units + Path A demos
+node agent-os/smoke/ir_unit_smoke.mjs   # bind/validate/canonical (no dual-goal geom)
+node agent-os/smoke/ir_smoke.mjs        # box-cut + pipe skid + robot FK via require("ir")
+
 # 4) Browser demo (stages + serves)
 ./agent-os/scripts/dev.sh
 # open http://127.0.0.1:8765/  → Warm (optional) → Run Luau
+```
+
+### Portable IR (`cad.ir/v0`)
+
+| Piece | Path |
+|-------|------|
+| Design | [`../docs/cad-ir-v0-design.md`](../docs/cad-ir-v0-design.md) |
+| Examples / goldens | [`../docs/ir/`](../docs/ir/) (Apache) |
+| Luau runtime | [`src/batteries/ir/`](src/batteries/ir/) (`require("ir")`) |
+| Host lowers | [`src/occ-bridge.js`](src/occ-bridge.js) — route, pipe_annulus, compose_chain, trsf_apply |
+
+```luau
+local ir = require("ir")
+local doc = ir.load(json_string)  -- or table
+local res = ir.run_demo(doc)      -- eval + __OCC_CAD_RESULT__ like solid.finish
 ```
 
 ## Bazel

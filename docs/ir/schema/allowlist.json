@@ -1,0 +1,118 @@
+{
+  "ir_schema": "cad.ir/v0",
+  "cad_ir_version": "0.1.0",
+  "notes": "Machine-readable allowlist for cad.ir/v0. Authoritative narrative: docs/cad-ir-v0-design.md. Luau cad.ir.validate is product validator (K21).",
+  "document": {
+    "required": ["ir_schema", "version", "units", "params", "ops", "meta"],
+    "optional": ["id", "catalog", "frames", "assembly", "results"],
+    "ir_schema_value": "cad.ir/v0",
+    "units": {
+      "required": ["length", "angle", "store"],
+      "length": "meter",
+      "angle": "radian",
+      "store": "SI"
+    },
+    "op_id_pattern": "^[A-Za-z_][A-Za-z0-9_./-]*$"
+  },
+  "limits_default": {
+    "max_ops": 4096,
+    "route_nodes": 512,
+    "pattern_count": 256,
+    "max_params": 2048,
+    "max_ref_depth": 16,
+    "max_chain_joints": 64,
+    "max_bool_tools": 64,
+    "max_linear_m": 1000,
+    "deflection_min": 1e-4,
+    "deflection_max": 1.0,
+    "wall_clock_ms": 120000,
+    "per_op_ms": 30000,
+    "max_json_bytes": 2097152,
+    "notes": "wall/per-op are cooperative (cannot interrupt mid-cad.call); deflection_min is a security floor (guest cannot lower)"
+  },
+  "freestanding_selectors": [
+    "body",
+    "created_by+entity:body",
+    "created_by+entity:wire",
+    "op (geometry or chain measure)",
+    "frame",
+    "array of refs",
+    "nth"
+  ],
+  "illegal_freestanding": [
+    "entity:face",
+    "entity:edge",
+    "filters",
+    "topology set-ops",
+    "all_solids",
+    "portable face_index"
+  ],
+  "tier_a": {
+    "description": "v0-demo-required Path A dual-goal + box-cut",
+    "ops": {
+      "PrimBox": { "host": "make_box", "binds": "shape" },
+      "PrimCylinder": { "host": "make_cylinder", "binds": "shape" },
+      "BoolCombine": { "host": ["fuse", "cut", "intersect"], "binds": "shape" },
+      "Translate": { "host": "translate", "binds": "shape" },
+      "Rotate": { "host": "rotate", "binds": "shape" },
+      "RigidXform": { "host": "trsf_apply", "binds": "shape" },
+      "RoutePath": { "host": ["make_route", "make_route_bends"], "binds": "shape" },
+      "SweepAlong": { "host": "pipe_annulus", "binds": "shape", "profile_kind_v0": "annulus" },
+      "AttachFrame": { "host": null, "pure_pod": true, "binds": "frame" },
+      "ComposeChain": { "host": "compose_chain", "binds": "measure" },
+      "QueryClash": { "host": ["clash", "distance"], "binds": "measure" },
+      "QueryGeom": { "host": ["volume", "bbox"], "binds": "measure" },
+      "ExportMesh": { "host": "mesh_stats", "binds": "measure", "notes": "stats-only; no full mesh arrays over host tool JSON" }
+    }
+  },
+  "tier_b": {
+    "description": "Optional when host ready; not dual-goal blockers",
+    "ops": {
+      "PrimSphere": { "host": "make_sphere", "binds": "shape" },
+      "PrimCone": { "host": "make_cone", "binds": "shape" },
+      "PrimTorus": { "host": "make_torus", "binds": "shape" },
+      "MirrorCopy": { "host": "mirror", "binds": "shape" },
+      "PushPull": { "host": "extrude", "binds": "shape" },
+      "PatternLinear": { "host": "pattern_linear", "binds": "shape" },
+      "PatternPolar": { "host": "pattern_polar", "binds": "shape" },
+      "GroupBodies": { "host": "make_compound", "binds": "shape", "bridge": "need" },
+      "ExportBrep": { "host": "export_step", "binds": "side", "bridge": "need", "browser": "MEMFS-only" },
+      "MakeRectProfile": { "host": "make_rect_profile", "binds": "shape", "bridge": "need" },
+      "MakeCircleProfile": { "host": "make_circle_face", "binds": "shape", "bridge": "need" },
+      "MakePolyline": { "host": "make_polyline", "binds": "shape", "bridge": "need" }
+    }
+  },
+  "tier_c_extension": {
+    "description": "Not in v0 allowlist",
+    "ops": [
+      "Sketch2D",
+      "SolveSketch",
+      "SpinSolid",
+      "LoftSections",
+      "HollowBody",
+      "RoundEdge",
+      "BevelEdge",
+      "DrillHole",
+      "MemberSweep",
+      "ImportBrep",
+      "SpawnPart",
+      "MeshPrep",
+      "Mate*",
+      "ExportRobotPackage",
+      "ParseIntent"
+    ]
+  },
+  "error_codes": [
+    "IR_ERR_SCHEMA",
+    "IR_ERR_UNKNOWN_OP",
+    "IR_ERR_HOST_UNAVAILABLE",
+    "IR_ERR_DUP_ID",
+    "IR_ERR_UNBOUND_PARAM",
+    "IR_ERR_SELECTOR",
+    "IR_ERR_DEP_ORDER",
+    "IR_ERR_VALIDATE",
+    "IR_ERR_HOST",
+    "IR_ERR_LIMIT",
+    "IR_ERR_UNSUPPORTED"
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "ir_schema": "cad.ir/v0",
+  "id": "pipe_skid_slice",
+  "version": "0.1.0",
+  "units": { "length": "meter", "angle": "radian", "store": "SI" },
+  "params": {
+    "pipe_od": 0.1143,
+    "pipe_id": 0.1023,
+    "bend_r": 0.15,
+    "clearance": 0.025
+  },
+  "ops": [
+    {
+      "id": "skid_base",
+      "op": "PrimBox",
+      "params": { "dx": 3.0, "dy": 1.5, "dz": 0.10, "corner": "centered_xy_bottom" }
+    },
+    {
+      "id": "eqA",
+      "op": "PrimBox",
+      "params": { "dx": 0.80, "dy": 0.60, "dz": 0.90 }
+    },
+    {
+      "id": "eqA_place",
+      "op": "Translate",
+      "params": { "dx": -1.30, "dy": -0.30, "dz": 0.10 },
+      "refs": { "shape": { "body": "eqA" } }
+    },
+    {
+      "id": "eqB",
+      "op": "PrimBox",
+      "params": { "dx": 1.00, "dy": 0.70, "dz": 1.10 }
+    },
+    {
+      "id": "eqB_place",
+      "op": "Translate",
+      "params": { "dx": 0.80, "dy": 0.10, "dz": 0.10 },
+      "refs": { "shape": { "body": "eqB" } }
+    },
+    {
+      "id": "nozzleA",
+      "op": "AttachFrame",
+      "params": {
+        "name": "nozzleA",
+        "origin": [-0.50, 0.0, 0.55],
+        "x": [0, 0, 1],
+        "z": [1, 0, 0]
+      }
+    },
+    {
+      "id": "nozzleB",
+      "op": "AttachFrame",
+      "params": {
+        "name": "nozzleB",
+        "origin": [0.80, 0.40, 0.70],
+        "x": [0, 0, 1],
+        "z": [-1, 0, 0]
+      }
+    },
+    {
+      "id": "route_A",
+      "op": "RoutePath",
+      "params": {
+        "style": "polyline_bend",
+        "bend_r": { "param": "bend_r" },
+        "nodes": [
+          [-0.50, 0.0, 0.55],
+          [-0.15, 0.0, 0.55],
+          [-0.15, 0.0, 1.20],
+          [0.35, 0.0, 1.20],
+          [0.35, 0.40, 1.20],
+          [0.35, 0.40, 0.70],
+          [0.80, 0.40, 0.70]
+        ]
+      }
+    },
+    {
+      "id": "pipe_A",
+      "op": "SweepAlong",
+      "params": {
+        "profile_kind": "annulus",
+        "od": { "param": "pipe_od" },
+        "inner": { "param": "pipe_id" }
+      },
+      "refs": { "path": { "created_by": "route_A", "entity": "wire" } }
+    },
+    {
+      "id": "clash_pipe_eqA",
+      "op": "QueryClash",
+      "params": {
+        "clearance": { "param": "clearance" },
+        "include_distance": true
+      },
+      "refs": {
+        "a": { "body": "pipe_A" },
+        "b": { "body": "eqA_place" }
+      }
+    },
+    {
+      "id": "clash_pipe_eqB",
+      "op": "QueryClash",
+      "params": {
+        "clearance": { "param": "clearance" },
+        "include_distance": true
+      },
+      "refs": {
+        "a": { "body": "pipe_A" },
+        "b": { "body": "eqB_place" }
+      }
+    }
+  ],
+  "meta": {
+    "author": "agent",
+    "goals": ["pipe_skid"],
+    "lib_versions": { "cad_ir": "0.1.0", "occ_c": "7.9.3-api", "occt": "7.9.3" },
+    "kernel_version": "7.9.3",
+    "strict": true
+  }
+}

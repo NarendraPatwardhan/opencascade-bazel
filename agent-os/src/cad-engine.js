@@ -3,7 +3,8 @@
  * Used by the browser runtime worker and Node smoke.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { OccBridge } from "./occ-bridge.js";
 import { PROTOCOL } from "./protocol.js";
@@ -16,6 +17,7 @@ import { PROTOCOL } from "./protocol.js";
  * @property {string} catalogCompiler
  * @property {string} occBase  directory with libocc_c.js + .wasm (file URL or path)
  * @property {string} solidLuau path to solid.luau
+ * @property {string} [batteriesDir] directory containing solid.luau + ir/ (defaults to solid parent)
  * @property {"browser"|"local"} [runtime]
  */
 
@@ -100,11 +102,61 @@ export class CadEngine {
     return this;
   }
 
+  /**
+   * @param {string} path
+   */
+  async #mkdirp(path) {
+    const parts = path.split("/").filter(Boolean);
+    let cur = "";
+    for (const p of parts) {
+      cur += "/" + p;
+      try {
+        await this.vm.fs.mkdir(cur);
+      } catch {
+        /* exists or race */
+      }
+    }
+  }
+
+  /**
+   * Stage solid.luau + cad.ir package under /opt/cad for package.path.
+   * Writes ir/init.luau and ir/*.luau so require("ir") / require("ir.load") resolve.
+   */
   async stageBatteries() {
+    await this.#mkdirp("/opt/cad/ir/ops");
+
     const solid = await this.#text(this.paths.solidLuau);
-    await this.vm.fs.mkdir("/opt");
-    await this.vm.fs.mkdir("/opt/cad");
     await this.vm.fs.write("/opt/cad/solid.luau", solid);
+
+    const batteriesDir = this.paths.batteriesDir
+      || dirname(this.paths.solidLuau);
+    const irDir = join(batteriesDir, "ir");
+    try {
+      if (statSync(irDir).isDirectory()) {
+        await this.#stageLuauTree(irDir, "/opt/cad/ir");
+      }
+    } catch {
+      /* ir package optional for pure solid smokes */
+    }
+  }
+
+  /**
+   * @param {string} hostDir
+   * @param {string} guestDir
+   */
+  async #stageLuauTree(hostDir, guestDir) {
+    await this.#mkdirp(guestDir);
+    const entries = readdirSync(hostDir);
+    for (const name of entries) {
+      const hostPath = join(hostDir, name);
+      const st = statSync(hostPath);
+      if (st.isDirectory()) {
+        await this.#stageLuauTree(hostPath, `${guestDir}/${name}`);
+      } else if (name.endsWith(".luau") || name.endsWith(".lua")) {
+        const text = await this.#text(hostPath);
+        await this.vm.fs.write(`${guestDir}/${name}`, text);
+      }
+    }
   }
 
   parseResult(stdout) {
@@ -126,7 +178,9 @@ export class CadEngine {
     await this.stageBatteries();
     if (!source?.trim()) throw new Error("empty Luau source");
 
-    const wrapped = `package.path = "/opt/cad/?.luau;" .. package.path\n` + source;
+    // ?.luau → solid.luau, ir/load.luau; ?/init.luau → ir/init.luau
+    const wrapped =
+      `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` + source;
     const result = await this.vm.luau(wrapped);
     if (result.exitCode !== 0) {
       const err = new Error((result.stderr || result.stdout || "luau failed").trim());

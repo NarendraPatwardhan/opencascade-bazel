@@ -1,0 +1,22 @@
+{
+  "example": "robot_6dof_slice.cad.json",
+  "description": "TCP from ComposeChain measure.final translation (row-major indices 3,7,11). Never assert shape ids.",
+  "expect": {
+    "ok": true,
+    "measures": {
+      "fk": {
+        "kind": "compose_chain",
+        "n": 6,
+        "prefixes_len": 6,
+        "final_len": 16
+      }
+    },
+    "shapes_bound": ["place0", "place1", "place2", "place3", "place4", "place5"],
+    "tcp_from": "measures.fk.final"
+  },
+  "tolerances": {
+    "tcp_origin_m": 1e-6,
+    "angle_rad": 1e-9
+  },
+  "notes": "Goldens assert measure structure + finite TCP origin; absolute TCP values may be cross-checked vs //examples:smoke_robot_6dof when pins match."
+}

@@ -13,6 +13,10 @@ Canonical docs for this repository. Prefer **one home per topic**.
 | [`cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) | Clean-room **Sketch2D / SolveSketch** — parametric 2D + constraint solve design |
 | [`sketch-solve-constitution.md`](sketch-solve-constitution.md) | **Binding** sketch/solve process — depth-first Active Slice, exceptional Seal bar, MAS rules |
 | [`cad-ir-v0-design.md`](cad-ir-v0-design.md) | **Portable CAD IR v0** system design (`cad.ir/v0`) — schema, eval, catalog, PR plan |
+| [`ir/README.md`](ir/README.md) | **IR package index** — examples, goldens, allowlist (`cad.ir/v0`) |
+| [`ir/examples/`](ir/examples/) | Example IR documents (`*.cad.json`) — box-cut, pipe skid, robot FK |
+| [`ir/goldens/`](ir/goldens/) | Measure/frame-only golden fixtures (no absolute shape ids) |
+| [`ir/schema/`](ir/schema/) | Machine-readable allowlist + document-shape notes |
 | [`browser-demo.png`](browser-demo.png) | Browser vertical-slice screenshot |
 
 ## Where the C API is taught

@@ -4,7 +4,7 @@
  *   out/
  *     kernel.wasm loom.tar mc-core.mjs catalog-compiler.wasm
  *     libocc_c.js libocc_c.wasm
- *     batteries/solid.luau
+ *     batteries/solid.luau + batteries/ir/**
  *     src/*.js
  *     demo/…
  *
@@ -32,6 +32,9 @@ const occWasm = need("OCC_WASM");
 const solid = need("SOLID_LUAU");
 const srcDir = resolve(process.env.SRC_DIR || join(dirname(fileURLToPath(import.meta.url)), "../src"));
 const demoDir = resolve(process.env.DEMO_DIR || join(dirname(fileURLToPath(import.meta.url)), "../demo"));
+const batteriesDir = resolve(
+  process.env.BATTERIES_DIR || join(dirname(solid), "."),
+);
 
 if (existsSync(out)) rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -44,7 +47,12 @@ copyFileSync(loom, join(out, "loom.tar"));
 copyFileSync(catalog, join(out, "catalog-compiler.wasm"));
 copyFileSync(occJs, join(out, "libocc_c.js"));
 copyFileSync(occWasm, join(out, "libocc_c.wasm"));
-copyFileSync(solid, join(out, "batteries/solid.luau"));
+// Full batteries tree (solid + ir package)
+if (existsSync(batteriesDir)) {
+  cpSync(batteriesDir, join(out, "batteries"), { recursive: true });
+} else {
+  copyFileSync(solid, join(out, "batteries/solid.luau"));
+}
 cpSync(srcDir, join(out, "src"), { recursive: true });
 cpSync(demoDir, join(out, "demo"), { recursive: true });
 

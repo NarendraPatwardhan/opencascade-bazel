@@ -1,0 +1,56 @@
+{
+  "ir_schema": "cad.ir/v0",
+  "id": "box_cut_cyl",
+  "version": "0.1.0",
+  "units": { "length": "meter", "angle": "radian", "store": "SI" },
+  "params": {
+    "box_x": 0.10,
+    "box_y": 0.10,
+    "box_z": 0.10,
+    "cyl_r": 0.025,
+    "cyl_h": 0.12
+  },
+  "ops": [
+    {
+      "id": "housing",
+      "op": "PrimBox",
+      "params": {
+        "dx": { "param": "box_x" },
+        "dy": { "param": "box_y" },
+        "dz": { "param": "box_z" }
+      }
+    },
+    {
+      "id": "cutter",
+      "op": "PrimCylinder",
+      "params": {
+        "radius": { "param": "cyl_r" },
+        "height": { "param": "cyl_h" },
+        "origin": [0.05, 0.05, -0.01],
+        "axis": [0, 0, 1]
+      }
+    },
+    {
+      "id": "body_cut",
+      "op": "BoolCombine",
+      "params": { "mode": "subtract" },
+      "refs": {
+        "target": { "created_by": "housing", "entity": "body" },
+        "tools": [{ "created_by": "cutter", "entity": "body" }]
+      }
+    },
+    {
+      "id": "viz",
+      "op": "ExportMesh",
+      "params": { "deflection": 0.001 },
+      "refs": { "shape": { "body": "body_cut" } }
+    }
+  ],
+  "meta": {
+    "author": "human",
+    "goals": [],
+    "lib_versions": { "cad_ir": "0.1.0", "occ_c": "7.9.3-api", "occt": "7.9.3" },
+    "kernel_version": "7.9.3",
+    "strict": true
+  }
+}
