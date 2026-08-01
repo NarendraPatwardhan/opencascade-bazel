@@ -12,6 +12,7 @@ Canonical docs for this repository. Prefer **one home per topic**.
 | [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Clean-room capability matrix + IR sketches (solids / host façade) |
 | [`cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) | Clean-room **Sketch2D / SolveSketch** — parametric 2D + constraint solve design |
 | [`sketch-solve-constitution.md`](sketch-solve-constitution.md) | **Binding** sketch/solve process — depth-first Active Slice, exceptional Seal bar, MAS rules |
+| [`cad-ir-v0-design.md`](cad-ir-v0-design.md) | **Portable CAD IR v0** system design (`cad.ir/v0`) — schema, eval, catalog, PR plan |
 | [`browser-demo.png`](browser-demo.png) | Browser vertical-slice screenshot |
 
 ## Where the C API is taught

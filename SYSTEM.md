@@ -5,7 +5,7 @@
 **Audience:** Humans and AI agents working on this project  
 **Status:** Living document — update when intent changes; do not silently drift  
 **Last restated:** 2026-07-31  
-**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md) (sketch design) · [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md) (**binding** sketch/solve process) · [`api/include/occ_c.h`](api/include/occ_c.h) (C ABI taught in-code)
+**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/cleanroom-solvespace-sketch-solve-report.md`](docs/cleanroom-solvespace-sketch-solve-report.md) (sketch design) · [`docs/sketch-solve-constitution.md`](docs/sketch-solve-constitution.md) (**binding** sketch/solve process) · [`docs/cad-ir-v0-design.md`](docs/cad-ir-v0-design.md) (**portable CAD IR v0**) · [`api/include/occ_c.h`](api/include/occ_c.h) (C ABI taught in-code)
 
 ---
 
@@ -323,6 +323,68 @@ Index-based topology is allowed only **inside a single eval step** after a query
 4. Prefer **transform-only** pose updates for robot joint angles (do not bake θ into BREP).  
 5. Same document + same library/kernel versions → same BRep within OCCT tolerances.
 
+### 4.7 IR is data; Luau is the default evaluator (binding)
+
+**IR is not a Luau struct type and not Luau source.** It is a **language-neutral document** (schema §4.2–4.3): typically **JSON (or equivalent) on disk / over the wire**, and a **plain table** once loaded into Luau memory. Multiple front-ends (Luau libraries, NL planner, importers, hand-edited files) share that document shape.
+
+**What turns IR into geometry?** Not a second solid kernel. Pipeline:
+
+```text
+  IR document
+      │
+      ▼
+  Luau IR runtime (default)
+    · optional passes: expand macros, bind params, check refs,
+      lower recipes (e.g. Rect → edges), validate
+    · eval: for each op, allowlisted host call (same as solid.*)
+      │
+      ▼
+  Host bridge → occ_c → OCCT → mesh / STEP / measures
+```
+
+| Piece | Owns |
+|-------|------|
+| IR document | Portable intent (params + ops + refs) |
+| **Luau passes + `cad.ir.eval`** | Transform and **drive** evaluation |
+| Host / `occ_c` | **Only** geometry execution |
+
+**Two authoring paths (both legal):**
+
+| Path | Flow | Use |
+|------|------|-----|
+| **A — IR product** | Author or agent → IR document → Luau passes/eval → host → `occ_c` | Goldens, agent compile target, human review/diff, re-eval with new `params` |
+| **B — Imperative (today)** | Luau `solid.*` / tools → host → `occ_c` directly | Interactive demos, fast authoring |
+
+Path B may optionally **tape** host calls into an IR log for reproducibility. Path A is the strategic spine for agents and explainability.
+
+**Why Luau for eval (not a mandatory separate IR VM):**
+
+1. **Passes** are ordinary Luau over tables (macros, params, validation).  
+2. **One guest runtime** already sandboxed in AgentOS; same tool boundary.  
+3. **Customization** stays in libraries (`cad.ir`, recipes), not a frozen C/JS evaluator.  
+4. Geometry remains exclusively in Apache `occ_c` — Luau never implements BREP.
+
+A native or host-side IR walker is **optional** (e.g. CI without a guest). Product default: **eval in Luau**.
+
+**Anti-patterns:**
+
+| Avoid | Why |
+|-------|-----|
+| “IR **is** Luau source only” | Hurts non-Luau agents and file goldens; prefer data Luau *loads* |
+| Reimplementing solids in Luau | Kernel is `occ_c` only |
+| Treating free-form script control flow as IR | IR is a **closed** op list/DAG for audit and re-eval |
+| Confusing **Luau syntax AST** with **CAD IR** | See §5.5 |
+
+### 4.8 Tiny eval sketch (illustrative)
+
+```text
+doc = load_ir("model.json")           # or table literal in Luau
+doc = cad.ir.expand_macros(doc)
+doc = cad.ir.bind_params(doc)
+root_id = cad.ir.eval(doc)            # dispatch → host cad.call → occ_*
+-- root_id is a guest shape ID; mesh/STEP via host as today
+```
+
 ---
 
 ## 5. Luau surface (conventions, not a dialect)
@@ -332,8 +394,9 @@ Index-based topology is allowed only **inside a single eval step** after a query
 Use **plain Luau** as the programming language. Product power lives in:
 
 1. **Conventions** (ids, SI, no raw handles, error shape)  
-2. **Versioned libraries** (`cad.solid`, `cad.route`, `cad.asm`, …)  
-3. Optional **IR tape** for reproducibility  
+2. **Versioned libraries** (`cad.solid`, `cad.route`, `cad.ir`, `cad.asm`, …)  
+3. **IR document** + **Luau IR runtime** (passes + eval) for the portable path  
+4. Optional **IR tape** when running imperative Path B  
 
 Do **not** invent or market a new language.
 
@@ -342,7 +405,8 @@ Do **not** invent or market a new language.
 | Module | Responsibility |
 |--------|----------------|
 | `cad.units` | Quantity helpers; to/from SI |
-| `cad.sketch` | 2D entities, constraints, solve |
+| `cad.ir` | Load/store IR, passes, `eval` dispatch to host ops |
+| `cad.sketch` | 2D entities, constraints, solve (when Sealed per sketch constitution) |
 | `cad.construction` | Planes, points |
 | `cad.frames` | Attach/query named SE(3) frames |
 | `cad.primitives` / `cad.solid` | Box/cyl/…, extrude, revolve, sweep, loft, shell |
@@ -361,15 +425,28 @@ Do **not** invent or market a new language.
 
 ### 5.3 Guest rules
 
-1. Geometry only via host/IR — **never** raw kernel pointers in Luau.  
+1. Geometry only via host / IR-eval→host — **never** raw kernel pointers in Luau.  
 2. Every mutating call takes a stable **id**.  
 3. Prefer selectors/refs over integer topology across ops.  
 4. Pure math helpers OK; world mutation only through approved APIs.  
-5. Library version pinned in IR metadata.
+5. Library version pinned in IR metadata.  
+6. `cad.ir.eval` only lowers to **allowlisted** host ops that map to `occ_*` (or pure math).
 
 ### 5.4 Present seed
 
-Today’s vertical slice: `agent-os` batteries `solid.luau` + host tools for box/cylinder/cut/finish → mesh. That is the **seed**, not the full module map.
+Today’s vertical slice: `agent-os` batteries `solid.luau` + host tools (partial bridge over `occ_c`) → mesh. That is **Path B**. Full module map, IR schema freeze, and `cad.ir` eval are still product growth — not a second kernel.
+
+### 5.5 AgentOS structural Luau tooling ≠ CAD IR
+
+AgentOS loom ships **Lua/Luau grammar / structural parsers** so agents can **read and edit Luau source as code** (docs, scripts, refactors). That path is for **authoring and code surgery**.
+
+| Tooling | Operates on | Role in CAD stack |
+|---------|-------------|-------------------|
+| Luau **syntax / structural parse** | Source text / AST | Edit `model.luau`, batteries, emitters |
+| **CAD IR** | Op-graph **data** (JSON/table) | Portable design intent |
+| **`cad.ir.eval`** | IR data → host calls | Produce geometry via `occ_c` |
+
+Do not treat the grammar parser as the solid evaluator. Do not treat CAD IR as “whatever the Luau AST is.”
 
 ---
 
@@ -628,7 +705,9 @@ We do **not** claim: “open-source FeatureScript” or “Parasolid replacement
 | **`occ_c`** | Apache C ABI over OCCT |
 | **OCCT** | Open CASCADE Technology (BRep kernel), pinned 7.9.3 |
 | **AgentOS / loom** | Sandboxed guest runtime used for Luau + tools broker |
-| **IR** | Portable CAD intermediate representation (op graph) |
+| **IR** | Portable CAD intermediate representation — **data** (op graph document), not a Luau dialect |
+| **Luau IR runtime** | Default evaluator: passes + op dispatch in guest Luau → host → `occ_c` |
+| **Path A / Path B** | IR emit+eval vs imperative `solid.*` host calls (both legal) |
 | **Feature** | Multi-op recipe (product-level) |
 | **Operation** | Atomic kernel mutator/measure |
 | **Selector / Query** | Declarative topology reference re-resolved on eval |
@@ -738,6 +817,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
 | 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |
 | 2026-08-01 | Sketch/solve **constitution**: depth-first Active Slice + Seal bar (vs wide `occ_c` iteration) |
+| 2026-08-01 | IR **data** + **Luau default evaluator** (passes/eval → host → `occ_c`); Path A/B; structural parse ≠ CAD IR |
 
 ---
 
