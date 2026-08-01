@@ -989,11 +989,16 @@ All residuals are \(F = 0\). Workplane set ⇒ use UV unless noted. **Invent alg
 
 ---
 
-## Appendix D — Reader notes (non-normative)
+## Appendix D — Related repository docs
 
-Internal working drafts under `docs/` with underscore prefixes are **not** part of the implementer contract and may be deleted. This published report is self-contained for Team B.
+This report is **standalone** for Sketch2D / SolveSketch. Cross-links (not dependencies):
 
-**Related:** [FS cleanroom](cleanroom-featurescript-std-report.md) — solids, host ops, dual-goal matrix, §6.6 A1 gap id. [SYSTEM.md](../SYSTEM.md) — dual goals, prioritization law, medium-term demos without sketch solver.
+| Document | Role |
+|----------|------|
+| [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Solids, host ops, dual-goal solid matrix; §6.6 **A1** gap id only |
+| [`../SYSTEM.md`](../SYSTEM.md) | Product north star; dual goals; demos must not wait on Newton |
+| [`../AGENTS.md`](../AGENTS.md) | How to change Apache `api/` / Bazel; license boundary |
+| [`../api/include/occ_c.h`](../api/include/occ_c.h) | Existing construct / solid C ABI for ExplicitCoords profiles |
 
 ---
 
