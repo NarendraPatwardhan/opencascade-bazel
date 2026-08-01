@@ -387,19 +387,13 @@ Primitives (box/cyl/sphere/cone/torus/wedge), booleans, fillet/chamfer/shell/off
 
 ### 6.4 Dual-goal gaps (kernel / host)
 
-Must grow for both goals (not all must live forever in thin C — some are host/IR):
+**Done in `occ_c` (2026-08-01):** history session v0 + named frames, clash/distance, patterns, simple holes, RoutePath + pipe annulus, compose_chain FK, compounds/split, mass props. See clean-room report **§6.5–§6.6**.
 
-- Stable **history selectors** / entity identity beyond raw indices  
-- **Named frames** on bodies  
-- **Clash / min-distance**  
-- **Patterns** (or documented transform recipes)  
-- **Simple holes** as first-class or recipe  
-- **Sketch** (minimal)  
-- **RoutePath** wire builder (piping)  
-- **Instance transforms** for assembly pose  
-- Robot package writer (may be host-side)
+**Still `occ_c`-dependent and open:** primarily **Sketch2D + constraints**; richer construction; deeper selectors/attrs; optional P1 face-edit/gusset/draft.  
 
-See clean-room report §6–§8 for the full matrix.
+**Host/IR (not pure C):** assembly mate solver, catalogs/URDF, MeshPrep/NL, instance tables.
+
+See clean-room report §6–§8 / §6.6 for the authoritative remaining list.
 
 ### 6.5 Build / RBE
 

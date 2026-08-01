@@ -2,7 +2,7 @@
 
 **Document type:** Architecture & capability specification (Team A / readers)  
 **Audience:** Implementers of our Luau libraries, portable IR, and `occ_c` / OCCT stack  
-**Date:** 2026-07-31  
+**Date:** 2026-07-31 · **occ_c status refresh:** 2026-08-01  
 **Source analyzed:** [javawizard/onshape-std-library-mirror](https://github.com/javawizard/onshape-std-library-mirror) (MIT, PTC FeatureScript `std`, **265** `.fs` files including **~101** `*.gen.fs`, std version **2960.0**)  
 **Method:** Multi-agent clean-room read — foundational modules, full feature inventory, dual-goal prioritization, assembly/IR annex  
 **Product goals used in every matrix column:**
@@ -11,6 +11,8 @@
 2. **6-DOF robot arm** — model a simplified serial robot **assembly** (links, revolute joints, flanges, frames, FK pose, STEP/mesh/URDF-style export)
 
 **This document is not implementation code.** It is the expected clean-room deliverable: what to learn, what to build under **our** names, and what to ignore.
+
+**Implementation note (2026-08-01):** The Apache `occ_c` host has grown substantially beyond the original §4.3 snapshot (~213 `OCC_API` symbols across `api/include/occ_c*.h`). Matrix column **`occ_c`** and §6.5–§6.6 reflect **current code**, not the 2026-07-31 gap list. Dual-goal smoke demos: `//examples:smoke_pipe_skid`, `//examples:smoke_robot_6dof`, `//examples:smoke_flange_bolt_circle`, `//examples:c_api_session_smoke`.
 
 ---
 
@@ -386,22 +388,28 @@ These are **host operations** the std *calls*. They define the real power of the
 
 **P1+:** curvature family, raycast, surface/curve definitions, B-spline approx, tolerances, mesh points, SM tool bodies.
 
-### 4.3 What `occ_c` already covers (snapshot)
+### 4.3 What `occ_c` already covers (snapshot, 2026-08-01)
 
-From product `api/include/occ_c.h` (Apache stack):
+Public surface: **`occ_c.h` + modules** (`occ_c_frames`, `occ_c_session`, `occ_c_route`, `occ_c_pattern`, `occ_c_hole`, `occ_c_query`, `occ_c_construct`, `occ_c_boolean`, `occ_c_sweep`, `occ_c_trsf`, …) — include via `occ_c_all.h` when needed. ~**213** exported `OCC_API` symbols.
 
 | Area | Present today |
 |------|----------------|
 | Primitives | box, cylinder, sphere, cone, torus, wedge |
-| Booleans | fuse, cut, intersect, section |
-| Features | fillet (all/edges), chamfer, shell, offset_3d |
-| Sweeps | **extrude, revolve, loft, pipe** |
-| Transforms | translate, rotate, scale, mirror |
-| Measure | volume, area, COM, bbox, topology counts/extract |
+| Booleans | fuse, cut, intersect, section; fuse/cut many; compound pack/explode; plane/shape split |
+| Features | fillet (all/edges), chamfer, shell, offset_3d / face / wire-2d, thicken shell, sew |
+| Sweeps | extrude (blind/sym/through), revolve, loft (+ruled/solid), pipe (+annulus/shell/solid), profile-along-wire, member sweep circle/rect |
+| Curves / profiles | polyline, polygon, arcs, circle/rect wires, planar face from wire, B-spline through points, helix, spring solid |
+| Routing | `make_route_polyline`, `make_route_with_bends`, `route_node_frames` |
+| Holes | through / blind / counterbore / countersink; hole-on-face-center |
+| Patterns | linear, polar, along-path, from-transforms; boolean fuse-pattern helper |
+| Frames / place | `occ_frame_t` POD, world/axes/z/euler, invert/multiply/displacement, edge/wire/face frames; place shape at frame; 4×3 / 4×4 trsf |
+| Session / history v0 | op stack, register shape, `created_by` / name find, kind filter, set ops on ids, attach named frames, world planes |
+| Transforms | translate, rotate, scale, mirror (+copy), compose chain / DH FK |
+| Query / clash | bbox, volume, area, COM, mass_properties; distance, clash (+clearance, all-pairs); ray cast; planar/area/parallel face select; edge length filters |
 | IO | STEP, BREP, STL, glTF, OBJ |
-| Mesh | compute + buffers |
+| Mesh | compute + vertex/normal/index buffers (host zig/BRepMesh alignment can skip STL path on some toolchains) |
 
-**Gaps vs dual goals:** sketch solver, robust queries/ids, patterns, holes-as-feature, frames/mate connectors, assembly mates, routing polyline-with-bend, structural frame members, clash with clearance, FEA mesh strategy, NL/2D intake.
+**Still open for dual goals (see §6.6):** sketch + constraint solve; richer construction entities; topology attributes; face-edit/draft/rib; full hole standards **data**; mate **solver** / URDF writer / fittings catalog / FEA MeshPrep / NL (mostly **not** pure `occ_c`, or optional thin C).
 
 ---
 
@@ -479,55 +487,59 @@ Variables, query variables, name entity, tag, tables, properties, mass.
 
 ### 6.2 Master matrix
 
+`occ_c` column = **2026-08-01** host status (Y present · P partial · N missing).  
+Rows marked **†** are **not** pure-kernel obligations (host/IR/product data); listed for dual-goal completeness.
+
 | Capability | AI-BOOST | Robot | Pri | occ_c | IR op (ours) | Luau module |
 |------------|----------|-------|-----|-------|--------------|-------------|
-| Sketch 2D + constraints | Y | Y | P0 | N | `Sketch2D`, `SolveSketch` | `sketch` |
-| Construction plane | Y | Y | P0 | N | `MakePlane` | `construction` |
-| Construction point | Y | Y | P0 | N | `MakePoint` | `construction` |
-| Named frames (mate connector analogue) | Y | Y | P0 | N | `AttachFrame` | `frames` |
+| Sketch 2D + constraints | Y | Y | P0 | **N** | `Sketch2D`, `SolveSketch` | `sketch` |
+| Construction plane | Y | Y | P0 | **P** | `MakePlane` | `construction` |
+| Construction point | Y | Y | P0 | **P** | `MakePoint` | `construction` |
+| Named frames (mate connector analogue) | Y | Y | P0 | **Y** | `AttachFrame` | `frames` |
 | Rigid transform | Y | Y | P0 | Y | `RigidXform` | `xform` |
-| Connector-to-connector place | Y | Y | P0 | N | `RigidXform` (`B*inv(A)`) | `frames` |
+| Connector-to-connector place | Y | Y | P0 | **Y** | `RigidXform` (`B*inv(A)`) | `frames` |
 | Box / cylinder / sphere primitives | Y | Y | P0 | Y | `PrimBox`, `PrimCylinder`, `PrimSphere` | `primitives` |
 | Extrude (blind / through) | Y | Y | P0 | Y | `PushPull` | `solid` |
 | Revolve | Y | Y | P0 | Y | `SpinSolid` | `solid` |
 | Boolean union/sub/int | Y | Y | P0 | Y | `BoolCombine` | `boolean` |
-| Sweep along path | Y (pipe) | P | P0 | Y (`occ_pipe`) | `SweepAlong` | `solid` |
-| Routing centerline (poly + bend R) | Y | N/P | P0 | N | `RoutePath` | `route` |
-| Structural frame member | Y (skid steel) | P | P1 | N | `MemberSweep` | `structure` |
-| Gusset plate | Y | N | P1 | N | `GussetPlate` | `structure` |
+| Sweep along path | Y (pipe) | P | P0 | Y | `SweepAlong` | `solid` |
+| Routing centerline (poly + bend R) | Y | N/P | P0 | **Y** | `RoutePath` | `route` |
+| Structural frame member | Y (skid steel) | P | P1 | **Y** | `MemberSweep` | `structure` |
+| Gusset plate | Y | N | P1 | **N** | `GussetPlate` | `structure` |
 | Loft | P | P | P2 | Y | `LoftSections` | `solid` |
-| Helix | P | P | P2 | N | `MakeHelix` | `curves` |
+| Helix | P | P | P2 | **Y** | `MakeHelix` | `curves` |
 | Fillet | Y (sim prep) | Y | P1 | Y | `RoundEdge` | `blend` |
 | Chamfer | P | Y | P1 | Y | `BevelEdge` | `blend` |
 | Shell / hollow | P | P | P1 | Y | `HollowBody` | `solid` |
-| Hole (simple) | Y | Y | P0 | N | `DrillHole` | `holes` |
-| Hole (full standards tables) | P | P | P2 | N | (later) | `holes` |
-| Linear pattern | Y | Y | P0 | N | `PatternLinear` | `pattern` |
-| Circular pattern | Y | Y | P0 | N | `PatternPolar` | `pattern` |
-| Pattern along path | Y | N | P1 | N | `PatternAlongPath` | `pattern` |
+| Hole (simple) | Y | Y | P0 | **Y** | `DrillHole` | `holes` |
+| Hole (full standards tables) | P | P | P2 | **N**† | (data + recipe) | `holes` |
+| Linear pattern | Y | Y | P0 | **Y** | `PatternLinear` | `pattern` |
+| Circular pattern | Y | Y | P0 | **Y** | `PatternPolar` | `pattern` |
+| Pattern along path | Y | N | P1 | **Y** | `PatternAlongPath` | `pattern` |
 | Mirror | P | P | P1 | Y | `MirrorCopy` | `pattern` |
-| Split body | P | P | P1 | N | `SplitBody` | `topo` |
-| Delete / cleanup | Y | Y | P1 | free handles | `RemoveEntity` | `topo` |
-| Composite / group bodies | Y | Y | P1 | N | `GroupBodies` | `group` |
+| Split body | P | P | P1 | **Y** | `SplitBody` | `topo` |
+| Delete / cleanup | Y | Y | P1 | **P** | `RemoveEntity` | `topo` |
+| Composite / group bodies | Y | Y | P1 | **Y** | `GroupBodies` | `group` |
 | Import BREP/STEP | Y | Y | P0 | Y | `ImportBrep` | `io` |
 | Export STEP/mesh | Y | Y | P0 | Y | `ExportBrep`, `ExportMesh` | `io` |
-| Catalog instance place | Y | Y | P0 | N | `SpawnPart` | `catalog` |
+| Catalog instance place | Y | Y | P0 | **N**† | `SpawnPart` | `catalog` |
 | Measure bbox/volume/COM | Y | Y | P0 | Y | `QueryGeom` | `query` |
-| Clash / distance | Y | Y | P0 | N | `QueryClash` | `query` |
-| Mass + material | Y | Y | P1 | P (COM/vol) | `AssignMaterial`, `ComputeMass` | `props` |
-| Topology query language | Y | Y | P0 | P (index only) | `Ref` / selectors | `query` |
-| Assembly mates (3D) | Y | Y | P0 | N | `MateConcentric`, `MateFasten`, … | `asm` |
-| Joint DOF + limits | P | Y | P0 | N | `DeclareJoint`, `MateLimits` | `asm` |
-| FK chain / pose | N | Y | P0 | N | `ComposeChain` | `asm` |
-| URDF / robot package export | N | Y | P0 | N | `ExportRobotPackage` | `io` |
-| Piping fittings catalog | Y | N | P0 | N | `FittingElbow`, … | `piping` |
+| Clash / distance | Y | Y | P0 | **Y** | `QueryClash` | `query` |
+| Mass + material | Y | Y | P1 | **P** | `AssignMaterial`, `ComputeMass` | `props` |
+| Topology query language | Y | Y | P0 | **P** | `Ref` / selectors | `query` |
+| Assembly mates (3D) | Y | Y | P0 | **N**† | `MateConcentric`, `MateFasten`, … | `asm` |
+| Joint DOF + limits | P | Y | P0 | **N**† | `DeclareJoint`, `MateLimits` | `asm` |
+| FK chain / pose | N | Y | P0 | **Y** | `ComposeChain` | `asm` |
+| URDF / robot package export | N | Y | P0 | **N**† | `ExportRobotPackage` | `io` |
+| Piping fittings catalog | Y | N | P0 | **N**† | `FittingElbow`, … | `piping` |
 | Sheet metal suite | P | N | P2 | N | — | — |
 | Gears / belts | N | P | P2 | N | — | — |
-| FEA mesh/solve | Y | N | P0* | mesh viz only | `MeshPrep` | `sim` |
-| NL → constraints | Y | P | P0* | N | `ParseIntent` | `ai` |
-| 2D drawing parse | Y | P | P0* | N | `ParseDrawing` | `ai` |
+| FEA mesh/solve | Y | N | P0* | **P**† mesh viz only | `MeshPrep` | `sim` |
+| NL → constraints | Y | P | P0* | N† | `ParseIntent` | `ai` |
+| 2D drawing parse | Y | P | P0* | N† | `ParseDrawing` | `ai` |
 
-\*P0 for **product/competition pipeline**, not for pure solid kernel.
+\*P0 for **product/competition pipeline**, not for pure solid kernel.  
+† Prefer IR/host/catalog implementation; optional thin C only if geometry-native.
 
 ### 6.3 Feature-family dual-goal scores (from multi-agent inventory)
 
@@ -562,57 +574,102 @@ Variables, query variables, name entity, tag, tables, properties, mass.
 | draft | N | N | P2 |
 | sheet metal suite | P | N | P2 |
 
-### 6.4 Intersection kernel (build first)
+### 6.4 Intersection kernel (build first) — status 2026-08-01
 
 Shared **P0 CAD kernel** for **both** goals:
 
 ```text
-Sketch2D, SolveSketch
-MakePlane, MakePoint, AttachFrame
-PrimBox, PrimCylinder, PrimSphere
-PushPull, SpinSolid, SweepAlong
-BoolCombine
-DrillHole (simple)
-PatternLinear, PatternPolar
-RigidXform
-ImportBrep, ExportBrep, ExportMesh
-QueryGeom (+ clash ASAP)
+Sketch2D, SolveSketch          ← still MISSING in occ_c
+MakePlane, MakePoint           ← PARTIAL (rect plane / world planes / vertex; no sketch graph)
+AttachFrame                    ← DONE (session + freestanding frames)
+PrimBox, PrimCylinder, PrimSphere  ← DONE (+ cone/torus/wedge)
+PushPull, SpinSolid, SweepAlong    ← DONE
+BoolCombine                    ← DONE
+DrillHole (simple)             ← DONE
+PatternLinear, PatternPolar    ← DONE
+RigidXform                     ← DONE
+ImportBrep, ExportBrep, ExportMesh ← DONE
+QueryGeom + QueryClash         ← DONE
 ```
 
-**AI-BOOST-only P0 extensions:** `RoutePath`, fittings catalog, housing fit check, mesh-prep for FEA, NL/2D agents.  
+**AI-BOOST-only P0 extensions:** `RoutePath` **DONE**; fittings catalog **not** kernel; housing fit via clash **DONE**; mesh-prep / NL / 2D agents **outside** `occ_c`.
 
-**Robot-only P0 extensions:** assembly mates, joint limits, FK chain (`ComposeChain`), URDF/collision packaging.
+**Robot-only P0 extensions:** FK `ComposeChain` **DONE**; assembly mates + joint limits + URDF packaging **outside** thin BREP C (or optional later).
 
-### 6.5 P0 kernel gap list for `occ_c`
+### 6.5 Closed P0 kernel gaps (was open 2026-07-31)
 
-**Both goals:**
+| Gap (historical) | Status | Primary symbols / modules |
+|------------------|--------|---------------------------|
+| Stable entity ids + history selectors | **Y** v0 | `occ_c_session.h` — `created_by`, names, kind filters, set ops |
+| Named frames on bodies | **Y** | `occ_session_attach_frame` / `get_frame`; freestanding `occ_frame_*` |
+| Clash / min-distance | **Y** | `occ_clash`, `occ_distance`, `occ_clash_all_pairs`, `occ_min_distance_to_set` |
+| Linear + polar patterns | **Y** | `occ_pattern_linear*`, `occ_pattern_polar*` |
+| Pattern along path | **Y** | `occ_pattern_along_path` |
+| Simple hole | **Y** | `occ_drill_hole_*`, `occ_hole_on_face_center` |
+| RoutePath + bend R + node frames | **Y** | `occ_make_route_*`, `occ_route_node_frames` |
+| Annulus / pipe recipes | **Y** | `occ_pipe_annulus`, `occ_pipe_*` |
+| Structural members | **Y** | `occ_member_sweep_circle/rect` |
+| Connector-to-connector place | **Y** | `occ_place_shape_at_frame`, frame displacement / trsf |
+| ComposeChain / DH FK | **Y** | `occ_compose_chain`, `occ_compose_chain_dh` |
+| Group / compound | **Y** | `occ_make_compound`, `occ_explode_compound` |
+| Split body | **Y** | `occ_split_by_plane`, `occ_split_by_shape` |
+| Helix | **Y** | `occ_make_helix_wire*` |
+| Mass properties (inertia) | **Y** | `occ_mass_properties` (material density still host-side) |
 
-| Gap | Why | IR / host |
-|-----|-----|-----------|
-| Stable entity ids + history selectors | Parametric reselect | `created_by`, filters |
-| Named frames on bodies | Joints, nozzles, TCP | `AttachFrame` |
-| Clash / min-distance | Fit + self-collision | `QueryClash` |
-| Linear + polar patterns | Bolts, supports | `PatternLinear`, `PatternPolar` |
-| Simple hole (or extrude-cut recipe) | Flanges | `DrillHole` |
-| Sketch 2D + solve (minimal) | Profiles | `Sketch2D` |
-| Construction plane/point | Anchors | `MakePlane`, `MakePoint` |
-| Instance/occurrence transforms | Assembly poses | host instance table |
+### 6.6 Remaining work that **depends on `occ_c`** but is **unimplemented**
 
-**Robot P0:** revolute joint state, limits check, ComposeChain (math OK if frames solid), per-occurrence mesh export.  
+Only items where a **new or substantially richer C ABI** is required (or current C is too thin to host the IR op honestly). Product/IR-only work is listed separately and is **out of scope for “finish occ_c”**.
 
-**AI-BOOST P0:** RoutePath (poly + bend R), annulus sweep recipe, path-node frames, pattern along path, MeshPrep seed export, clash with clearance.
+#### A. Must-have / high leverage for dual goals (true C gaps)
 
-**Recommended order:**
+| # | Missing capability | Clean-room IR | Why C (not just Luau) | Suggested `occ_*` shape |
+|---|--------------------|---------------|------------------------|-------------------------|
+| **A1** | **2D sketch entities + constraint solver** | `Sketch2D`, `SolveSketch` | Profiles, flanges, custom sections without hand-built wires; parametric re-solve | Sketch handle; add line/arc/circle; constraints (coincident, distance, horizontal/vertical, equal); `solve` → planar wire/face |
+| **A2** | **Richer construction geometry** | `MakePlane`, `MakePoint` (full) | World planes exist as thin faces; no infinite plane entity, midpoints, axes-as-topology, offset plane from face | Construction handles or POD+shape helpers: plane from face offset, point midpoint, axis from edge |
+| **A3** | **Selector / history depth beyond v0** | `Ref` filters | Session has `created_by` + kind + basic geometric selects; not adjacency, “edges of face”, stable topology after fillet, attribute tags | `occ_session_*` / query: `faces_of`, `edges_of`, `adjacent`, optional topology hash rebind |
+| **A4** | **Topology attributes / name survival** | `opNameEntity` analogue | Session names exist; no general key/value attrs on faces/edges that survive boolean | `occ_attr_set/get` on entity id or shape+index |
+
+#### B. Useful CAD completeness (P1) — C if recipe is kernel-hard
+
+| # | Missing capability | Pri | Notes |
+|---|--------------------|-----|--------|
+| **B1** | **Gusset plate** (`GussetPlate`) | P1 | Can be IR recipe (plane rect + extrude + cut); dedicated C only if we want a one-call solid |
+| **B2** | **Draft** / body draft | P2 | No `occ_draft_*` |
+| **B3** | **Rib** | P2 | No `occ_rib_*` |
+| **B4** | **Face edit** — move / offset / replace / delete face | P2 | Offset face exists; not full FS face suite |
+| **B5** | **Full-round / modify fillet** | P2 | Only radius fillet on edges/all |
+| **B6** | **Surface fill / boundary / constrained / ruled** | P2 | Dual-goal ROI low; skip unless requested |
+| **B7** | **Delete face / body cleanup ops** | P1 | Free handles + session release only; no `occ_delete_face` |
+| **B8** | **Curvature / advanced evals** | P1+ | Ray cast yes; no curvature, no full surface/curve def dumps |
+| **B9** | **Hole standards tables** | P2 | **Data** (JSON/CSV) + existing drill APIs; not new solid kernels |
+| **B10** | **Mesh reliability** | P0 host | Symbols exist; fix BRepMesh/zig alignment so STL/mesh export is trustworthy on hermetic toolchain |
+
+#### C. Often requested with dual goals but **not** primarily `occ_c`
+
+Implement in IR / AgentOS / host tables. Thin C optional only if packing binary blobs.
+
+| Capability | Why not blocking on new C |
+|------------|---------------------------|
+| Assembly **mate solver**, joint limits policy | Graph + solver state; use existing frames + `compose_chain` for FK |
+| **URDF** / robot package writer | Text packaging of meshes + joint table |
+| **SpawnPart** / fittings **catalog** | Part library + instance transforms; geometry already importable |
+| **AssignMaterial** density table | Host map → `mass_properties(density)` |
+| **MeshPrep** FEA seeds / NL / drawing parse | Agents + external tools; mesh buffers already exportable |
+| Portable **IR** document + eval | Highest product gap; lowers to **existing** `occ_c` |
+
+#### D. Recommended next C work order
 
 ```text
-1. Frames + RigidXform + selector created_by
-2. RoutePath + SweepAlong demo (pipe) + joint RotZ demo (robot)
-3. QueryClash
-4. Patterns + DrillHole
-5. GroupBodies + SpawnPart (catalog)
-6. Sketch solver (if not faking profiles with prims)
-7. MeshPrep hooks + ExportRobotPackage writer
+1. A1 Sketch2D + minimal SolveSketch (or unconstrained sketch → wire first)
+2. A2 Construction completeness (offset plane, midpoint, axis helpers)
+3. A3 Selector depth (faces_of / edges_of / adjacency) on session entities
+4. B10 Mesh path reliability on zig-cc
+5. A4 Attributes if IR needs surviving tags
+6. B1 Gusset only if skid demos demand a first-class op
+7. Defer B2–B6 (draft/rib/face suite/surfaces) unless a concrete demo requires them
 ```
+
+**Explicit one-liner:** for dual-goal **kernel** completeness, the only large **unimplemented, occ_c-dependent** capability left is **sketch (+ constraints)**; everything else in §6.4 is done or intentionally non-C.
 
 ---
 
@@ -1222,26 +1279,27 @@ Changing joint angles should prefer **transform-only** updates of occurrences (`
 
 ---
 
-## 13. Mapping to this repository today
+## 13. Mapping to this repository today (2026-08-01)
 
 | Repo area | Role relative to this report |
 |-----------|------------------------------|
-| `api/` (`occ_c`) | Host mutators/measures — **expand** per P0 kernel gaps |
-| `agent-os/` Luau `solid.*` | Seed of Luau libraries — **grow modules**, keep conventions |
-| Portable IR | **Not yet a first-class artifact** — highest novelty gap |
+| `api/` (`occ_c`) | Host mutators/measures — **P0 solid spine largely done**; remaining C gaps in **§6.6 A–B** |
+| `examples/smoke_*` | Dual-goal vertical slices: pipe skid, 6-DOF robot, flange bolt circle, session |
+| `agent-os/` Luau `solid.*` / OccBridge | Subset of host ops — **grow** toward full C surface |
+| Portable IR | **Not yet a first-class artifact** — highest **product** novelty gap |
 | `SYSTEM.md` | Trust boundary + north star — IR plugs in as “intent stage” |
 | BuildBuddy + Starlark | Reproducible builds of kernel + future IR golden tests |
+| `scripts/gen_occ_exports.py` | Keep Wasm `EXPORTED_FUNCTIONS` aligned with `OCC_API` |
 
-**Recommended implementation order:**
+**Recommended implementation order (updated):**
 
-1. Freeze IR schema v0 + selector v0 (this report §10).  
-2. Lower IR → existing `occ_c` for ops that already exist; golden tests.  
-3. Add `RoutePath` + `SweepAlong` demos (pipe + robot shaft).  
-4. `AttachFrame` + simple assembly mates / FK (robot).  
-5. Patterns + simple holes.  
-6. Query/clash.  
-7. Agent NL → IR (competition path).  
-8. MeshPrep hooks + external FEA story + ExportRobotPackage.
+1. **Sketch** minimal C API (§6.6 A1) — last big dual-goal kernel hole.  
+2. Freeze IR schema v0 + selector v0 (§10); lower IR → **existing** `occ_c`; golden tests.  
+3. Selector depth + construction helpers (A2–A3) as IR reselect needs them.  
+4. Grow AgentOS bridge / Luau modules to match C (no new C required for most ops).  
+5. Host catalogs + mate policy + URDF writer + MeshPrep seeds (mostly non-C).  
+6. Agent NL → IR (competition path).  
+7. Optional P1 C: gusset, delete-face, draft only if demos require.
 
 ---
 
