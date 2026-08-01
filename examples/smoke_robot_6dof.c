@@ -1,4 +1,3 @@
-// === file: examples/smoke_robot_6dof.c
 /*
  * smoke_robot_6dof.c — 6-DOF robot arm dual-goal smoke (pure C / occ_c)
  *

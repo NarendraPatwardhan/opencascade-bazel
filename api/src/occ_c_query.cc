@@ -1,4 +1,3 @@
-// === file: occ_c_query.cc
 // P0 Query / Measure / Clash / Mass / Topology selectors — OCCT 7.9.3
 #include "occ_c_query.h"
 #include "occ_c_internal.hxx"
@@ -510,8 +509,19 @@ int occ_edge_length(occ_shape_t edge, double* out_len) {
 
 int occ_shape_type(occ_shape_t s, int* out) {
   REQ(s && out, OCC_ERR_NULL_ARG);
-  /* TopAbs_ShapeEnum order matches OCC_SHAPE_* in occ_c.h */
-  *out = static_cast<int>(as_shape(s)->ShapeType());
+  /* Map TopAbs_ShapeEnum → occ_shape_kind_t (OCC_SHAPE_*). */
+  switch (as_shape(s)->ShapeType()) {
+    case TopAbs_COMPOUND:  *out = OCC_SHAPE_COMPOUND; break;
+    case TopAbs_COMPSOLID: *out = OCC_SHAPE_COMPSOLID; break;
+    case TopAbs_SOLID:     *out = OCC_SHAPE_SOLID; break;
+    case TopAbs_SHELL:     *out = OCC_SHAPE_SHELL; break;
+    case TopAbs_FACE:      *out = OCC_SHAPE_FACE; break;
+    case TopAbs_WIRE:      *out = OCC_SHAPE_WIRE; break;
+    case TopAbs_EDGE:      *out = OCC_SHAPE_EDGE; break;
+    case TopAbs_VERTEX:    *out = OCC_SHAPE_VERTEX; break;
+    case TopAbs_SHAPE:     *out = OCC_SHAPE_SHAPE; break;
+    default:               *out = OCC_SHAPE_UNKNOWN; break;
+  }
   return OCC_OK;
 }
 

@@ -1,6 +1,4 @@
-// === file: occ_c_route.cc
 // OCCT 7.9.3 — routes, pipe solids, structural member sweeps (AI-BOOST P0).
-// Extract to: api/src/occ_c_route.cc
 //
 // Design notes
 // ------------
@@ -65,15 +63,6 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
-#ifndef OCC_ERR_GEOM
-#define OCC_ERR_GEOM 8
-#endif
-#ifndef OCC_ERR_FRAME
-#define OCC_ERR_FRAME 9
-#endif
-#ifndef OCC_ERR_MATH
-#define OCC_ERR_MATH 13
-#endif
 
 using occ_c_detail::as_shape;
 using occ_c_detail::set_last;

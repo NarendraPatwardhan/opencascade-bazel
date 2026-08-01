@@ -1,8 +1,26 @@
-// === file: occ_c_session.h
+/*
+ * occ_c_session.h — optional history table on top of freestanding shapes.
+ *
+ * Why this exists: IR / parametric reselect needs stable identities
+ * (created_by, names, frames) after many ops. Freestanding occ_shape_t alone
+ * is a raw BREP pointer with no history.
+ *
+ * Model:
+ *   create session → begin_op("box1") → make freestanding shape →
+ *   register_shape (COPIES BREP into the table; you still own the input) →
+ *   end_op → query by created_by / name → get_shape (new freestanding handle)
+ *
+ * Entity ids are uint64 ≥ 1. Register expands faces/edges/… as siblings with
+ * the same created_by so selectors can re-find them.
+ *
+ * Session is NOT a mate solver and NOT a catalog. It only stores geometry and
+ * tags. Threading: one session, one thread for mutation.
+ */
 #ifndef OCC_C_SESSION_H_
 #define OCC_C_SESSION_H_
 
 #include "occ_c.h"
+#include "occ_c_frames.h"
 
 #include <stdint.h>
 
@@ -11,10 +29,7 @@ extern "C" {
 #endif
 
 /* --------------------------------------------------------------------------
- * Opaque session handle.
- *
- * Lifetime: create → (ops / register / query)* → destroy.
- * Threading: not safe for concurrent mutation of the same session.
+ * Opaque session handle
  * -------------------------------------------------------------------------- */
 typedef struct occ_session_s occ_session_t;
 
@@ -224,6 +239,11 @@ OCC_API int occ_query_subtract_ids(const occ_entity_id_t* a,
                                    occ_entity_id_t* out_entity_ids,
                                    int max,
                                    int* out_count);
+
+
+/* ---- frame POD conversion (modeling ↔ session array layout) ---- */
+OCC_API int occ_session_frame_from_frame(const occ_frame_t* f, occ_session_frame_t* out);
+OCC_API int occ_session_frame_to_frame(const occ_session_frame_t* sf, occ_frame_t* out);
 
 #ifdef __cplusplus
 }

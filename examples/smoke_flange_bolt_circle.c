@@ -1,4 +1,3 @@
-// === file: examples/smoke_flange_bolt_circle.c
 /*
  * smoke_flange_bolt_circle.c — hole + PatternPolar recipe (pure C / occ_c)
  *

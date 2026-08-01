@@ -1,4 +1,3 @@
-// === file: occ_c_boolean_ext.h
 #ifndef OCC_C_BOOLEAN_EXT_H_
 #define OCC_C_BOOLEAN_EXT_H_
 

@@ -1,4 +1,16 @@
-// === file: occ_c_frames.h
+/*
+ * occ_c_frames.h — SE(3) poses as plain C structs (no C++).
+ *
+ * A frame is a mate-connector analogue: origin + right-handed orthonormal
+ * triad. Z is the “main” direction (edge tangent, surface normal, joint axis).
+ *
+ *   X = (xx,xy,xz), Y = (yx,yy,yz), Z = (zx,zy,zz), origin = (ox,oy,oz)
+ *
+ * Place a solid so a frame on the solid meets a world frame with
+ * occ_transform_shape_frame / related helpers in this module and occ_c_trsf.h.
+ * Session history uses a different array layout (origin[3],x[3],y[3],z[3]);
+ * convert with occ_session_frame_from_frame / to_frame in occ_c_session.h.
+ */
 #ifndef OCC_C_FRAMES_H_
 #define OCC_C_FRAMES_H_
 
@@ -9,11 +21,7 @@ extern "C" {
 #endif
 
 /* -------------------------------------------------------------------------
- * occ_frame_t — pure SE(3) pose (mate-connector analogue as POD).
- *
- * Right-handed orthonormal triad after successful construction:
- *   X = (xx,xy,xz), Y = (yx,yy,yz), Z = (zx,zy,zz), origin = (ox,oy,oz)
- * Z is the "main" direction (edge tangent, surface normal, joint axis sense).
+ * occ_frame_t — pure SE(3) pose as POD
  * ------------------------------------------------------------------------- */
 typedef struct {
   double ox, oy, oz;

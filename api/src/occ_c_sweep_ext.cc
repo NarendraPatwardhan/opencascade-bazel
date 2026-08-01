@@ -1,4 +1,3 @@
-// === file: occ_c_sweep_ext.cc
 // Extended sweeps for occ_c — OCCT 7.9.3.
 // Blind / symmetric / through-all / revolve-full / loft flags /
 // helix wire / pipe / thicken / sew / solid-from-shell.

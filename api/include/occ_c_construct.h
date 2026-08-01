@@ -1,4 +1,3 @@
-// === file: occ_c_construct.h
 // Construction geometry for occ_c — points, planes, edges, wires, faces.
 // Explicit coordinates only (no sketch constraint solver).
 // Units: meters. Angles: radians. Topology indices: 1-based.

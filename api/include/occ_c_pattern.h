@@ -1,4 +1,3 @@
-// === file: occ_c_pattern.h
 #ifndef OCC_C_PATTERN_H_
 #define OCC_C_PATTERN_H_
 

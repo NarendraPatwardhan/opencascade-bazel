@@ -5,7 +5,7 @@
 **Audience:** Humans and AI agents working on this project  
 **Status:** Living document — update when intent changes; do not silently drift  
 **Last restated:** 2026-07-31  
-**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`docs/occ-c-literate-api.md`](docs/occ-c-literate-api.md) (kernel expansion hub)
+**Related:** [`AGENTS.md`](AGENTS.md) (how to code here) · [`DISPLAY.md`](DISPLAY.md) (viewport / camera / grid) · [`REACTIVITY.md`](REACTIVITY.md) (params / gimbals) · [`docs/README.md`](docs/README.md) (doc index) · [`docs/cleanroom-featurescript-std-report.md`](docs/cleanroom-featurescript-std-report.md) (CAD façade learning) · [`api/include/occ_c.h`](api/include/occ_c.h) (C ABI taught in-code)
 
 ---
 
@@ -135,8 +135,7 @@ Deep research into **SolidWorks / Onshape / Fusion** was requested to inform an 
 | **`REACTIVITY.md`** | Reactive **params / gimbals**: tiered re-eval, CADAM + Ao steal lists |
 | **`docs/README.md`** | Index of remaining docs (no pointer-only stubs) |
 | **`docs/cleanroom-featurescript-std-report.md`** | Team A clean-room learning: FS std architecture, dual-goal capability matrix, IR sketches |
-| **`docs/occ-c-literate-api.md`** | Hub → `docs/literate-sections/` (extractable P0/P1 C expansion) |
-| **`docs/literate-sections/`** | Authoritative literate C sources (Parts 00–08) |
+| **`api/include/occ_c*.h` + `api/src/`** | C kernel expansion — taught via in-code comments (not a separate literate tree) |
 | **`agent-os/TASKS.md`** | Implementation checklist for the browser scripting vertical slice |
 | **`README.md`** | User-facing C-API-first overview |
 
@@ -573,7 +572,7 @@ When someone proposes a feature, score:
 - Pure-C example.  
 - AgentOS path: Luau → host tools → `occ_*` → mesh; browser Monaco + viewer; node smoke.  
 - Analyze markers path (Phase A/B largely done).  
-- Architecture docs consolidated into **SYSTEM.md** + **clean-room FS report** + **literate-sections/**.
+- Architecture docs consolidated into **SYSTEM.md** + **clean-room FS report**; C API taught in `api/` comments.
 
 ### 12.2 Not done (the real spine)
 
@@ -723,7 +722,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | Date | Change |
 |------|--------|
 | 2026-07-31 | Initial SYSTEM.md: restated owner intent, dual goals, IR/Luau/kernel laws, clean-room + AI-BOOST + robot scope, prioritization order |
-| 2026-07-31 | Doc consolidation: absorbed `process-decisions.md` + `aiboost-agentic-cad.md`; literate hub points at `literate-sections/` only |
+| 2026-07-31 | Doc consolidation: absorbed `process-decisions.md` + `aiboost-agentic-cad.md`; C API expansion lives in `api/` with in-code teaching comments |
 | 2026-07-31 | Added **DISPLAY.md** (viewport / camera / Option B infinite grid) |
 | 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
 | 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |

@@ -1,4 +1,3 @@
-// === file: occ_c_sweep_ext.h
 // Extended sweeps beyond baseline occ_extrude / occ_revolve / occ_loft / occ_pipe.
 // OCCT 7.9.3 — extents, helix, thicken, sew, solid-from-shell.
 //
@@ -14,9 +13,6 @@ extern "C" {
 #endif
 
 /* Ensure geom error code exists even if baseline occ_c.h has not been patched. */
-#ifndef OCC_ERR_GEOM
-#define OCC_ERR_GEOM 8
-#endif
 
 /* =========================================================================
  * Linear extrude extents (PushPull taxonomy)

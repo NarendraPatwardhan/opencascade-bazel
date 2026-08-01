@@ -1,4 +1,3 @@
-// === file: occ_c_pattern.cc
 // OCCT 7.9.3 — linear / polar / along-path / transform patterns + fuse.
 #include "occ_c_pattern.h"
 #include "occ_c_internal.hxx"

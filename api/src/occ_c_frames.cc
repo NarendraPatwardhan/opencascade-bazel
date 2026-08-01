@@ -1,4 +1,3 @@
-// === file: occ_c_frames.cc
 // OCCT 7.9.3 — pure SE(3) frames + BREP placement.
 // Extract into api/src/occ_c_frames.cc
 

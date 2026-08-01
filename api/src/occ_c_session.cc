@@ -1,4 +1,3 @@
-// === file: occ_c_session.cc
 #include "occ_c_session.h"
 #include "occ_c_internal.hxx"
 
@@ -937,3 +936,32 @@ int occ_query_subtract_ids(const occ_entity_id_t* a,
 }
 
 }  // extern "C"
+
+/* ==========================================================================
+ * Frame POD conversion
+ * ========================================================================== */
+
+int occ_session_frame_from_frame(const occ_frame_t* f, occ_session_frame_t* out) {
+  if (!f || !out) {
+    set_last("null frame");
+    return OCC_ERR_NULL_ARG;
+  }
+  out->origin[0] = f->ox; out->origin[1] = f->oy; out->origin[2] = f->oz;
+  out->x[0] = f->xx; out->x[1] = f->xy; out->x[2] = f->xz;
+  out->y[0] = f->yx; out->y[1] = f->yy; out->y[2] = f->yz;
+  out->z[0] = f->zx; out->z[1] = f->zy; out->z[2] = f->zz;
+  return OCC_OK;
+}
+
+int occ_session_frame_to_frame(const occ_session_frame_t* sf, occ_frame_t* out) {
+  if (!sf || !out) {
+    set_last("null frame");
+    return OCC_ERR_NULL_ARG;
+  }
+  out->ox = sf->origin[0]; out->oy = sf->origin[1]; out->oz = sf->origin[2];
+  out->xx = sf->x[0]; out->xy = sf->x[1]; out->xz = sf->x[2];
+  out->yx = sf->y[0]; out->yy = sf->y[1]; out->yz = sf->y[2];
+  out->zx = sf->z[0]; out->zy = sf->z[1]; out->zz = sf->z[2];
+  return OCC_OK;
+}
+

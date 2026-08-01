@@ -1,4 +1,3 @@
-// === file: examples/smoke_pipe_skid.c
 /*
  * smoke_pipe_skid.c — AI-BOOST piping skid dual-goal smoke (pure C / occ_c)
  *

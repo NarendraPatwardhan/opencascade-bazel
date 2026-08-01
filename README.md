@@ -137,7 +137,7 @@ Luau (sandbox) ──tools.call──► host ──occ_*──► OCCT Wasm ─
 api/                  # Apache-2.0 — C API + Wasm packaging
 examples/c_api/       # Apache-2.0 — pure C API demo
 agent-os/             # BSL 1.1 — AgentOS CAD scripting + browser demo
-docs/                 # Doc index, clean-room report, literate-sections, demo screenshot
+docs/                 # Doc index, clean-room report, demo screenshot
 SYSTEM.md             # North star + design decisions
 DISPLAY.md            # Browser CAD viewport (WebGL, camera, infinite grid)
 REACTIVITY.md         # Parametric reactivity, gimbals, CADAM/Ao patterns

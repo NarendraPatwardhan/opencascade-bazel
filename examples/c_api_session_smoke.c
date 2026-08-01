@@ -1,4 +1,3 @@
-// === file: examples/c_api_session_smoke.c
 #include <stdlib.h>
 #include "occ_c_all.h"
 #include "occ_c_session.h"

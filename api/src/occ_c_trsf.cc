@@ -1,4 +1,3 @@
-// === file: occ_c_trsf.cc
 // OCCT 7.9.3 — SE(3) matrix math + serial FK + shape apply.
 // Extract into api/src/occ_c_trsf.cc
 

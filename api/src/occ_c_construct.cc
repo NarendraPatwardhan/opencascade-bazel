@@ -1,4 +1,3 @@
-// === file: occ_c_construct.cc
 // Construction geometry — thin C over OCCT 7.9.3.
 #include "occ_c_construct.h"
 #include "occ_c_internal.hxx"

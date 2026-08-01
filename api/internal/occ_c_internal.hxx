@@ -1,5 +1,32 @@
-// === file: api/src/occ_c_internal.hxx
-// Private — not installed. Shared by all occ_c*.cc translation units.
+/*
+ * occ_c_internal.hxx — private C++ glue shared by every occ_c*.cc TU.
+ *
+ * NOT installed. NOT for application code. If you need something from here
+ * in a product, expose a pure C function in a public header instead.
+ *
+ * =============================================================================
+ * How the C↔C++ boundary works
+ * =============================================================================
+ *
+ *   occ_shape_t  ==  TopoDS_Shape* allocated with new
+ *   to_handle()  copies a TopoDS_Shape onto the heap and returns the opaque ptr
+ *   as_shape()   casts back for OCCT algorithms
+ *   set_last()   writes a thread-local string for occ_last_error()
+ *
+ * OCC_GUARD_BEGIN / END wrap every public entry that can throw. OCCT raises
+ * Standard_Failure; we never let that escape into C. The macros return
+ * OCC_ERR_EXCEPTION after recording the message.
+ *
+ * REQ(cond, code) is a precondition check that also sets last_error so hosts
+ * always have a human-readable reason when they get OCC_ERR_NULL_ARG / etc.
+ *
+ * Adding a new public C function:
+ *   1. Declare OCC_API in the right public .h (or occ_c.h for baseline).
+ *   2. Implement in the matching .cc with OCC_GUARD and ownership laws.
+ *   3. Add the symbol to _OCC_C_EXPORTS in api/BUILD.bazel for Wasm.
+ *   4. Exercise it from a pure-C example under examples/.
+ */
+
 #pragma once
 
 #include "occ_c.h"
@@ -31,6 +58,7 @@
 
 namespace occ_c_detail {
 
+/* One TLS string per thread — matches occ_last_error() in occ_c.cc. */
 inline thread_local std::string g_last_error;
 
 inline void set_last(const char* msg) {
@@ -41,6 +69,7 @@ inline TopoDS_Shape* as_shape(occ_shape_t s) {
   return reinterpret_cast<TopoDS_Shape*>(s);
 }
 
+/* Copy `s` onto the heap; caller (C side) owns the handle. */
 inline occ_shape_t to_handle(const TopoDS_Shape& s) {
   return reinterpret_cast<occ_shape_t>(new TopoDS_Shape(s));
 }
@@ -96,9 +125,12 @@ inline double dot3(double ax, double ay, double az,
     return OCC_ERR_EXCEPTION;                                                 \
   }
 
-#define REQ(cond, code)               \
-  do {                                \
-    if (!(cond)) return (code);       \
+#define REQ(cond, code)                                    \
+  do {                                                     \
+    if (!(cond)) {                                         \
+      occ_c_detail::set_last("invalid argument");          \
+      return (code);                                       \
+    }                                                      \
   } while (0)
 
 #define REQ_MSG(cond, code, msg)                    \

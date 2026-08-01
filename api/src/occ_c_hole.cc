@@ -1,4 +1,3 @@
-// === file: occ_c_hole.cc
 // OCCT 7.9.3 — through / blind / counterbore / countersink / face-center.
 #include "occ_c_hole.h"
 #include "occ_c_internal.hxx"

@@ -1,4 +1,3 @@
-// === file: occ_c_query.h
 #ifndef OCC_C_QUERY_H_
 #define OCC_C_QUERY_H_
 
@@ -80,7 +79,7 @@ OCC_API int occ_edge_length(occ_shape_t edge, double* out_len);
  * Topology typing & solids
  * ------------------------------------------------------------------------- */
 
-/** *out maps TopAbs_ShapeEnum → occ_shape_type_t / int (0=COMPOUND .. 7=VERTEX). */
+/** *out is occ_shape_kind_t (OCC_SHAPE_*). Never raw TopAbs. */
 OCC_API int occ_shape_type(occ_shape_t s, int* out);
 
 OCC_API int occ_count_solids(occ_shape_t s, int* out_n);

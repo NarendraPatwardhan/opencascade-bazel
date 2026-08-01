@@ -49,7 +49,7 @@ CADAM **parameter sheet, debounce, smart updates** → REACTIVITY only.
 | **`DISPLAY.md` (this file)** | Viewport, camera, infinite grid, view chrome steals, non-goals, implementation order |
 | **`REACTIVITY.md`** | Params, tiered re-eval, param sheet, scene **param** gimbals |
 | **`SYSTEM.md`** | Product intent, IR, trust boundary, dual goals |
-| **`docs/literate-sections/`** | Extractable **kernel** C API expansion |
+| **`api/include/` + `api/src/`** | **Kernel** C API (comments teach the expansion) |
 
 ---
 

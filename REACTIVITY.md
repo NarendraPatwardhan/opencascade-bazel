@@ -374,7 +374,7 @@ View cube / ortho / lighting: track under **DISPLAY** implementation order, not 
 | **SYSTEM.md** | Why IR + Luau + trust exist |
 | **DISPLAY.md** | Mesh draw, camera, infinite grid, **CADAM view steals (D)** |
 | **REACTIVITY.md** (this) | Params, tiered re-eval, sheet, scene **param** gimbals, **CADAM param steals (C)** |
-| **literate-sections/** | Kernel ops that rebuild/xform call |
+| **`api/include/` + `api/src/`** | Kernel ops that rebuild/xform call |
 
 ```text
 Agent / human

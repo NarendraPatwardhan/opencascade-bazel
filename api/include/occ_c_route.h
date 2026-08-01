@@ -1,26 +1,36 @@
-// === file: occ_c_route.h
-// OCCT 7.9.3 — routes, pipe solids, structural member sweeps (AI-BOOST P0).
-// Extract to: api/include/occ_c_route.h
+/*
+ * occ_c_route.h — pipe centerlines and solids for skid-style geometry.
+ *
+ * Teaching walk-through (read with occ_c_route.cc):
+ *
+ *   1. Build a centerline wire with circular fillets at corners:
+ *        occ_make_route_with_bends(nodes, n, R, &wire)
+ *      Algorithm: unit leg directions u,v; turn angle α; trim length
+ *      L = R·tan(α/2); circular arc in the plane of (u,v).
+ *
+ *   2. Sweep a hollow pipe along that wire:
+ *        occ_pipe_annulus(OD, ID, wire, &solid)
+ *      Implementation builds ONE planar annular face (outer circle + inner
+ *      hole) at the spine start frame, then a single pipe sweep. We avoid
+ *      solid_outer − solid_inner booleans on long spines (fragile under some
+ *      toolchains).
+ *
+ *   3. Structural members: rectangular/circular profiles along the same spine.
+ *
+ * Units: meters. Depends on occ_frame_t from occ_c_frames.h.
+ */
 #ifndef OCC_C_ROUTE_H_
 #define OCC_C_ROUTE_H_
 
 #include "occ_c.h"
-#include "occ_c_frames.h" /* occ_frame_t */
+#include "occ_c_frames.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Fallback status codes if host occ_c.h not yet patched. */
-#ifndef OCC_ERR_GEOM
-#define OCC_ERR_GEOM 8
-#endif
-#ifndef OCC_ERR_MATH
-#define OCC_ERR_MATH 13
-#endif
-
 /* =========================================================================
- * Centerline routes (RoutePath)
+ * Centerline routes
  * ========================================================================= */
 
 /**
@@ -38,7 +48,7 @@ OCC_API int occ_make_route_polyline(const double* xyz, int n_points, int closed,
  *
  * Algorithm: for turn angle alpha between unit segment directions u,v:
  *   L = R * tan(alpha/2); trim both legs by L; arc in plane of (u,v) via
- *   GC_MakeArcOfCircle(trim1, mid_arc, trim2). See section 04 doc.
+ *   circular arc through (trim1, mid_arc, trim2).
  *
  * Collinear corners are skipped. Hairpin (alpha ≈ π) → OCC_ERR_GEOM.
  * Too-short legs for the requested R → OCC_ERR_MATH.

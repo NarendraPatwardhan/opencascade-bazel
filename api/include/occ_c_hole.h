@@ -1,4 +1,3 @@
-// === file: occ_c_hole.h
 #ifndef OCC_C_HOLE_H_
 #define OCC_C_HOLE_H_
 

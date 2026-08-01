@@ -1,4 +1,3 @@
-// === file: occ_c_boolean_ext.cc
 // OCCT 7.9.3 — compounds, plane/shape split, fuse/cut many.
 #include "occ_c_boolean_ext.h"
 #include "occ_c_internal.hxx"

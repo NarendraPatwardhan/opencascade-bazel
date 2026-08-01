@@ -1,4 +1,3 @@
-// === file: occ_c_trsf.h
 #ifndef OCC_C_TRSF_H_
 #define OCC_C_TRSF_H_
 
