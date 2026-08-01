@@ -1,3 +1,48 @@
+/*
+ * occ_c_query.h — distance, clash, mass, topology, proximity, selectors.
+ *
+ * Why this module exists
+ * ----------------------
+ * Modeling ops produce shapes; product logic needs to *ask questions* about
+ * them: how far, do they clash, which face is largest, cast a ray, pick edges
+ * longer than X. Baseline occ_c.h already has volume / area / COM / bbox for
+ * a single shape. This module is the measurement and selection layer for
+ * multi-shape and sub-topology queries — freestanding (no session required).
+ * For history-backed reselect, use occ_c_session.h and filter by created_by.
+ *
+ * Clash taxonomy (occ_clash_status_t in occ_c.h)
+ * ---------------------------------------------
+ *   OCC_CLASH_SEPARATED  — min distance > clearance
+ *   OCC_CLASH_CLEARANCE  — 0 < dist ≤ clearance (near miss band)
+ *   OCC_CLASH_INTERFERE  — overlapping / touching (dist ≈ 0 or inner solution)
+ * Pairwise and all-pairs matrix use the same codes. Diagonal of all-pairs is
+ * forced SEPARATED (a shape does not clash with itself here).
+ *
+ * Distance points
+ * ---------------
+ * Optional out_p_on_a / out_p_on_b receive the first extrema solution (meters).
+ * Pass NULL to skip. out_dist is always ≥ 0 on success.
+ *
+ * Mass properties
+ * ---------------
+ * density in kg/m³ (or any consistent unit system). Inertia is 3×3 about COM,
+ * row-major symmetric tensor. Length applies to edge or wire arc length.
+ *
+ * Selectors
+ * ---------
+ * out_indices: caller-allocated capacity max_out; *out_n written count.
+ * Indices are 1-based face or edge map indices (match topology helpers).
+ * Parallel-to uses face unit normal vs unit(normal) within tol_deg.
+ *
+ * Ray cast
+ * --------
+ * origin + t * dir, dir need not be unit. Smallest t ≥ 0 hit. No hit →
+ * OCC_ERR_INDEX. Optional out_t / out_hit / out_face_index (1-based; 0 unused).
+ *
+ * Ownership: freestanding queries do not allocate shapes except solid_at
+ * (new owned handle). Status int + out-params only otherwise.
+ * Units: meters, degrees only where named *_deg. Implementation: occ_c_query.cc.
+ */
 #ifndef OCC_C_QUERY_H_
 #define OCC_C_QUERY_H_
 
@@ -7,23 +52,20 @@
 extern "C" {
 #endif
 
-/* Clash status codes: occ_clash_status_t in occ_c.h
- *   OCC_CLASH_SEPARATED / OCC_CLASH_CLEARANCE / OCC_CLASH_INTERFERE */
-
 /* -------------------------------------------------------------------------
  * Distance & clash
  * ------------------------------------------------------------------------- */
 
 /** Minimum distance between two shapes.
- *  on success: *out_dist >= 0; optional out_p_on_a / out_p_on_b filled if non-NULL.
- *  Points are first solution (1-based OCCT index). */
+ *  on success: *out_dist ≥ 0; optional out_p_on_a / out_p_on_b if non-NULL.
+ *  Points are the first extrema solution. */
 OCC_API int occ_distance(occ_shape_t a, occ_shape_t b,
                          double* out_dist,
                          double out_p_on_a[3],
                          double out_p_on_b[3]);
 
 /** Pairwise clash with clearance band.
- *  *out_status ∈ {0,1,2} as OCC_CLASH_* .
+ *  *out_status ∈ {0,1,2} as OCC_CLASH_*.
  *  Returns OCC_OK when status was written; OCC_ERR_GEOM if extrema failed. */
 OCC_API int occ_clash(occ_shape_t a, occ_shape_t b,
                       double clearance, int* out_status);
@@ -40,21 +82,21 @@ OCC_API int occ_min_distance_to_set(occ_shape_t shape,
                                     int* out_idx, double* out_dist);
 
 /* -------------------------------------------------------------------------
- * Global measures (re-export style; safe to call from any TU)
+ * Global measures
  * ------------------------------------------------------------------------- */
 
-/* volume / surface_area / center_of_mass: baseline occ_c.h */
+/* volume / surface_area / center_of_mass / bbox: baseline occ_c.h */
 
 /** Density-scaled mass properties.
- *  density in kg/m^3 (or consistent unit system).
- *  out_inertia_tensor[9] row-major 3x3 about COM:
+ *  density in kg/m³ (or consistent unit system).
+ *  out_inertia_tensor[9] row-major 3×3 about COM:
  *    [Ixx Ixy Ixz; Iyx Iyy Iyz; Izx Izy Izz]  (symmetric). */
 OCC_API int occ_mass_properties(occ_shape_t s, double density,
                                 double* out_mass,
                                 double out_com[3],
                                 double out_inertia_tensor[9]);
 
-/** Linear properties: edge or wire arc length (BRepGProp::LinearProperties). */
+/** Linear properties: edge or wire arc length (meters). */
 OCC_API int occ_length(occ_shape_t s, double* out_len);
 
 /* -------------------------------------------------------------------------
@@ -62,24 +104,27 @@ OCC_API int occ_length(occ_shape_t s, double* out_len);
  * ------------------------------------------------------------------------- */
 
 OCC_API int occ_face_area(occ_shape_t face, double* out_area);
-OCC_API int occ_face_normal(occ_shape_t face, double out_n[3]); /* unit, at center UV */
-OCC_API int occ_face_center(occ_shape_t face, double out_p[3]); /* 3D at center UV */
+/** Unit normal at face center UV. */
+OCC_API int occ_face_normal(occ_shape_t face, double out_n[3]);
+/** 3D point at face center UV. */
+OCC_API int occ_face_center(occ_shape_t face, double out_p[3]);
 OCC_API int occ_is_planar_face(occ_shape_t face, int* out_bool);
 
-/** 1-based face index of maximum area inside s; also returns area if non-NULL. */
+/** 1-based face index of maximum area inside s; also area if non-NULL. */
 OCC_API int occ_largest_face(occ_shape_t s, int* out_1based_index);
 OCC_API int occ_largest_face_area(occ_shape_t s, int* out_1based_index,
                                   double* out_area);
 
 OCC_API int occ_edge_midpoint(occ_shape_t edge, double out_p[3]);
-OCC_API int occ_edge_tangent(occ_shape_t edge, double out_t[3]); /* unit */
+/** Unit tangent at edge midpoint parameter. */
+OCC_API int occ_edge_tangent(occ_shape_t edge, double out_t[3]);
 OCC_API int occ_edge_length(occ_shape_t edge, double* out_len);
 
 /* -------------------------------------------------------------------------
  * Topology typing & solids
  * ------------------------------------------------------------------------- */
 
-/** *out is occ_shape_kind_t (OCC_SHAPE_*). Never raw TopAbs. */
+/** *out is occ_shape_kind_t (OCC_SHAPE_*). Never raw kernel enums. */
 OCC_API int occ_shape_type(occ_shape_t s, int* out);
 
 OCC_API int occ_count_solids(occ_shape_t s, int* out_n);
@@ -90,13 +135,13 @@ OCC_API int occ_solid_at(occ_shape_t s, int index_1based, occ_shape_t* out);
  * Proximity helpers
  * ------------------------------------------------------------------------- */
 
-/** Closest face (1-based in TopExp FACE map) of shape to point p[3]. */
+/** Closest face (1-based face map) of shape to point p[3]. */
 OCC_API int occ_closest_face_to_point(occ_shape_t shape, const double p[3],
                                       int* out_face_index,
                                       double out_point_on_face[3]);
 
 /** Ray cast: origin + t * dir, dir need not be unit.
- *  Finds smallest t >= 0 hit. out_t may be NULL; out_hit[3] optional;
+ *  Finds smallest t ≥ 0 hit. out_t may be NULL; out_hit[3] optional;
  *  out_face_index 1-based optional (0 if unused).
  *  Returns OCC_ERR_INDEX if no hit. */
 OCC_API int occ_ray_cast(occ_shape_t shape,
@@ -105,13 +150,10 @@ OCC_API int occ_ray_cast(occ_shape_t shape,
                          int* out_face_index);
 
 /* -------------------------------------------------------------------------
- * Bounds, validity, cheap topology fingerprint
+ * Validity & cheap topology fingerprint
  * ------------------------------------------------------------------------- */
 
-/** Axis-aligned bbox: out_min[3], out_max[3]. */
-/* bbox: baseline occ_c.h */
-
-/** BRepCheck_Analyzer::IsValid() → *out_bool 1/0. */
+/** Structural validity check → *out_bool 1/0. */
 OCC_API int occ_is_valid_shape(occ_shape_t s, int* out_bool);
 
 /** Quick topology hash: mix of face/edge/vertex counts into *out_hash.

@@ -58,11 +58,9 @@ OCC_API int occ_make_route_with_bends(const double* xyz, int n_points,
                                       double bend_radius,
                                       occ_shape_t* out_wire);
 
-/**
- * Arc-length of a wire (or any shape with edges) via BRepGProp::LinearProperties.
- * out_len in meters.
- */
-/* occ_wire_length: occ_c_construct.h */
+/* Wire arc-length: occ_wire_length in occ_c_construct.h (canonical).
+ * Generic edge/wire length: occ_length in occ_c_query.h (wires delegate to
+ * occ_wire_length). */
 
 /**
  * Point + unit tangent at the geometric start (at_start != 0) or end of a wire.
@@ -97,6 +95,7 @@ OCC_API int occ_route_node_frames(const double* xyz, int n,
 
 /**
  * Planar circular face of given radius, center (cx,cy,cz), normal (nx,ny,nz).
+ * Thin alias of occ_make_face_circle (occ_c_construct.h) — same ABI, one body.
  * Used as MakePipe profile for solid / annulus OD & ID.
  */
 OCC_API int occ_make_circle_face(double cx, double cy, double cz,
@@ -123,6 +122,7 @@ OCC_API int occ_make_circle_profile_wire(double radius, occ_shape_t* out_wire);
 
 /**
  * Sweep profile (face or wire) along spine_wire with BRepOffsetAPI_MakePipe.
+ * Thin wrapper of baseline occ_pipe; rejects solid profiles with a clear error.
  * Spine should be G1 (use occ_make_route_with_bends). Profile is used as-is
  * (caller places it at the spine start, normal ≈ tangent).
  */

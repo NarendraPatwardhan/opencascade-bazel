@@ -1,5 +1,9 @@
-// OCCT 7.9.3 — compounds, plane/shape split, fuse/cut many.
+// Public header: occ_c_boolean.h (this .cc keeps the _ext filename).
+// Compounds, plane/shape split, fuse/cut many.
+// Plane split uses finite half-space tools (half-space ∩ oversized AABB) so
+// BOP stays tractable — see make_finite_halfspace_tool and header contract.
 #include "occ_c_boolean_ext.h"
+
 #include "occ_c_internal.hxx"
 
 #include <cmath>
@@ -129,16 +133,27 @@ int occ_explode_compound(occ_shape_t compound,
                          occ_shape_t* out_shapes,
                          int max_out,
                          int* out_count) {
-  REQ(compound && out_shapes && out_count, OCC_ERR_NULL_ARG);
-  REQ(max_out >= 1, OCC_ERR_GEOM);
+  REQ(compound && out_count, OCC_ERR_NULL_ARG);
+  if (max_out < 0) {
+    set_last("explode_compound: max_out < 0");
+    return OCC_ERR_GEOM;
+  }
+  if (max_out > 0) REQ(out_shapes, OCC_ERR_NULL_ARG);
   OCC_GUARD_BEGIN
   const TopoDS_Shape& sh = *as_shape(compound);
   *out_count = 0;
 
+  /* Non-compound: single child (the shape itself). */
   if (sh.ShapeType() != TopAbs_COMPOUND &&
       sh.ShapeType() != TopAbs_COMPSOLID) {
-    out_shapes[0] = to_handle(copy_shape(sh));
     *out_count = 1;
+    if (max_out > 0) {
+      out_shapes[0] = to_handle(copy_shape(sh));
+    }
+    if (1 > max_out) {
+      set_last("explode_compound: output buffer too small");
+      return OCC_ERR_CAPACITY;
+    }
     return OCC_OK;
   }
 
@@ -151,14 +166,15 @@ int occ_explode_compound(occ_shape_t compound,
       ++written;
     }
   }
-  *out_count = written;
-  if (total > max_out) {
-    set_last("explode_compound: output buffer too small");
-    return OCC_ERR_INDEX;
-  }
+  /* Always report TOTAL children, not just filled slots. */
+  *out_count = total;
   if (total == 0) {
     set_last("explode_compound: empty compound");
     return OCC_ERR_GEOM;
+  }
+  if (total > max_out) {
+    set_last("explode_compound: output buffer too small");
+    return OCC_ERR_CAPACITY;
   }
   return OCC_OK;
   OCC_GUARD_END

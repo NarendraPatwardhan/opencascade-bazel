@@ -23,7 +23,7 @@
  * Adding a new public C function:
  *   1. Declare OCC_API in the right public .h (or occ_c.h for baseline).
  *   2. Implement in the matching .cc with OCC_GUARD and ownership laws.
- *   3. Add the symbol to _OCC_C_EXPORTS in api/BUILD.bazel for Wasm.
+ *   3. Regenerate Wasm exports: python3 scripts/gen_occ_exports.py --write
  *   4. Exercise it from a pure-C example under examples/.
  */
 

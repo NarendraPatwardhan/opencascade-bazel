@@ -8,8 +8,11 @@
  *
  * Place a solid so a frame on the solid meets a world frame with
  * occ_transform_shape_frame / related helpers in this module and occ_c_trsf.h.
- * Session history uses a different array layout (origin[3],x[3],y[3],z[3]);
- * convert with occ_session_frame_from_frame / to_frame in occ_c_session.h.
+ *
+ * occ_frame_t is the preferred frame POD for the whole C API (route, trsf,
+ * pattern, pipe profiles). Session history stores a parallel array layout
+ * (origin[3], x[3], y[3], z[3]) as occ_session_frame_t — convert only at
+ * attach/get with occ_session_frame_from_frame / to_frame in occ_c_session.h.
  */
 #ifndef OCC_C_FRAMES_H_
 #define OCC_C_FRAMES_H_

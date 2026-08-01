@@ -50,8 +50,18 @@ typedef enum {
   OCC_ENTITY_ANY      = 9   /* wildcard in queries */
 } occ_entity_kind_t;
 
-/* Full orthonormal frame POD (meters). Used by session attach_frame.
- * Compatible with 4x3 row layout: origin, x, y, z (each 3 doubles). */
+/*
+ * Session frame POD — array layout for IR / history attach_frame.
+ *
+ * Prefer occ_frame_t (occ_c_frames.h) for all modeling, transforms, route
+ * nodes, and pattern poses. That is the canonical SE(3) type for the C API.
+ *
+ * occ_session_frame_t exists only so history storage can serialize as
+ * origin[3] + axes[3]×3 without field-name coupling. Convert at the boundary:
+ *   occ_session_frame_from_frame / occ_session_frame_to_frame
+ *   (or the 12-double pack helpers below)
+ * Do not invent a third frame layout in new code.
+ */
 typedef struct occ_session_frame_s {
   double origin[3];
   double x[3];
@@ -195,6 +205,8 @@ OCC_API int occ_session_world_plane_zx(occ_session_t* session,
                                        occ_entity_id_t* out_id);
 
 /* ============================ IR selector v0 query helpers ================= */
+/* All list writers use write_ids_capped: *out_count = TOTAL matches,
+ * fill min(total, max), OCC_ERR_CAPACITY when total > max (partial fill). */
 
 /** Wrapper: same as occ_session_find_by_created_by (IR entry point). */
 OCC_API int occ_query_created_by(occ_session_t* session,
@@ -241,9 +253,14 @@ OCC_API int occ_query_subtract_ids(const occ_entity_id_t* a,
                                    int* out_count);
 
 
-/* ---- frame POD conversion (modeling ↔ session array layout) ---- */
-OCC_API int occ_session_frame_from_frame(const occ_frame_t* f, occ_session_frame_t* out);
-OCC_API int occ_session_frame_to_frame(const occ_session_frame_t* sf, occ_frame_t* out);
+/* ---- frame POD conversion (prefer occ_frame_t outside session attach) ----
+ * Modeling modules speak occ_frame_t. Call these only when crossing into
+ * occ_session_attach_frame / get_frame (array layout). Both copy all 12
+ * doubles; axes are not re-orthonormalized here — validate on attach. */
+OCC_API int occ_session_frame_from_frame(const occ_frame_t* f,
+                                         occ_session_frame_t* out);
+OCC_API int occ_session_frame_to_frame(const occ_session_frame_t* sf,
+                                       occ_frame_t* out);
 
 #ifdef __cplusplus
 }

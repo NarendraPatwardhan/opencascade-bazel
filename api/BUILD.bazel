@@ -37,11 +37,16 @@ cc_library(
         "include/occ_c_route.h",
         "include/occ_c_pattern.h",
         "include/occ_c_hole.h",
+        "include/occ_c_boolean.h",
         "include/occ_c_boolean_ext.h",
         "include/occ_c_query.h",
+        "include/occ_c_sweep.h",
         "include/occ_c_sweep_ext.h",
     ],
-    # Private shared glue — not a public include path.
+
+    # Private C++ glue for src/*.cc (#include "occ_c_internal.hxx").
+    # Listed as textual_hdrs (not hdrs) so dependents are not expected to
+    # include it; "internal" is on includes only so our own TUs compile.
     textual_hdrs = [
         "internal/occ_c_internal.hxx",
     ],
@@ -86,8 +91,9 @@ cc_shared_library(
 # Shipping outputs: libocc_c.js + libocc_c.wasm (optimized).
 # Tagged manual: OCCT+emcc is heavy; keep out of bare `//...`.
 
-# Keep in sync with OCC_API symbols in include/occ_c.h (C names need a
-# leading underscore for Emscripten). malloc/free let JS allocate for paths.
+# Keep in sync with OCC_API symbols in api/include/*.h
+# (regenerate: python3 scripts/gen_occ_exports.py --format starlark).
+# malloc/free let JS allocate for paths.
 _OCC_C_EXPORTS = ",".join([
     "_malloc",
     "_free",

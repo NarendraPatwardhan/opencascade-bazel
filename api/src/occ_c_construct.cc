@@ -1,4 +1,6 @@
-// Construction geometry — thin C over OCCT 7.9.3.
+// Construction geometry — thin C maps for edges/wires/faces/plane POD.
+// Wire endpoint closure uses a small gap tolerance (k_gap); B-spline path
+// picks periodic interpolate vs points-to-spline from the periodic flag.
 #include "occ_c_construct.h"
 #include "occ_c_internal.hxx"
 

@@ -1,5 +1,7 @@
-// OCCT 7.9.3 — SE(3) matrix math + serial FK + shape apply.
-// Extract into api/src/occ_c_trsf.cc
+// SE(3) matrix math + serial FK + shape apply.
+// Matrix ops are pure C (Rodrigues for axis-angle joints; Craig DH for
+// occ_compose_chain_dh). Shape apply maps the upper 3×4 into a rigid copy
+// transform — see header guide for composition order (a*b = b then a).
 
 #include "occ_c_trsf.h"
 #include "occ_c_internal.hxx"

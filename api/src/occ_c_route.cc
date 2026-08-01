@@ -19,6 +19,7 @@
 //   arc   = GC_MakeArcOfCircle(T1, Pmid, T2)
 
 #include "occ_c_route.h"
+#include "occ_c_construct.h"
 #include "occ_c_internal.hxx"
 
 #include <algorithm>
@@ -825,23 +826,10 @@ int occ_route_node_frames(const double* xyz, int n, int closed,
  * Profiles
  * ========================================================================= */
 
+/* Alias of construct's occ_make_face_circle (single MakeFace implementation). */
 int occ_make_circle_face(double cx, double cy, double cz, double nx, double ny,
                          double nz, double radius, occ_shape_t* out) {
-  REQ(out, OCC_ERR_NULL_ARG);
-  REQ(radius > 0.0, OCC_ERR_GEOM);
-  OCC_GUARD_BEGIN
-  gp_Vec nv(nx, ny, nz);
-  if (nv.Magnitude() < kEpsLen) {
-    set_last("circle face: zero normal");
-    return OCC_ERR_GEOM;
-  }
-  TopoDS_Face face;
-  const int st =
-      make_circle_face_at(gp_Pnt(cx, cy, cz), gp_Dir(nv), radius, face);
-  if (st != OCC_OK) return st;
-  *out = to_handle(face);
-  return OCC_OK;
-  OCC_GUARD_END
+  return occ_make_face_circle(cx, cy, cz, nx, ny, nz, radius, out);
 }
 
 int occ_make_rect_profile_wire(double width, double height,
@@ -891,13 +879,10 @@ int occ_make_circle_profile_wire(double radius, occ_shape_t* out_wire) {
  * Pipe solids
  * ========================================================================= */
 
+/* Thin wrapper over baseline occ_pipe (MakePipe). Extra profile-type check. */
 int occ_pipe_solid(occ_shape_t profile_face_or_wire, occ_shape_t spine_wire,
                    occ_shape_t* out) {
   REQ(profile_face_or_wire && spine_wire && out, OCC_ERR_NULL_ARG);
-  OCC_GUARD_BEGIN
-  const int stw = require_wire(spine_wire, "pipe_solid: spine must be wire");
-  if (stw != OCC_OK) return stw;
-
   const TopoDS_Shape& prof = *as_shape(profile_face_or_wire);
   const TopAbs_ShapeEnum pt = prof.ShapeType();
   if (pt != TopAbs_FACE && pt != TopAbs_WIRE && pt != TopAbs_EDGE &&
@@ -905,14 +890,7 @@ int occ_pipe_solid(occ_shape_t profile_face_or_wire, occ_shape_t spine_wire,
     set_last("pipe_solid: profile must be face/wire/edge (not a solid)");
     return OCC_ERR_INVALID_SHAPE;
   }
-
-  TopoDS_Shape solid;
-  const int st =
-      do_make_pipe(TopoDS::Wire(*as_shape(spine_wire)), prof, solid);
-  if (st != OCC_OK) return st;
-  *out = to_handle(solid);
-  return OCC_OK;
-  OCC_GUARD_END
+  return occ_pipe(profile_face_or_wire, spine_wire, out);
 }
 
 int occ_pipe_annulus(double od, double id, occ_shape_t spine_wire,

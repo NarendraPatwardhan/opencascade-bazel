@@ -1,3 +1,41 @@
+/*
+ * occ_c_hole.h — simple cylindrical / counterbore / countersink holes.
+ *
+ * Why this module exists
+ * ----------------------
+ * Holes are the most common subtractive feature after a boolean cut. This API
+ * is intentionally small: full diameters, explicit origin + drill axis, no
+ * fastener standards tables, no hole attributes, no thread geometry. Product
+ * layers map M6 / clearance / fit → diameters and call these kernels.
+ *
+ * Mental model
+ * ------------
+ * Build a cutting tool solid, then cut(solid, tool). Callers own the result.
+ * Input solid is never freed.
+ *
+ *   through:   long cylinder centered on (cx,cy,cz) so both sides are pierced
+ *              for any solid whose extent is within ~one bbox diagonal of the point
+ *   blind:     cylinder from origin along +dir for `depth`
+ *   counterbore: large cylinder (cbore) + smaller tap cylinder, fused tool
+ *   countersink: conical mouth (included angle) + cylindrical tap
+ *   on face center: drill at face COM along face normal, oriented to enter
+ *                   from outside (solid classifier heuristic)
+ *
+ * Direction & through length
+ * --------------------------
+ * (dx,dy,dz) is the drill axis (normalized internally). Material is removed
+ * along +dir for blind features. Through tools are centered on the origin so
+ * they exit both sides. Tool length ≈ 2 × AABB diagonal (+ small margin).
+ *
+ * Countersink geometry
+ * --------------------
+ *   half_angle = csink_angle_rad / 2
+ *   R_mouth    = csink_depth * tan(half_angle)
+ *   Cone: R1=R_mouth at origin, R2=0 at axial depth csink_depth (apex inside).
+ *
+ * Units: meters, radians. Diameters are full (not radii). Face indices 1-based.
+ * Implementation: api/src/occ_c_hole.cc.
+ */
 #ifndef OCC_C_HOLE_H_
 #define OCC_C_HOLE_H_
 
@@ -6,15 +44,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* =========================================================================
- * Simple holes — P0/P1 (no standards tables, no hole attributes).
- *
- * All sizes are full diameters in meters.
- * Direction (dx,dy,dz) is the drill axis; material is removed along +dir
- * for blind features starting at origin. Through tools are centered on
- * the origin so they exit both sides.
- * ========================================================================= */
 
 /**
  * Through-all cylindrical hole.
@@ -41,7 +70,7 @@ OCC_API int occ_drill_hole_blind(occ_shape_t solid,
 /**
  * Counterbore: large cylinder (cbore_d × cbore_depth) from origin along
  * +dir, then smaller tap cylinder (tap_d × tap_depth) from the same origin.
- * Tool = Fuse(cbore_cyl, tap_cyl); result = Cut(solid, tool).
+ * Tool = fuse(cbore_cyl, tap_cyl); result = cut(solid, tool).
  */
 OCC_API int occ_drill_hole_counterbore(occ_shape_t solid,
                                        double ox, double oy, double oz,

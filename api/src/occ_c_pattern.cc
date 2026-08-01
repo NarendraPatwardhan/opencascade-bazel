@@ -1,4 +1,6 @@
-// OCCT 7.9.3 — linear / polar / along-path / transform patterns + fuse.
+// Linear / polar / along-path / transform patterns + fuse-pattern.
+// Along-path with align_tangent: displacement from world Ax3 to
+// (P(s), Z=tangent, X=stable perpendicular) — seed authored near origin +Z.
 #include "occ_c_pattern.h"
 #include "occ_c_internal.hxx"
 

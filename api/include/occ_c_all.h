@@ -27,6 +27,7 @@
 #include "occ_c_route.h"
 #include "occ_c_pattern.h"
 #include "occ_c_hole.h"
-#include "occ_c_boolean_ext.h"
+#include "occ_c_boolean.h"
 #include "occ_c_query.h"
-#include "occ_c_sweep_ext.h"
+#include "occ_c_sweep.h"
+

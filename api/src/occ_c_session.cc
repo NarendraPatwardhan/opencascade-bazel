@@ -152,14 +152,14 @@ int validate_frame(const occ_session_frame_t* f) {
   const double zl = vlen3(f->z[0], f->z[1], f->z[2]);
   if (xl < 1e-12 || yl < 1e-12 || zl < 1e-12) {
     set_last("frame axis length near zero");
-    return OCC_ERR_MATH;
+    return OCC_ERR_FRAME;
   }
   /* soft orthonormal check */
   const double xzn =
       (f->x[0] * f->z[0] + f->x[1] * f->z[1] + f->x[2] * f->z[2]) / (xl * zl);
   if (std::fabs(xzn) > 1e-3) {
     set_last("frame X and Z not orthogonal enough");
-    return OCC_ERR_MATH;
+    return OCC_ERR_FRAME;
   }
   return OCC_OK;
 }

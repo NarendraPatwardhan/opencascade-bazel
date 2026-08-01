@@ -279,7 +279,7 @@ int occ_shell(occ_shape_t s, const int* idx, int n, double t, occ_shape_t* out) 
   BRepOffsetAPI_MakeThickSolid mk;
   mk.MakeThickSolidByJoin(*as_shape(s), removed, t, 1.0e-3);
   mk.Build();
-  if (!mk.IsDone()) { set_last("shell failed"); return OCC_ERR_FILLET; }
+  if (!mk.IsDone()) { set_last("shell failed"); return OCC_ERR_BUILD; }
   *out = to_handle(mk.Shape());
   return OCC_OK;
   OCC_GUARD_END
@@ -290,7 +290,7 @@ int occ_offset_3d(occ_shape_t s, double off, occ_shape_t* out) {
   OCC_GUARD_BEGIN
   BRepOffsetAPI_MakeOffsetShape mk;
   mk.PerformByJoin(*as_shape(s), off, 1.0e-3);
-  if (!mk.IsDone()) { set_last("offset failed"); return OCC_ERR_FILLET; }
+  if (!mk.IsDone()) { set_last("offset failed"); return OCC_ERR_GEOM; }
   *out = to_handle(mk.Shape());
   return OCC_OK;
   OCC_GUARD_END
@@ -329,7 +329,7 @@ int occ_loft(const occ_shape_t* profiles, int n, int solid, occ_shape_t* out) {
     else { set_last("loft profile must be wire or vertex"); return OCC_ERR_INVALID_SHAPE; }
   }
   mk.Build();
-  if (!mk.IsDone()) { set_last("loft failed"); return OCC_ERR_FILLET; }
+  if (!mk.IsDone()) { set_last("loft failed"); return OCC_ERR_BUILD; }
   *out = to_handle(mk.Shape());
   return OCC_OK;
   OCC_GUARD_END

@@ -1,5 +1,4 @@
 // OCCT 7.9.3 — pure SE(3) frames + BREP placement.
-// Extract into api/src/occ_c_frames.cc
 
 #include "occ_c_frames.h"
 #include "occ_c_internal.hxx"

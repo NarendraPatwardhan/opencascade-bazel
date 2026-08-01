@@ -1,5 +1,8 @@
-// P0 Query / Measure / Clash / Mass / Topology selectors — OCCT 7.9.3
+// Distance, clash, mass, topology, proximity, selectors.
+// Clash: extrema distance + InnerSolution → SEPARATED / CLEARANCE / INTERFERE;
+// optional common-volume confirm when dist≈0 (classify_clash).
 #include "occ_c_query.h"
+#include "occ_c_construct.h"
 #include "occ_c_internal.hxx"
 
 #include <algorithm>
@@ -345,9 +348,13 @@ int occ_mass_properties(occ_shape_t s, double density, double* out_mass,
   OCC_GUARD_END
 }
 
+/* Wires: occ_wire_length (CompCurve abscissa). Other shapes: LinearProperties. */
 int occ_length(occ_shape_t s, double* out_len) {
   REQ(s && out_len, OCC_ERR_NULL_ARG);
   OCC_GUARD_BEGIN
+  if (as_shape(s)->ShapeType() == TopAbs_WIRE) {
+    return occ_wire_length(s, out_len);
+  }
   GProp_GProps props;
   BRepGProp::LinearProperties(*as_shape(s), props, Standard_True);
   *out_len = props.Mass();
@@ -698,6 +705,16 @@ int occ_same_topology_count_hash(occ_shape_t s,
  * Selector helpers
  * ========================================================================= */
 
+/** Shared tail for select_* buffer contract: *out_n = total, CAPACITY on overflow. */
+static int select_finish(int total, int max_out, int* out_n, const char* what) {
+  *out_n = total;
+  if (total > max_out) {
+    set_last(what);
+    return OCC_ERR_CAPACITY;
+  }
+  return OCC_OK;
+}
+
 int occ_select_faces_by_area_gt(occ_shape_t shape, double min_area,
                                 int* out_indices, int max_out, int* out_n) {
   REQ(shape && out_n, OCC_ERR_NULL_ARG);
@@ -715,14 +732,7 @@ int occ_select_faces_by_area_gt(occ_shape_t shape, double min_area,
       ++n;
     }
   }
-  /* If caller only wanted the count, still OK when max_out==0 */
-  *out_n = n;
-  if (n > max_out && max_out > 0) {
-    /* truncated write; report true count in *out_n */
-    set_last("select faces: output truncated");
-    /* still OCC_OK — host can reallocate using *out_n */
-  }
-  return OCC_OK;
+  return select_finish(n, max_out, out_n, "select faces: output buffer too small");
   OCC_GUARD_END
 }
 
@@ -743,8 +753,7 @@ int occ_select_edges_by_length_gt(occ_shape_t shape, double min_len,
       ++n;
     }
   }
-  *out_n = n;
-  return OCC_OK;
+  return select_finish(n, max_out, out_n, "select edges: output buffer too small");
   OCC_GUARD_END
 }
 
@@ -767,8 +776,7 @@ int occ_select_planar_faces(occ_shape_t shape, int* out_indices, int max_out,
       ++n;
     }
   }
-  *out_n = n;
-  return OCC_OK;
+  return select_finish(n, max_out, out_n, "select planar faces: output buffer too small");
   OCC_GUARD_END
 }
 
@@ -801,8 +809,7 @@ int occ_select_faces_parallel_to(occ_shape_t shape, const double normal[3],
       ++n;
     }
   }
-  *out_n = n;
-  return OCC_OK;
+  return select_finish(n, max_out, out_n, "select parallel faces: output buffer too small");
   OCC_GUARD_END
 }
 

@@ -1,8 +1,11 @@
-// Extended sweeps for occ_c — OCCT 7.9.3.
-// Blind / symmetric / through-all / revolve-full / loft flags /
-// helix wire / pipe / thicken / sew / solid-from-shell.
+// Public header: occ_c_sweep.h (this .cc keeps the _ext filename).
+// Extended sweeps: extrude extents, helix, pipe/spring, thicken, sew.
+// Helix: UV segment on a cylinder surface lifted to 3D (make_helix_edge).
+// Through-all: prism length = 2×bbox diagonal, centered on profile (tool only).
+// Spring: circle profile at helix start, plane ⊥ start tangent, then pipe.
 //
 #include "occ_c_sweep_ext.h"
+
 #include "occ_c_internal.hxx"
 
 #include <cmath>
@@ -303,56 +306,32 @@ static int as_shell(const TopoDS_Shape& s, TopoDS_Shell& out_shell) {
  * BBox helpers
  * ========================================================================= */
 
+/* Thin wrappers over baseline occ_bbox. */
 int occ_sweep_bbox(occ_shape_t s, double out_min[3], double out_max[3]) {
-  REQ(s && out_min && out_max, OCC_ERR_NULL_ARG);
-  OCC_GUARD_BEGIN
-  gp_Pnt pmin, pmax;
-  double diag = 0.0;
-  if (!shape_bbox(*as_shape(s), pmin, pmax, diag)) {
-    set_last("bbox: void");
-    return OCC_ERR_GEOM;
-  }
-  out_min[0] = pmin.X(); out_min[1] = pmin.Y(); out_min[2] = pmin.Z();
-  out_max[0] = pmax.X(); out_max[1] = pmax.Y(); out_max[2] = pmax.Z();
-  return OCC_OK;
-  OCC_GUARD_END
+  return occ_bbox(s, out_min, out_max);
 }
 
 int occ_sweep_bbox_diagonal(occ_shape_t s, double* out_diag) {
   REQ(s && out_diag, OCC_ERR_NULL_ARG);
-  OCC_GUARD_BEGIN
-  gp_Pnt pmin, pmax;
-  double diag = 0.0;
-  if (!shape_bbox(*as_shape(s), pmin, pmax, diag)) {
-    set_last("bbox diagonal: void");
-    return OCC_ERR_GEOM;
-  }
-  *out_diag = diag;
+  double mn[3], mx[3];
+  const int st = occ_bbox(s, mn, mx);
+  if (st != OCC_OK) return st;
+  const double dx = mx[0] - mn[0];
+  const double dy = mx[1] - mn[1];
+  const double dz = mx[2] - mn[2];
+  *out_diag = std::sqrt(dx * dx + dy * dy + dz * dz);
   return OCC_OK;
-  OCC_GUARD_END
 }
 
 /* =========================================================================
  * Linear extrude extents
  * ========================================================================= */
 
+/* Alias of baseline occ_extrude (MakePrism). */
 int occ_extrude_blind(occ_shape_t profile,
                       double dx, double dy, double dz,
                       occ_shape_t* out) {
-  REQ(profile && out, OCC_ERR_NULL_ARG);
-  REQ(finite3(dx, dy, dz), OCC_ERR_GEOM);
-  OCC_GUARD_BEGIN
-  const TopoDS_Shape& prof = *as_shape(profile);
-  if (prof.IsNull() || !is_sweepable_profile(prof)) {
-    set_last("extrude_blind: invalid profile");
-    return OCC_ERR_INVALID_SHAPE;
-  }
-  TopoDS_Shape result;
-  const int st = prism_vec(prof, gp_Vec(dx, dy, dz), result);
-  if (st != OCC_OK) return st;
-  *out = to_handle(result);
-  return OCC_OK;
-  OCC_GUARD_END
+  return occ_extrude(profile, dx, dy, dz, out);
 }
 
 int occ_extrude_to_depth(occ_shape_t profile,
@@ -569,30 +548,10 @@ int occ_make_helix_wire_turns(double axis_px, double axis_py, double axis_pz,
  * Sweep / pipe
  * ========================================================================= */
 
+/* Alias of baseline occ_pipe (MakePipe). */
 int occ_sweep_profile_along_wire(occ_shape_t profile, occ_shape_t spine_wire,
                                  occ_shape_t* out) {
-  REQ(profile && spine_wire && out, OCC_ERR_NULL_ARG);
-  OCC_GUARD_BEGIN
-  const TopoDS_Shape& spine = *as_shape(spine_wire);
-  if (spine.IsNull() || spine.ShapeType() != TopAbs_WIRE) {
-    set_last("sweep: spine must be a wire");
-    return OCC_ERR_INVALID_SHAPE;
-  }
-  const TopoDS_Shape& prof = *as_shape(profile);
-  if (prof.IsNull()) {
-    set_last("sweep: null profile");
-    return OCC_ERR_INVALID_SHAPE;
-  }
-
-  BRepOffsetAPI_MakePipe mk(TopoDS::Wire(spine), prof);
-  /* MakePipe builds in ctor path; still check result. */
-  if (mk.Shape().IsNull()) {
-    set_last("sweep: MakePipe produced null shape");
-    return OCC_ERR_GEOM;
-  }
-  *out = to_handle(mk.Shape());
-  return OCC_OK;
-  OCC_GUARD_END
+  return occ_pipe(profile, spine_wire, out);
 }
 
 int occ_make_spring_solid(double axis_px, double axis_py, double axis_pz,

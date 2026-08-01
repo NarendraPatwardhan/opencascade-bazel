@@ -1,4 +1,7 @@
-// OCCT 7.9.3 — through / blind / counterbore / countersink / face-center.
+// Through / blind / counterbore / countersink / face-center holes.
+// Through length ≈ 2×AABB diagonal, tool centered on origin (both sides).
+// Face-center orients the drill with a solid-classifier “enter from outside”
+// heuristic (see orient_drill_inward).
 #include "occ_c_hole.h"
 #include "occ_c_internal.hxx"
 

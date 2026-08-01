@@ -103,6 +103,25 @@ export class OccBridge {
             num(args.cx, 0), num(args.cy, 0), num(args.cz, 0), num(args.radius),
           ),
         };
+      case "make_cone":
+        return {
+          shapeId: this.#makeCone(
+            num(args.cx, 0), num(args.cy, 0), num(args.cz, 0),
+            num(args.ax, 0), num(args.ay, 0), num(args.az, 1),
+            num(args.r1 ?? args.radius1),
+            num(args.r2 ?? args.radius2, 0),
+            num(args.height),
+          ),
+        };
+      case "make_torus":
+        return {
+          shapeId: this.#makeTorus(
+            num(args.cx, 0), num(args.cy, 0), num(args.cz, 0),
+            num(args.ax, 0), num(args.ay, 0), num(args.az, 1),
+            num(args.major_r ?? args.majorR ?? args.R),
+            num(args.minor_r ?? args.minorR ?? args.r),
+          ),
+        };
       case "fuse":
         return { shapeId: this.#boolean("occ_fuse", idOf(args.a), idOf(args.b)) };
       case "cut":
@@ -117,8 +136,73 @@ export class OccBridge {
             num(args.dx), num(args.dy), num(args.dz),
           ),
         };
+      case "rotate":
+        return {
+          shapeId: this.#rotate(
+            idOf(args.id ?? args.shape),
+            num(args.px, 0), num(args.py, 0), num(args.pz, 0),
+            num(args.ax, 0), num(args.ay, 0), num(args.az, 1),
+            num(args.angle ?? args.angle_rad),
+          ),
+        };
+      case "scale":
+        return {
+          shapeId: this.#scale(
+            idOf(args.id ?? args.shape),
+            num(args.cx, 0), num(args.cy, 0), num(args.cz, 0),
+            num(args.factor ?? args.f),
+          ),
+        };
+      case "mirror":
+        return {
+          shapeId: this.#mirror(
+            idOf(args.id ?? args.shape),
+            num(args.px, 0), num(args.py, 0), num(args.pz, 0),
+            num(args.nx, 0), num(args.ny, 0), num(args.nz, 1),
+          ),
+        };
+      case "extrude":
+        return {
+          shapeId: this.#extrude(
+            idOf(args.profile ?? args.id ?? args.shape),
+            num(args.dx), num(args.dy), num(args.dz),
+          ),
+        };
+      case "pipe":
+        return {
+          shapeId: this.#pipe(
+            idOf(args.profile),
+            idOf(args.spine),
+          ),
+        };
       case "fillet_all":
         return { shapeId: this.#filletAll(idOf(args.id ?? args.shape), num(args.radius)) };
+      case "pattern_linear":
+        return {
+          shapeId: this.#patternLinear(
+            idOf(args.id ?? args.seed ?? args.shape),
+            num(args.dx), num(args.dy), num(args.dz),
+            intOf(args.count),
+          ),
+        };
+      case "pattern_polar":
+        return {
+          shapeId: this.#patternPolar(
+            idOf(args.id ?? args.seed ?? args.shape),
+            num(args.px, 0), num(args.py, 0), num(args.pz, 0),
+            num(args.ax, 0), num(args.ay, 0), num(args.az, 1),
+            num(args.angle_step ?? args.angle_step_rad ?? args.angleStep),
+            intOf(args.count),
+          ),
+        };
+      case "clash":
+        return this.#clash(
+          idOf(args.a),
+          idOf(args.b),
+          num(args.clearance, 0),
+        );
+      case "distance":
+        return this.#distance(idOf(args.a), idOf(args.b));
       case "shape_free":
         this.free(idOf(args.id ?? args.shape));
         return {};
@@ -185,6 +269,36 @@ export class OccBridge {
     }
   }
 
+  #makeCone(cx, cy, cz, ax, ay, az, r1, r2, height) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_make_cone", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [cx, cy, cz, ax, ay, az, r1, r2, height, out],
+      );
+      if (rc !== 0) throw new Error(`occ_make_cone failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #makeTorus(cx, cy, cz, ax, ay, az, majorR, minorR) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_make_torus", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [cx, cy, cz, ax, ay, az, majorR, minorR, out],
+      );
+      if (rc !== 0) throw new Error(`occ_make_torus failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
   #boolean(fn, a, b) {
     const out = this.#outPtr();
     try {
@@ -211,6 +325,81 @@ export class OccBridge {
     }
   }
 
+  #rotate(id, px, py, pz, ax, ay, az, angleRad) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_rotate", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(id), px, py, pz, ax, ay, az, angleRad, out],
+      );
+      if (rc !== 0) throw new Error(`occ_rotate failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #scale(id, cx, cy, cz, factor) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_scale", "number",
+        ["number", "number", "number", "number", "number", "number"],
+        [this.#ptr(id), cx, cy, cz, factor, out],
+      );
+      if (rc !== 0) throw new Error(`occ_scale failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #mirror(id, px, py, pz, nx, ny, nz) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_mirror", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(id), px, py, pz, nx, ny, nz, out],
+      );
+      if (rc !== 0) throw new Error(`occ_mirror failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #extrude(profileId, dx, dy, dz) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_extrude", "number",
+        ["number", "number", "number", "number", "number"],
+        [this.#ptr(profileId), dx, dy, dz, out],
+      );
+      if (rc !== 0) throw new Error(`occ_extrude failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #pipe(profileId, spineId) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_pipe", "number",
+        ["number", "number", "number"],
+        [this.#ptr(profileId), this.#ptr(spineId), out],
+      );
+      if (rc !== 0) throw new Error(`occ_pipe failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
   #filletAll(id, radius) {
     const out = this.#outPtr();
     try {
@@ -223,6 +412,88 @@ export class OccBridge {
       return this.#adopt(this.mod.getValue(out, "i32"));
     } finally {
       this.mod._free(out);
+    }
+  }
+
+  #patternLinear(seedId, dx, dy, dz, count) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_pattern_linear", "number",
+        ["number", "number", "number", "number", "number", "number"],
+        [this.#ptr(seedId), dx, dy, dz, count, out],
+      );
+      if (rc !== 0) throw new Error(`occ_pattern_linear failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  #patternPolar(seedId, px, py, pz, ax, ay, az, angleStepRad, count) {
+    const out = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_pattern_polar", "number",
+        ["number", "number", "number", "number", "number", "number", "number", "number", "number", "number"],
+        [this.#ptr(seedId), px, py, pz, ax, ay, az, angleStepRad, count, out],
+      );
+      if (rc !== 0) throw new Error(`occ_pattern_polar failed (${rc}): ${this.lastError()}`);
+      return this.#adopt(this.mod.getValue(out, "i32"));
+    } finally {
+      this.mod._free(out);
+    }
+  }
+
+  /**
+   * Pairwise clash with clearance band.
+   * status: 0 SEPARATED, 1 CLEARANCE, 2 INTERFERE
+   */
+  #clash(a, b, clearance) {
+    const stOut = this.#outPtr();
+    try {
+      const rc = this.mod.ccall(
+        "occ_clash", "number",
+        ["number", "number", "number", "number"],
+        [this.#ptr(a), this.#ptr(b), clearance, stOut],
+      );
+      if (rc !== 0) throw new Error(`occ_clash failed (${rc}): ${this.lastError()}`);
+      const status = this.mod.getValue(stOut, "i32");
+      return { status, name: CLASH_NAMES[status] ?? `unknown_${status}` };
+    } finally {
+      this.mod._free(stOut);
+    }
+  }
+
+  /** Minimum distance between two shapes (meters). */
+  #distance(a, b) {
+    const distOut = this.mod._malloc(8);
+    const pA = this.mod._malloc(24);
+    const pB = this.mod._malloc(24);
+    try {
+      const rc = this.mod.ccall(
+        "occ_distance", "number",
+        ["number", "number", "number", "number", "number"],
+        [this.#ptr(a), this.#ptr(b), distOut, pA, pB],
+      );
+      if (rc !== 0) throw new Error(`occ_distance failed (${rc}): ${this.lastError()}`);
+      return {
+        distance: this.mod.getValue(distOut, "double"),
+        pointOnA: [
+          this.mod.getValue(pA, "double"),
+          this.mod.getValue(pA + 8, "double"),
+          this.mod.getValue(pA + 16, "double"),
+        ],
+        pointOnB: [
+          this.mod.getValue(pB, "double"),
+          this.mod.getValue(pB + 8, "double"),
+          this.mod.getValue(pB + 16, "double"),
+        ],
+      };
+    } finally {
+      this.mod._free(distOut);
+      this.mod._free(pA);
+      this.mod._free(pB);
     }
   }
 
@@ -389,8 +660,25 @@ function num(v, fallback) {
   return n;
 }
 
+function intOf(v, fallback) {
+  if (v === undefined || v === null) {
+    if (fallback !== undefined) return fallback;
+    throw new Error("missing integer argument");
+  }
+  const n = Number(v);
+  if (!Number.isInteger(n)) throw new Error(`not an integer: ${v}`);
+  return n;
+}
+
 function idOf(v) {
   const n = Number(v);
   if (!Number.isInteger(n) || n < 1) throw new Error(`invalid shape id: ${v}`);
   return n;
 }
+
+/** occ_clash_status_t names (OCC_CLASH_*). */
+const CLASH_NAMES = Object.freeze({
+  0: "separated",
+  1: "clearance",
+  2: "interfere",
+});
