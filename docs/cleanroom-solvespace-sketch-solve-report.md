@@ -47,7 +47,7 @@
 Appendix A — Constraint table (compact)  
 Appendix B — Residual cheat sheet (P0 / MVP)  
 Appendix C — Source anchors for readers only  
-Appendix D — Reader notes (non-normative)
+Appendix D — Related repository docs
 
 ---
 
