@@ -160,25 +160,36 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
 │  · Luau (language only) + conventions + libraries (cad.solid, cad.route…)│
 │  · Optional Monaco UX, analyze markers, catalog-driven completion        │
 │  · NEVER a new language name / dialect brand                             │
-└─────────────────────────────────┬────────────────────────────────────────┘
-                                  │ emit / lower (optional live host calls)
-┌─────────────────────────────────▼────────────────────────────────────────┐
-│  PORTABLE IR  (the “LLVM of CAD”)                                        │
-│  · Document: params, ops list/DAG, assembly graph, catalog, meta hashes  │
-│  · Ops: original names; SI units; stable string ids; selectors           │
-│  · Determinism: same IR + lib/kernel versions → same BRep within tol     │
-└─────────────────────────────────┬────────────────────────────────────────┘
-                                  │ evaluate
-┌─────────────────────────────────▼────────────────────────────────────────┐
+└───────────────┬─────────────────────────────┬────────────────────────────┘
+                │ Path B (today)              │ Path A (IR product)
+                │ imperative solid.*          │ emit / load IR document
+                │                             ▼
+                │              ┌──────────────────────────────────────────┐
+                │              │  PORTABLE IR  (data — “LLVM of CAD”)     │
+                │              │  · params, ops list/DAG, assembly, meta  │
+                │              │  · JSON (or similar) on disk; table in   │
+                │              │    Luau memory — NOT “a Luau dialect”    │
+                │              └──────────────────┬───────────────────────┘
+                │                                 │
+                │              ┌──────────────────▼───────────────────────┐
+                │              │  LUAU IR RUNTIME (default evaluator)     │
+                │              │  · passes: expand macros, bind params,   │
+                │              │    check refs, lower recipes             │
+                │              │  · eval: dispatch each op → host tools   │
+                │              └──────────────────┬───────────────────────┘
+                │                                 │
+                └────────────────┬────────────────┘
+                                 │ tools.call / cad.call (allowlisted)
+┌────────────────────────────────▼────────────────────────────────────────┐
 │  HOST BRIDGE                                                             │
-│  · AgentOS tools allowlist (cad.call) · shape table · status / fuel      │
-│  · OR native evaluator process for batch/golden tests                    │
+│  · AgentOS tools · shape ID table · status / fuel                        │
+│  · Holds real occ_* handles; guest never sees raw OCCT pointers          │
 └─────────────────────────────────┬────────────────────────────────────────┘
                                   │
 ┌─────────────────────────────────▼────────────────────────────────────────┐
 │  KERNEL: occ_c (Apache-2.0) → OCCT 7.9.3                                 │
 │  · C ABI, opaque occ_shape_t / occ_mesh_t                                │
-│  · Primitives, booleans, features, sweeps, transforms, measure, IO, mesh │
+│  · Geometry truth — does not run Luau or interpret IR                    │
 │  · Native .so and Wasm (Emscripten + wasm-opt)                           │
 └─────────────────────────────────┬────────────────────────────────────────┘
                                   │
@@ -188,6 +199,8 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
 │  · Clash reports · MeshPrep seed JSON · IR audit trail for humans        │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Law:** IR is **portable data**. Geometry is always **`occ_c`**. The **default IR evaluator is Luau** (passes + op dispatch into the host). A separate native/JS IR VM is optional for batch/goldens only — not required by the product architecture.
 
 ### 3.2 Trust boundary (non-negotiable)
 
@@ -626,6 +639,8 @@ We do **not** claim: “open-source FeatureScript” or “Parasolid replacement
 | **MeshPrep** | Seeds/tags for external FEA — not the solver |
 | **AI-BOOST** | EU challenge context for agentic industrial CAD (SIAD skids) |
 | **Clean-room** | Readers study MIT std; implementers build from our specs only |
+| **Active Slice** | Single sealed unit of sketch/solve work under the sketch constitution |
+| **Seal** | Exceptional algorithmic gate before the next sketch slice |
 | **BSL path** | `agent-os/` product scripting — separate from Apache kernel |
 
 ---
@@ -722,6 +737,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Added **DISPLAY.md** (viewport / camera / Option B infinite grid) |
 | 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
 | 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |
+| 2026-08-01 | Sketch/solve **constitution**: depth-first Active Slice + Seal bar (vs wide `occ_c` iteration) |
 
 ---
 
