@@ -867,10 +867,11 @@ export const SNIPPETS = [
       'local solid = require("solid")\n\nlocal root = solid.box({ dx = ${1:10}, dy = ${2:10}, dz = ${3:10} })\nsolid.finish(root, { name = "${4:part}" })\n',
   },
   {
-    label: "cad-cut-hole",
-    documentation: "Box with cylindrical hole.",
+    label: "cad-ir-flange",
+    documentation:
+      "Main-demo style flange via IR: base + boss + bore + bolt circle (Luau builds IR → ir.run_demo).",
     insertText:
-      'local solid = require("solid")\n\nlocal block = solid.box({ dx = ${1:20}, dy = ${2:20}, dz = ${3:12} })\nlocal drill = solid.cylinder({\n  radius = ${4:4},\n  height = ${5:16},\n  origin = { ${6:10}, ${7:10}, ${8:-2} },\n  axis = { 0, 0, 1 },\n})\nlocal part = solid.cut(block, drill)\nsolid.finish(part, { name = "${9:block_hole}" })\n',
+      '-- Prefer the main demo param sheet; this is a static SI (meters) sketch of the IR path.\nlocal ir = require("ir")\n-- See agent-os/src/batteries/examples/block_hole.luau for the full flange recipe.\n',
   },
   {
     label: "cad-pipe-run",
