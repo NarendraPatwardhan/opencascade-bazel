@@ -152,13 +152,14 @@ local depth = P.number("depth", { default=30, min=10, max=80 })
   expect(m.has("h"), "mergeParams: keeps default-only name");
 }
 
-// --- inference of header locals ---
+// --- inference of header locals (annotation required) ---
 {
   const src = `
 local solid = require("solid")
-local width = 40
-local depth, height = 30, 8
-local show = true
+local width = 40 -- [16:0.5:120] mm
+local depth, height = 30, 8 -- [1:1:100]
+local show = true -- view
+local bare = 12
 local through_h = height + 4
 local function helper()
   local nested = 99
@@ -168,21 +169,22 @@ local body = solid.box({ dx = width, dy = 1, dz = 1 })
 `;
   const p = inferParams(src);
   const m = byName(p);
-  expect(m.has("width"), "infer: width");
-  expect(m.has("depth"), "infer: depth");
-  expect(m.has("height"), "infer: height");
+  expect(m.has("width"), "infer: annotated width");
+  expect(m.has("depth"), "infer: annotated depth");
+  expect(m.has("height"), "infer: annotated height");
   expect(m.get("show")?.type === "boolean", "infer: bool");
+  expect(!m.has("bare"), "infer: bare without annotation skipped");
   expect(!m.has("through_h"), "infer: skip expression through_h");
   expect(!m.has("nested"), "infer: skip nested function local");
   expect(!m.has("body"), "infer: skip call assignment");
 }
 
-// --- inference: stop after first non-require call; skip ALL_CAPS ---
+// --- inference: stop after first non-require call ---
 {
   const src = `
-local w = 40
+local w = 40 -- [1:1:100]
 local body = solid.box({ dx = w, dy = 1, dz = 1 })
-local leftover = 3
+local leftover = 3 -- [0:1:10]
 `;
   const p = inferParams(src);
   const m = byName(p);
@@ -195,12 +197,14 @@ local leftover = 3
 local PI = 3.14159
 local MAX = 10
 local width = 40
+local annotated = 12 -- [1:1:20] mm
 `;
   const p = inferParams(src);
   const m = byName(p);
   expect(!m.has("PI"), "infer: skip ALL_CAPS PI");
   expect(!m.has("MAX"), "infer: skip ALL_CAPS MAX");
-  expect(m.has("width"), "infer: keeps width");
+  expect(!m.has("width"), "infer: bare width without annotation skipped");
+  expect(m.has("annotated"), "infer: trailing annotation keeps annotated");
 }
 
 // --- merge priority: interleaved local wins over legacy block ---
@@ -215,7 +219,7 @@ local extra = 7
   const m = byName(resolved);
   expect(m.get("width")?.value === 40, "merge: local value wins over block");
   expect(m.get("width")?.max === 200, "merge: trailing annotation max");
-  expect(m.has("extra"), "merge: bare local extra inferred");
+  expect(!m.has("extra"), "merge: bare extra without annotation not free");
 }
 
 // --- interleaved annotations ---
@@ -291,6 +295,7 @@ build()
   expect(m.has("width") && m.has("bolt_n") && m.has("yaw"), "flange: core names");
   expect(m.get("show_grid")?.type === "boolean", "flange: show_grid bool");
   expect(m.get("yaw")?.scrub === "xform", "flange: yaw xform");
+  expect(!m.has("z_tool"), "flange: z_tool intermediate not free");
   expect(p.length >= 10, "flange: enough params");
 }
 
@@ -314,17 +319,23 @@ build()
 
 // --- literal rewrite preserves trailing annotations (execute path) ---
 {
-  const user = `local width = 40 -- [16:120] mm\nlocal show = true -- view\nlocal z = -2\n`;
+  const user =
+    `local width = 40 -- [16:120] mm\n` +
+    `local show = true -- view\n` +
+    `local z = -2 -- [-10:0.1:10] mm\n` +
+    `local z_tool = -2\n`;
   const rewritten = applyParamValuesToSource(user, {
     width: 99,
     show: false,
     z: -5,
+    z_tool: -9,
   });
   expect(rewritten.includes("local width = 99"), "rewrite: number");
   expect(rewritten.includes("-- [16:120] mm"), "rewrite: keep trailing annotation");
   expect(rewritten.includes("local show = false"), "rewrite: bool");
   expect(rewritten.includes("-- view"), "rewrite: keep view scrub comment");
   expect(rewritten.includes("local z = -5"), "rewrite: signed number");
+  expect(rewritten.includes("local z_tool = -2"), "rewrite: unannotated intermediate left alone");
 
   const built = buildParamsInjectedSource(user, { width: 99, show: false, z: -5 });
   expect(built.source.includes("local width = 99"), "build inject: rewritten width");

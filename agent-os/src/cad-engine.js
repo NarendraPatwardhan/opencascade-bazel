@@ -79,6 +79,8 @@ export class CadEngine {
     this.occ = occBridge;
 
     const occ = this.occ;
+    // Never throw from run(): loom collapses host throws to generic
+    // "host tool call failed". Return a sentinel; ir/host.luau elevates it.
     const cadTool = tool({
       name: "cad call",
       description: "OpenCASCADE host geometry op.",
@@ -88,8 +90,16 @@ export class CadEngine {
         })
         .passthrough(),
       async run(input) {
-        const { op, ...rest } = input;
-        return occ.call(op, rest);
+        try {
+          const { op, ...rest } = input;
+          return occ.call(op, rest);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          return {
+            __occ_err: message,
+            __occ_op: input && typeof input === "object" ? input.op : undefined,
+          };
+        }
       },
     });
 
@@ -294,7 +304,23 @@ export class CadEngine {
       `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` + source;
     const result = await this.vm.luau(wrapped);
     if (result.exitCode !== 0) {
-      const err = new Error((result.stderr || result.stdout || "luau failed").trim());
+      let text = (result.stderr || result.stdout || "luau failed").trim();
+      // Prefer IR fail marker when present (real OCC message + op tags).
+      const failPayload = this.parseResult(result.stdout);
+      if (failPayload && failPayload.ok === false && failPayload.error) {
+        const e = failPayload.error;
+        const parts = [e.message || e.code || "IR eval failed"];
+        if (e.op) {
+          let tag = String(e.op);
+          if (e.op_id) tag += ` ${e.op_id}`;
+          if (e.host_op) tag += ` host=${e.host_op}`;
+          parts.push(`[${tag}]`);
+        } else if (e.host_op) {
+          parts.push(`[host=${e.host_op}]`);
+        }
+        text = parts.join(" ");
+      }
+      const err = new Error(text);
       err.stdout = result.stdout;
       err.stderr = result.stderr;
       err.exitCode = result.exitCode;

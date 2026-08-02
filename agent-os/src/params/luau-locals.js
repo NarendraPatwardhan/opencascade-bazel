@@ -15,6 +15,9 @@
  *   -- [Size]
  *   local width = 40 -- [16:0.5:120] mm
  *   local base = solid.box({ dx = width, ... })
+ *
+ * Free params need a trailing `-- …` annotation and/or a display comment above.
+ * Bare intermediates (`local z_tool = -2`) are not free params.
  */
 
 import { normalizeParam } from "./types.js";
@@ -272,6 +275,12 @@ export function findHeaderLocalBindings(source) {
 
       const raw = (valList[i] || "").trim();
       if (!isBareLiteral(raw)) continue;
+
+      // Free params need an author signal: trailing `-- …` and/or a display
+      // comment above. Bare intermediates (`local z_tool = -2`) stay out.
+      const hasTrailing = !!(comment && String(comment).trim());
+      const hasDisplay = i === 0 && !!(displayHint && String(displayHint).trim());
+      if (!hasTrailing && !hasDisplay) continue;
 
       let value;
       if (raw === "true" || raw === "false") value = raw === "true";

@@ -23,7 +23,17 @@ function host.call(op: string, args: { [string]: any }): any
 		end
 		error({ code = "IR_ERR_HOST", message = msg, host_op = op })
 	end
-	return res.data
+	local data = res.data
+	-- JS cad tool returns { __occ_err = "…" } instead of throwing so loom
+	-- does not collapse the failure into generic "host tool call failed".
+	if type(data) == "table" and type(data.__occ_err) == "string" then
+		error({
+			code = "IR_ERR_HOST",
+			message = data.__occ_err,
+			host_op = (data.__occ_op :: any) or op,
+		})
+	end
+	return data
 end
 
 --- Free one host shape id (best-effort; ignore unknown).

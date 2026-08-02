@@ -9,6 +9,10 @@
 --   local width = 40 -- [16:0.5:120] mm
 --   local base = solid.box({ dx = width, ... })
 --
+-- Free params require an author signal: trailing `-- …` annotation and/or a
+-- display comment on the line above. Bare intermediates (`local z_tool = -2`)
+-- are not harvested.
+--
 -- Host runs this battery through worker kind "params_resolve" and parses
 -- __OCC_PARAMS_RESULT__ + JSON. syntax is lazy-resident on loom.
 
@@ -511,6 +515,12 @@ function M.resolve(source: string): { ParamPod }
 
 				local trailing = trailing_comment_after(i, node.range.start_point.row)
 				local ann = parse_trailing_annotation(trailing)
+				-- Free params need an author signal: trailing `-- …` annotation
+				-- and/or a display comment on the line above. Bare intermediates
+				-- (e.g. `local z_tool = -2`) stay out of the sheet.
+				local has_trailing = trailing ~= nil and trailing ~= ""
+				local has_display = display_hint ~= nil and display_hint ~= ""
+				local is_annotated = has_trailing or has_display
 
 				local nbind = 0
 				if #names == 1 and #values == 1 then
@@ -522,7 +532,12 @@ function M.resolve(source: string): { ParamPod }
 				for j = 1, nbind do
 					local name = names[j]
 					local val_node = values[j]
-					if not is_skip_name(name) and val_node and is_bare_literal_kind(val_node.concrete_kind) then
+					if
+						is_annotated
+						and not is_skip_name(name)
+						and val_node
+						and is_bare_literal_kind(val_node.concrete_kind)
+					then
 						local value = literal_value(doc, val_node)
 						if value ~= nil and not by_name[name] then
 							local p = build_param(

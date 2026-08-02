@@ -156,7 +156,7 @@ local base = solid.box({ dx = 1, dy = 1, dz = 1 })
   expect(m.get("offset")?.step === 0.1, "unary: step");
 }
 
-// --- bare local infer + multi-assign + skip ALL_CAPS / expressions ---
+// --- bare locals without annotation are NOT free params ---
 {
   const src = `
 local solid = require("solid")
@@ -175,16 +175,29 @@ local after = 3
 `;
   const out = await engine.resolveParams(src);
   const m = byName(out.params);
-  expect(m.has("width"), "bare: width");
-  expect(m.has("depth"), "bare: depth");
-  expect(m.has("height"), "bare: height");
-  expect(m.get("show")?.value === true, "bare: show bool");
+  expect(!m.has("width"), "bare: no annotation → not free param");
+  expect(!m.has("depth"), "bare: multi-assign no annotation");
+  expect(!m.has("show"), "bare: bool no annotation");
   expect(!m.has("through_h"), "bare: skip expression through_h");
   expect(!m.has("PI"), "bare: skip ALL_CAPS");
   expect(!m.has("_hidden"), "bare: skip _prefix");
   expect(!m.has("nested"), "bare: skip nested in function");
   expect(!m.has("body"), "bare: skip call body");
   expect(!m.has("after"), "bare: no post-function leftover");
+}
+
+// --- display comment above counts as annotation ---
+{
+  const src = `
+-- Plate width
+local width = 40
+local solid = require("solid")
+local base = solid.box({ dx = width })
+`;
+  const out = await engine.resolveParams(src);
+  const m = byName(out.params);
+  expect(m.get("width")?.value === 40, "display-comment: width free param");
+  expect(m.get("width")?.displayName === "Plate width" || m.get("width")?.displayName, "display-comment: name");
 }
 
 // --- flange demo ---
@@ -197,6 +210,8 @@ local after = 3
   expect(m.get("yaw")?.scrub === "xform", "flange: yaw xform");
   expect(m.get("width")?.group === "Size", "flange: Size group");
   expect(m.get("boss_h")?.group === "Boss", "flange: Boss group");
+  expect(!m.has("z_tool"), "flange: z_tool is intermediate (no annotation)");
+  expect(!m.has("step") && !m.has("through_h"), "flange: skip derived locals");
   expect(out.params.length >= 10, `flange: enough params (got ${out.params.length})`);
 }
 

@@ -144,7 +144,9 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   height: 100%;
 }
 
-.panel-head {
+/* Shared pane chrome: Code / View / Parameters headers match */
+.panel-head,
+.param-sheet-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -156,13 +158,16 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   background: rgba(25, 26, 26, 0.55);
 }
 
-.panel-title {
+.panel-title,
+.param-sheet-title {
   margin: 0;
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   text-transform: none;
   color: var(--fg);
+  font-family: var(--sans);
+  line-height: 1.2;
 }
 
 .editor-host,
@@ -337,23 +342,7 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   color: #e5e5e5;
 }
 
-.param-sheet-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  height: 3.5rem;
-  padding: 0 1.5rem;
-  border-bottom: 1px solid #3b3b3b;
-  background: linear-gradient(to right, #212121, rgba(33, 33, 33, 0.95));
-}
-
-.param-sheet-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  color: #e5e5e5;
-}
+/* .param-sheet-header / .param-sheet-title: shared with .panel-head / .panel-title above */
 
 .param-sheet-reset {
   display: inline-flex;

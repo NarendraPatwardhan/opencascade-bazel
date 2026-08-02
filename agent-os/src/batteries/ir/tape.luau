@@ -813,7 +813,22 @@ function tape.finish(root: string, extra: any?): number
 	local res = demo_mod.run_demo(doc, opts)
 	if type(res) == "table" and res.ok == false then
 		local e = res.error or {}
-		error(tostring(e.message or e.code or "IR tape finish failed"))
+		local msg = tostring(e.message or e.code or "IR tape finish failed")
+		-- Surface which IR / host op failed (generic "host tool call failed"
+		-- alone is not actionable for authors).
+		if type(e.op) == "string" then
+			msg = msg .. " [" .. e.op
+			if type(e.op_id) == "string" then
+				msg = msg .. " " .. e.op_id
+			end
+			if type(e.host_op) == "string" then
+				msg = msg .. " host=" .. e.host_op
+			end
+			msg = msg .. "]"
+		elseif type(e.host_op) == "string" then
+			msg = msg .. " [host=" .. e.host_op .. "]"
+		end
+		error(msg)
 	end
 	local sid = res.shapes and res.shapes[root]
 	if type(sid) == "number" then

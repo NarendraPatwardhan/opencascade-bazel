@@ -259,7 +259,11 @@ local function host_session(op: string, args: { [string]: any }): any
 		end
 		error(msg)
 	end
-	return res.data
+	local data = res.data
+	if type(data) == "table" and type((data :: any).__occ_err) == "string" then
+		error((data :: any).__occ_err)
+	end
+	return data
 end
 
 function solid.box(opts: BoxOpts?): ShapeId

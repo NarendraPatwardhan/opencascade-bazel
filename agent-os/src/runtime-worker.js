@@ -124,14 +124,24 @@ async function ensureVm() {
     mcApi = { mc, tool, z };
 
     // CAD tool registered even before OCC loads — analyze does not call it.
+    // Never throw from run(): loom collapses host throws to generic
+    // "host tool call failed". Return a sentinel; ir/host.luau elevates it.
     const cadTool = tool({
       name: "cad call",
       description: "OpenCASCADE host geometry op.",
       input: z.object({ op: z.string() }).passthrough(),
       async run(input) {
-        if (!occ) throw new Error("OCCT not warmed yet");
-        const { op, ...rest } = input;
-        return occ.call(op, rest);
+        try {
+          if (!occ) throw new Error("OCCT not warmed yet");
+          const { op, ...rest } = input;
+          return occ.call(op, rest);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          return {
+            __occ_err: message,
+            __occ_op: input && typeof input === "object" ? input.op : undefined,
+          };
+        }
       },
     });
 
@@ -409,12 +419,28 @@ async function execute(req) {
       headLineCount: built.headLineCount,
       injectLineCount: built.injectLineCount,
     });
+    // Prefer structured IR fail marker when present (op / host_op / real OCC msg).
+    let errorText = (result.stderr || result.stdout || "luau failed").trim();
+    const failPayload = parseResult(result.stdout);
+    if (failPayload && failPayload.ok === false && failPayload.error) {
+      const e = failPayload.error;
+      const parts = [e.message || e.code || "IR eval failed"];
+      if (e.op) {
+        let tag = String(e.op);
+        if (e.op_id) tag += ` ${e.op_id}`;
+        if (e.host_op) tag += ` host=${e.host_op}`;
+        parts.push(`[${tag}]`);
+      } else if (e.host_op) {
+        parts.push(`[host=${e.host_op}]`);
+      }
+      errorText = parts.join(" ");
+    }
     return {
       id: req.id,
       kind: "execute",
       code: result.exitCode || 1,
       diagnostics: diags,
-      error: (result.stderr || result.stdout || "luau failed").trim(),
+      error: errorText,
       stdout: result.stdout,
       stderr: result.stderr,
     };
@@ -549,71 +575,98 @@ async function paramsResolve(req) {
   };
 }
 
-self.onmessage = async (ev) => {
+/**
+ * Serialize all worker work on the shared AgentOS VM + OccBridge.
+ * Overlapping execute/params_resolve/analyze freeAll races produce
+ * "unknown shape id N" → generic "host tool call failed" at solid.finish.
+ */
+/** @type {Promise<void>} */
+let workTail = Promise.resolve();
+
+/**
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+function enqueue(fn) {
+  const run = workTail.then(fn, fn);
+  // Keep the chain alive even when a job rejects.
+  workTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+self.onmessage = (ev) => {
   const msg = ev.data;
   if (!msg || typeof msg !== "object") return;
-  try {
-    if (msg.kind === "config" && msg.assetBase) {
-      assetBase = msg.assetBase;
+  // config is cheap and sets assetBase for subsequent jobs — still serialize
+  // so it cannot race with a mid-flight fetch of batteries.
+  void enqueue(async () => {
+    try {
+      if (msg.kind === "config" && msg.assetBase) {
+        assetBase = msg.assetBase;
+        self.postMessage({
+          id: msg.id ?? 0,
+          kind: "config",
+          code: 0,
+          diagnostics: [],
+          meta: { assetBase },
+        });
+        return;
+      }
+      if (msg.kind === "warm") {
+        await ensureWarm();
+        self.postMessage({
+          id: msg.id,
+          kind: "warm",
+          code: 0,
+          diagnostics: [],
+          meta: { occVersion: occ.version(), protocol: PROTOCOL },
+        });
+        return;
+      }
+      if (msg.kind === "analyze") {
+        const reply = await analyze(msg);
+        self.postMessage(reply);
+        return;
+      }
+      if (msg.kind === "execute") {
+        const reply = await execute(msg);
+        if (reply.code === 0 && reply.mesh) {
+          const t = [reply.mesh.positions.buffer, reply.mesh.indices.buffer];
+          if (reply.mesh.normals) t.push(reply.mesh.normals.buffer);
+          self.postMessage(reply, t);
+        } else {
+          self.postMessage(reply);
+        }
+        return;
+      }
+      if (msg.kind === "params_resolve") {
+        const reply = await paramsResolve(msg);
+        self.postMessage(reply);
+        return;
+      }
       self.postMessage({
         id: msg.id ?? 0,
-        kind: "config",
-        code: 0,
+        kind: msg.kind,
+        code: 1,
         diagnostics: [],
-        meta: { assetBase },
+        error: `unknown kind ${msg.kind}`,
       });
-      return;
-    }
-    if (msg.kind === "warm") {
-      await ensureWarm();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", message);
       self.postMessage({
-        id: msg.id,
-        kind: "warm",
-        code: 0,
+        id: msg.id ?? 0,
+        kind: msg.kind,
+        code: 1,
         diagnostics: [],
-        meta: { occVersion: occ.version(), protocol: PROTOCOL },
+        error: message,
       });
-      return;
     }
-    if (msg.kind === "analyze") {
-      const reply = await analyze(msg);
-      self.postMessage(reply);
-      return;
-    }
-    if (msg.kind === "execute") {
-      const reply = await execute(msg);
-      if (reply.code === 0 && reply.mesh) {
-        const t = [reply.mesh.positions.buffer, reply.mesh.indices.buffer];
-        if (reply.mesh.normals) t.push(reply.mesh.normals.buffer);
-        self.postMessage(reply, t);
-      } else {
-        self.postMessage(reply);
-      }
-      return;
-    }
-    if (msg.kind === "params_resolve") {
-      const reply = await paramsResolve(msg);
-      self.postMessage(reply);
-      return;
-    }
-    self.postMessage({
-      id: msg.id ?? 0,
-      kind: msg.kind,
-      code: 1,
-      diagnostics: [],
-      error: `unknown kind ${msg.kind}`,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log("error", message);
-    self.postMessage({
-      id: msg.id ?? 0,
-      kind: msg.kind,
-      code: 1,
-      diagnostics: [],
-      error: message,
-    });
-  }
+  });
 };
 
 log("loaded");
