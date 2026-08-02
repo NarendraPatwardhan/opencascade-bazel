@@ -119,8 +119,9 @@ export class CadEngine {
   }
 
   /**
-   * Stage Path B batteries + cad.ir under /opt/cad for package.path.
+   * Stage batteries + cad.ir under /opt/cad for package.path.
    * Top-level *.luau (solid, route, frames, query, cad, …) + ir/ tree.
+   * solid.* always lowers to IR; route/frames remain host-backed tools.
    */
   async stageBatteries() {
     await this.#mkdirp("/opt/cad/ir/ops");

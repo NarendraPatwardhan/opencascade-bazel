@@ -161,8 +161,11 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
 │  · Optional Monaco UX, analyze markers, catalog-driven completion        │
 │  · NEVER a new language name / dialect brand                             │
 └───────────────┬─────────────────────────────┬────────────────────────────┘
-                │ Path B (today)              │ Path A (IR product)
-                │ imperative solid.*          │ emit / load IR document
+                │ solid.* (always)            │ Path A (IR product)
+                │ Luau solid.* → IR tape      │ emit / load IR document
+                │                             │ (agents, goldens, hand edit)
+                │ route / frames batteries    │
+                │ may call host tools         │
                 │                             ▼
                 │              ┌──────────────────────────────────────────┐
                 │              │  PORTABLE IR  (data — “LLVM of CAD”)     │
@@ -180,6 +183,7 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
                 │                                 │
                 └────────────────┬────────────────┘
                                  │ tools.call / cad.call (allowlisted)
+                                 │ (route/frames host tools; IR eval lowers)
 ┌────────────────────────────────▼────────────────────────────────────────┐
 │  HOST BRIDGE                                                             │
 │  · AgentOS tools · shape ID table · status / fuel                        │
@@ -348,14 +352,15 @@ Index-based topology is allowed only **inside a single eval step** after a query
 | **Luau passes + `cad.ir.eval`** | Transform and **drive** evaluation |
 | Host / `occ_c` | **Only** geometry execution |
 
-**Two authoring paths (both legal):**
+**Solid authoring always lowers to IR (product law):**
 
 | Path | Flow | Use |
 |------|------|-----|
 | **A — IR product** | Author or agent → IR document → Luau passes/eval → host → `occ_c` | Goldens, agent compile target, human review/diff, re-eval with new `params` |
-| **B — Imperative (today)** | Luau `solid.*` / tools → host → `occ_c` directly | Interactive demos, fast authoring |
+| **solid.* (always IR)** | Luau `solid.*` → IR tape → `cad.ir` eval → host → `occ_c` | Interactive demos, clean Luau authoring that still produces portable IR |
+| **route / frames** | Host-backed batteries → `tools.call` → `occ_c` (not solid Path B) | Pipe/FK helpers that may call host ops without going through solid’s tape |
 
-Path B may optionally **tape** host calls into an IR log for reproducibility. Path A is the strategic spine for agents and explainability.
+There is **no** direct-host “Path B” for solid geometry authoring. Path A remains the strategic spine for agents and explainability; clean `solid.*` is a convenient front-end that **always** records IR.
 
 **Why Luau for eval (not a mandatory separate IR VM):**
 
@@ -396,7 +401,7 @@ Use **plain Luau** as the programming language. Product power lives in:
 1. **Conventions** (ids, SI, no raw handles, error shape)  
 2. **Versioned libraries** (`cad.solid`, `cad.route`, `cad.ir`, `cad.asm`, …)  
 3. **IR document** + **Luau IR runtime** (passes + eval) for the portable path  
-4. Optional **IR tape** when running imperative Path B  
+4. **`solid.*` always tapes** into IR, then evaluates (no direct-host solid path)  
 
 Do **not** invent or market a new language.
 
@@ -434,18 +439,18 @@ Do **not** invent or market a new language.
 
 ### 5.4 Present seed
 
-Today’s dual-goal Path B / Path A seed under `agent-os` batteries:
+Today’s dual-goal Luau seed under `agent-os` batteries:
 
 | Module | Path | Role |
 |--------|------|------|
-| `solid` | `solid.luau` | Primitives, booleans, transforms, extrude/revolve, holes, place/trsf, STEP MEMFS |
-| `route` | `route.luau` | Centerline + bends + pipe annulus + member sweep |
-| `frames` | `frames.luau` | `from_axes`, `compose_chain` FK, `place_at_chain` |
+| `solid` | `solid.luau` | Primitives, booleans, transforms, … — **always** IR tape → eval (not direct host) |
+| `route` | `route.luau` | Centerline + bends + pipe annulus + member sweep (host-backed tools) |
+| `frames` | `frames.luau` | `from_axes`, `compose_chain` FK, `place_at_chain` (host-backed tools) |
 | `query` | `query.luau` | Clash, distance, volume/bbox, mesh_stats, mass_properties |
-| `ir` | `ir/` | Portable `cad.ir/v0` load/bind/validate/eval |
+| `ir` | `ir/` | Portable `cad.ir/v0` load/bind/validate/eval + solid tape |
 | `cad` | `cad.luau` | Aggregator: `cad.solid` / `.route` / `.frames` / `.query` / `.ir` |
 
-Host path: Luau → `tools.call` → OccBridge → `occ_*` → mesh. Full SYSTEM §5.2 map (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch, …) remains product growth — seed modules may later re-export into those names.
+Geometry execution: IR eval and host-backed batteries → `tools.call` → OccBridge → `occ_*` → mesh. Full SYSTEM §5.2 map (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch, …) remains product growth — seed modules may later re-export into those names.
 
 ### 5.5 AgentOS structural Luau tooling ≠ CAD IR
 
@@ -717,7 +722,9 @@ We do **not** claim: “open-source FeatureScript” or “Parasolid replacement
 | **AgentOS / loom** | Sandboxed guest runtime used for Luau + tools broker |
 | **IR** | Portable CAD intermediate representation — **data** (op graph document), not a Luau dialect |
 | **Luau IR runtime** | Default evaluator: passes + op dispatch in guest Luau → host → `occ_c` |
-| **Path A / Path B** | IR emit+eval vs imperative `solid.*` host calls (both legal) |
+| **Path A** | IR document → Luau eval → host → `occ_c` (agents, goldens, review) |
+| **solid.* authoring** | Always IR tape → eval → host — **no** direct-host Path B for solids |
+| **route / frames** | Host-backed batteries (may `tools.call` without solid’s tape) |
 | **Feature** | Multi-op recipe (product-level) |
 | **Operation** | Atomic kernel mutator/measure |
 | **Selector / Query** | Declarative topology reference re-resolved on eval |
@@ -828,6 +835,7 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |
 | 2026-08-01 | Sketch/solve **constitution**: depth-first Active Slice + Seal bar (vs wide `occ_c` iteration) |
 | 2026-08-01 | IR **data** + **Luau default evaluator** (passes/eval → host → `occ_c`); Path A/B; structural parse ≠ CAD IR |
+| 2026-08-02 | **solid.\* always lowers to IR** (tape → eval → host); Path B phrase for solid authoring obsolete; route/frames remain host-backed tools |
 
 ---
 

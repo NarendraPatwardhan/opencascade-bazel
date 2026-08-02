@@ -1,4 +1,4 @@
--- @cad route helpers — centerline wires + pipe annulus (AI-BOOST Path B)
+-- @cad route helpers — centerline wires + pipe annulus (host-backed tools; AI-BOOST)
 -- Usage: local route = require("route")
 
 local tools = require("tools")

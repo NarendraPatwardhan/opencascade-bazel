@@ -56,7 +56,7 @@ end
 
 local function push(op: any): string
 	if not tape.enabled then
-		error("ir.tape: not recording (call solid.use_ir(true) or ir.tape.begin())")
+		error("ir.tape: not recording (solid.* auto-begins tape, or call ir.tape.begin())")
 	end
 	table.insert(tape._ops, op)
 	return op.id
@@ -137,6 +137,57 @@ function tape.prim_sphere(opts: any): string
 	})
 end
 
+function tape.prim_cone(opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local axis = o.axis or { 0, 0, 1 }
+	local id = next_id("cone")
+	return push({
+		id = id,
+		op = "PrimCone",
+		params = {
+			r1 = o.r1 or o.radius1 or 1,
+			r2 = o.r2 or o.radius2 or 0,
+			height = o.height or 1,
+			origin = {
+				origin[1] or o.cx or 0,
+				origin[2] or o.cy or 0,
+				origin[3] or o.cz or 0,
+			},
+			axis = {
+				axis[1] or 0,
+				axis[2] or 0,
+				axis[3] or 1,
+			},
+		},
+	})
+end
+
+function tape.prim_torus(opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local axis = o.axis or { 0, 0, 1 }
+	local id = next_id("tor")
+	return push({
+		id = id,
+		op = "PrimTorus",
+		params = {
+			major_r = o.major_r or o.majorR or o.R or 2,
+			minor_r = o.minor_r or o.minorR or o.r or 0.5,
+			origin = {
+				origin[1] or o.cx or 0,
+				origin[2] or o.cy or 0,
+				origin[3] or o.cz or 0,
+			},
+			axis = {
+				axis[1] or 0,
+				axis[2] or 0,
+				axis[3] or 1,
+			},
+		},
+	})
+end
+
 function tape.bool(mode: string, a: string, b: string): string
 	local id = next_id(mode)
 	return push({
@@ -189,6 +240,53 @@ function tape.rotate(id: string, opts: any): string
 		refs = { shape = body_ref(id) },
 	})
 end
+
+--- Mirror about a plane (point + normal) → MirrorCopy IR op.
+function tape.mirror(id: string, opts: any): string
+	local o = opts or {}
+	local point = o.point or {}
+	local normal = o.normal or {}
+	local nid = next_id("mir")
+	return push({
+		id = nid,
+		op = "MirrorCopy",
+		params = {
+			point = {
+				point[1] or o.px or 0,
+				point[2] or o.py or 0,
+				point[3] or o.pz or 0,
+			},
+			normal = {
+				normal[1] or o.nx or 0,
+				normal[2] or o.ny or 0,
+				normal[3] or o.nz or 1,
+			},
+		},
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Extrude / push-pull a profile → PushPull IR op.
+function tape.push_pull(profile: string, opts: any): string
+	local o = opts or {}
+	local nid = next_id("ppull")
+	return push({
+		id = nid,
+		op = "PushPull",
+		params = {
+			dx = o.dx or 0,
+			dy = o.dy or 0,
+			dz = o.dz or o.height or 1,
+		},
+		refs = { profile = body_ref(profile) },
+	})
+end
+
+-- Alias used by solid.extrude
+tape.extrude = tape.push_pull
+
+-- No IR Scale op in registry (HOST_AVAILABLE has host "scale" only).
+-- solid.scale remains host-only after realize via host_id().
 
 function tape.pattern_polar(id: string, opts: any): string
 	local o = opts or {}

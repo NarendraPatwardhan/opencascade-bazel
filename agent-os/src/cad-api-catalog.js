@@ -423,7 +423,7 @@ export const SOLID_METHODS = [
   {
     name: "free_all",
     label: "solid.free_all",
-    documentation: "Free all host shapes (Path B cleanup).",
+    documentation: "Free all host shapes (cleanup after realize/eval).",
     insertText: "free_all()",
     params: [],
     returns: "nil",
@@ -765,19 +765,20 @@ export const MODULES = [
   {
     name: "solid",
     label: 'require("solid")',
-    documentation: "CAD solid helpers (host-backed OCCT ops). Path B geometry surface.",
+    documentation:
+      "CAD solid helpers. solid.* always lowers to IR tape then eval (no direct-host Path B).",
     insertText: 'require("solid")',
   },
   {
     name: "route",
     label: 'require("route")',
-    documentation: "Centerline routes + pipe annulus (AI-BOOST Path B).",
+    documentation: "Centerline routes + pipe annulus (host-backed tools; AI-BOOST).",
     insertText: 'require("route")',
   },
   {
     name: "frames",
     label: 'require("frames")',
-    documentation: "Frames, compose_chain FK, place/trsf_apply (robot Path B).",
+    documentation: "Frames, compose_chain FK, place/trsf_apply (host-backed tools; robot).",
     insertText: 'require("frames")',
   },
   {
@@ -875,13 +876,13 @@ export const SNIPPETS = [
   },
   {
     label: "cad-pipe-run",
-    documentation: "Path B: route with bends + pipe annulus.",
+    documentation: "Host-backed route with bends + pipe annulus (solid.finish still IR-eval).",
     insertText:
       'local solid = require("solid")\nlocal route = require("route")\n\nlocal pipe = route.pipe_run({\n  nodes = {\n    { 0, 0, 0 },\n    { ${1:1.0}, 0, 0 },\n    { 1.0, ${2:0.8}, 0 },\n  },\n  bend_r = ${3:0.15},\n  od = ${4:0.1},\n  inner = ${5:0.08},\n})\nsolid.finish(pipe, { name = "${6:pipe_run}" })\n',
   },
   {
     label: "cad-fk-place",
-    documentation: "Path B: compose_chain FK + place_at_chain link solid.",
+    documentation: "Host-backed compose_chain FK + place_at_chain (solid link via IR).",
     insertText:
       'local solid = require("solid")\nlocal frames = require("frames")\n\nlocal link = solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 })\nlocal chain = frames.compose_chain({\n  origins = { { 0, 0, 0.3 } },\n  axes = { { 0, 0, 1 } },\n  angles = { ${1:math.pi / 4} },\n})\nlocal placed = frames.place_at_chain(link, chain)\nsolid.finish(placed, { name = "${2:fk_place}" })\n',
   },

@@ -12,6 +12,10 @@
 | **Authority** | Subordinate to [`SYSTEM.md`](../SYSTEM.md); sketch process subordinate to [`docs/sketch-solve-constitution.md`](sketch-solve-constitution.md) |
 | **Related** | [`docs/cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) §8–§10 · [`docs/cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) §8 · [`AGENTS.md`](../AGENTS.md) · [`api/include/occ_c*.h`](../api/include/) · [`agent-os/src/occ-bridge.js`](../agent-os/src/occ-bridge.js) |
 
+### Amendment 2026-08-02: solid authoring is always IR tape
+
+**K3 Path B dual-path for solid is superseded.** Product law: Luau `solid.*` **always** records a `cad.ir` tape and evaluates through the IR runtime → host → `occ_c`. There is no direct-host “Path B” geometry surface for solid authoring. Path A (emit/load IR documents) remains the strategic spine. **`route` / `frames`** batteries may still call host tools directly; they are not solid Path B. Sections below that still contrast “Path B: imperative solid.*” vs Path A are historical design context — implement against this amendment and [`SYSTEM.md`](../SYSTEM.md) §3.1 / §4.7.
+
 ---
 
 ## Overview

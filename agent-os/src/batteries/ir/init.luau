@@ -57,7 +57,7 @@ ir.registry = registry
 ir.errors = errors
 ir.is_fail = errors.is_fail
 
--- Recording tape for clean solid.* → IR lowering (see solid.use_ir)
+-- Recording tape for clean solid.* → IR lowering (solid.* always records; finish evaluates)
 local ok_tape, tape = pcall(function()
 	return require("ir.tape")
 end)

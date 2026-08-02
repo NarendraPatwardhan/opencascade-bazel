@@ -7,7 +7,8 @@
 local tools = require("tools")
 local json = require("json")
 
--- Host shape ids are numbers. While solid.use_ir(true) records to IR, handles are "@…" strings.
+-- Host shape ids are numbers. solid.* authoring records IR tape handles (string op ids).
+-- Host-only tools (fillet/pipe/drill/shell/…) realize handles first via host_id().
 export type ShapeId = number | string
 
 export type BoxOpts = {
@@ -274,37 +275,12 @@ end
 
 function solid.cone(opts: ConeOpts?): ShapeId
 	local o: ConeOpts = if opts then opts else {}
-	local origin = o.origin or {}
-	local axis = o.axis or { 0, 0, 1 }
-	local data = call("make_cone", {
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		ax = axis[1] or 0,
-		ay = axis[2] or 0,
-		az = axis[3] or 1,
-		r1 = o.r1 or o.radius1 or 1,
-		r2 = o.r2 or o.radius2 or 0,
-		height = o.height or 1,
-	})
-	return data.shapeId
+	return tape().prim_cone(o)
 end
 
 function solid.torus(opts: TorusOpts?): ShapeId
 	local o: TorusOpts = if opts then opts else {}
-	local origin = o.origin or {}
-	local axis = o.axis or { 0, 0, 1 }
-	local data = call("make_torus", {
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		ax = axis[1] or 0,
-		ay = axis[2] or 0,
-		az = axis[3] or 1,
-		major_r = o.major_r or o.majorR or o.R or 2,
-		minor_r = o.minor_r or o.minorR or o.r or 0.5,
-	})
-	return data.shapeId
+	return tape().prim_torus(o)
 end
 
 function solid.fuse(a: ShapeId, b: ShapeId): ShapeId
@@ -329,6 +305,7 @@ function solid.rotate(id: ShapeId, opts: RotateOpts?): ShapeId
 	return tape().rotate(id :: string, o)
 end
 
+-- No IR Scale op in registry — host-only after realize (not Path B authoring).
 function solid.scale(id: ShapeId, opts: ScaleOpts?): ShapeId
 	local o: ScaleOpts = if opts then opts else {}
 	local origin = o.origin or {}
@@ -343,21 +320,15 @@ end
 
 function solid.mirror(id: ShapeId, opts: MirrorOpts?): ShapeId
 	local o: MirrorOpts = if opts then opts else {}
-	local point = o.point or {}
-	local normal = o.normal or {}
-	return call("mirror", {
-		id = host_id(id),
-		px = point[1] or o.px or 0,
-		py = point[2] or o.py or 0,
-		pz = point[3] or o.pz or 0,
-		nx = normal[1] or o.nx or 0,
-		ny = normal[2] or o.ny or 0,
-		nz = normal[3] or o.nz or 1,
-	}).shapeId
+	return tape().mirror(id :: string, o)
 end
 
 function solid.extrude(profile: ShapeId, opts: ExtrudeOpts?): ShapeId
 	local o: ExtrudeOpts = if opts then opts else {}
+	-- IR handle → PushPull tape op. Host profile (face_rectangle) has no Face IR op.
+	if is_ir_handle(profile) then
+		return tape().push_pull(profile :: string, o)
+	end
 	return call("extrude", {
 		profile = host_id(profile),
 		dx = o.dx or 0,
@@ -366,10 +337,12 @@ function solid.extrude(profile: ShapeId, opts: ExtrudeOpts?): ShapeId
 	}).shapeId
 end
 
+-- Host-only after realize (no IR pipe/sweep-profile op for solid authoring).
 function solid.pipe(profile: ShapeId, spine: ShapeId): ShapeId
 	return call("pipe", { profile = host_id(profile), spine = host_id(spine) }).shapeId
 end
 
+-- Host-only after realize (no IR Fillet op).
 function solid.fillet_all(id: ShapeId, opts: FilletOpts?): ShapeId
 	local o: FilletOpts = if opts then opts else {}
 	return call("fillet_all", { id = host_id(id), radius = o.radius or 0.5 }).shapeId
@@ -409,7 +382,7 @@ function solid.mass_properties(id: ShapeId, density: number?): any
 	return call("mass_properties", { id = host_id(id), density = density or 1 })
 end
 
---- Planar rectangle face (profile for extrude/revolve). Center + normal + width×height.
+--- Planar rectangle face (profile for extrude/revolve). Host-only — no Face IR op yet.
 function solid.face_rectangle(opts: {
 	cx: number?,
 	cy: number?,
@@ -444,7 +417,7 @@ function solid.face_rectangle(opts: {
 	}).shapeId
 end
 
---- Revolve a profile about an axis by angle (radians).
+--- Revolve a profile about an axis by angle (radians). Host-only after realize (no Revolve IR op).
 --- Profile must be a host shape (face_rectangle); IR solid handles need solid.realize first.
 function solid.revolve(profile: ShapeId, opts: RevolveOpts?): ShapeId
 	local o: RevolveOpts = if opts then opts else {}
@@ -462,7 +435,7 @@ function solid.revolve(profile: ShapeId, opts: RevolveOpts?): ShapeId
 	}).shapeId
 end
 
---- Uniform 3D offset of a solid. Offset distance required (number or opts.offset).
+--- Uniform 3D offset of a solid. Host-only after realize. Offset distance required.
 function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
 	local offset: number?
 	if type(opts) == "number" then
@@ -477,7 +450,7 @@ function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
 	return call("offset_3d", { id = host_id(id), offset = offset }).shapeId
 end
 
---- Shell (hollow) by opening 1-based face indices with thickness.
+--- Shell (hollow) by opening 1-based face indices with thickness. Host-only after realize.
 function solid.shell(id: ShapeId, opts: ShellOpts): ShapeId
 	local o = opts
 	if type(o) ~= "table" or type(o.faces) ~= "table" then
@@ -491,7 +464,7 @@ function solid.shell(id: ShapeId, opts: ShellOpts): ShapeId
 	}).shapeId
 end
 
---- Through cylindrical hole (tool length auto-sized from solid bbox).
+--- Through cylindrical hole (tool length auto-sized from solid bbox). Host-only after realize.
 --- diameter required. Seed home for holes; future cad.holes may re-export.
 function solid.drill_through(id: ShapeId, opts: DrillOpts): ShapeId
 	local o = opts or ({} :: any)
@@ -513,7 +486,7 @@ function solid.drill_through(id: ShapeId, opts: DrillOpts): ShapeId
 	}).shapeId
 end
 
---- Blind cylindrical hole of given depth along +direction from origin.
+--- Blind cylindrical hole of given depth along +direction from origin. Host-only after realize.
 --- diameter and depth required. Seed home for holes; future cad.holes may re-export.
 function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
 	local o = opts or ({} :: any)
@@ -540,7 +513,7 @@ function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
 end
 
 --- Rectangular structural member swept along a spine wire (also route.member_sweep_rect).
---- width and height required. Seed home; future cad.structure may re-export.
+--- Host-only after realize. width and height required. Seed home; future cad.structure may re-export.
 function solid.member_sweep_rect(spine: ShapeId, opts: MemberSweepRectOpts): ShapeId
 	local o = opts or ({} :: any)
 	local width = o.width or o.w
@@ -596,10 +569,16 @@ function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 	return call("step_write", { id = host_id(id), path = path })
 end
 
--- Evaluate IR tape for root handle and emit host mesh marker.
+-- Always IR-eval tape handles (box/fuse/cut/… authoring); host ids only emit marker.
 function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
+	if type(rootId) == "string" then
+		local t = tape()
+		local hostId = t.finish(rootId, extra)
+		t.end_recording()
+		return if hostId ~= 0 then hostId else rootId
+	end
 	if type(rootId) == "number" then
-		-- Already a host id (e.g. after realize); emit marker only.
+		-- Already a host id (e.g. after realize / host-only tool chain); emit marker only.
 		local payload: { [string]: any } = { schema = 1, root = rootId }
 		if type(extra) == "table" then
 			for k, v in pairs(extra) do
@@ -609,10 +588,7 @@ function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 		print("__OCC_CAD_RESULT__" .. json.encode(payload))
 		return rootId
 	end
-	local t = tape()
-	local hostId = t.finish(rootId :: string, extra)
-	t.end_recording()
-	return if hostId ~= 0 then hostId else rootId
+	error("solid.finish: expected IR tape handle or host shape id, got " .. type(rootId))
 end
 
 return solid

@@ -1,4 +1,4 @@
--- @cad frames + serial FK helpers (robot Path B)
+-- @cad frames + serial FK helpers (host-backed tools; robot)
 -- Usage: local frames = require("frames")
 
 local tools = require("tools")

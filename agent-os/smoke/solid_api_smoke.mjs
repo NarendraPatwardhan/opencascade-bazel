@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Path B Luau surface smoke: route+annulus+clash, frames FK place oracles,
+ * Luau surface smoke: route+annulus+clash, frames FK place oracles,
  * solid high-ROI (drill, mass, revolve, shell, step_write, member), cad.* aggregator + IR.
+ *
+ * solid.* always records cad.ir; call solid.realize() before host-only tools
+ * (query.*, frames.place_at_chain, drill/shell/step_write) that need host shape ids.
  *
  * Env (same as node_smoke): AGENT_OS_KERNEL, LOOM, MC_CORE, CATALOG, OCC_BASE, SOLID_LUAU
  *
@@ -92,7 +95,7 @@ const examplesDir = must(
 
 const boxCutJson = readFileSync(join(examplesDir, "box_cut_cyl.cad.json"), "utf8");
 
-/** Multi-section Path B + IR via cad aggregator with geometric oracles. */
+/** Multi-section surface + IR via cad aggregator with geometric oracles. */
 const source = `
 local cad = require("cad")
 local json = require("json")
@@ -109,7 +112,7 @@ local function almost_eq(a, b, eps)
 end
 
 -- =====================================================================
--- 1) IR via cad.ir first (eval free_all's host table — Path B after)
+-- 1) IR via cad.ir first (eval free_all's host table — solid/route after)
 -- =====================================================================
 local doc = ir.load(${luauLongString(boxCutJson)})
 if ir.is_fail(doc) then

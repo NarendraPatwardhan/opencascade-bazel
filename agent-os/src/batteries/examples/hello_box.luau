@@ -1,7 +1,6 @@
--- Default demo: solid box
-package.path = "/opt/cad/?.luau;" .. package.path
+-- Default demo: solid box. solid.* always records IR; finish evaluates → mesh.
+package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path
 local solid = require("solid")
 
 local root = solid.box({ dx = 20, dy = 15, dz = 10 })
-print("volume approx check via host later")
 solid.finish(root, { name = "hello_box" })

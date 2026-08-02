@@ -55,7 +55,7 @@ node agent-os/smoke/node_smoke.mjs
 node agent-os/smoke/ir_unit_smoke.mjs   # bind/validate/canonical + eval_pose
 node agent-os/smoke/ir_smoke.mjs        # box-cut + pipe skid + robot FK via require("ir")
 
-# 3c) Path B dual-goal Luau surface (route/frames/query/cad + high-ROI solid)
+# 3c) Dual-goal Luau surface (route/frames/query/cad + solid.* → IR)
 node agent-os/smoke/solid_api_smoke.mjs
 
 # 4) Browser demo (stages + serves)
@@ -102,12 +102,14 @@ agent-os/
 
 ## Luau surface (v0)
 
+**`solid.*` always lowers to IR** (tape → `cad.ir` eval → host). There is no direct-host Path B for solid authoring. **`route` / `frames`** remain host-backed tools for pipe runs and FK place.
+
 ```luau
 local solid = require("solid")
 local a = solid.box({ dx = 20, dy = 10, dz = 8 })
 local b = solid.cylinder({ radius = 2, height = 10, origin = { 10, 5, -1 } })
 local part = solid.cut(a, b)
-solid.finish(part)
+solid.finish(part)  -- evaluates IR tape, emits mesh marker
 ```
 
 Host meshes the finished root and returns positions/normals/indices to the page.

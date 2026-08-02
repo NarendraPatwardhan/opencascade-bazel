@@ -2,6 +2,9 @@
 /**
  * Node smoke: AgentOS loom Luau + libocc_c Wasm → mesh triangle count.
  *
+ * solid.* always records cad.ir; solid.finish evaluates the tape and emits
+ * __OCC_CAD_RESULT__ so the host can mesh the root shape id.
+ *
  * Paths via env (Bazel runfiles) or CLI:
  *   AGENT_OS_KERNEL, AGENT_OS_LOOM, AGENT_OS_MC_CORE, AGENT_OS_CATALOG,
  *   OCC_BASE (dir with libocc_c.js/wasm), SOLID_LUAU

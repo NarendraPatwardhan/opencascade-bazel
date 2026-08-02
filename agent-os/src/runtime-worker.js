@@ -25,8 +25,8 @@ let warmingFull = null;
 const EXECUTE_PRELUDE_LINES = 1;
 
 /**
- * Top-level Path B batteries under /opt/cad/*.luau (require("solid") / require("route") / …).
- * Keep in sync with agent-os/src/batteries/MANIFEST (and batteries/*.luau not subdirs).
+ * Top-level batteries under /opt/cad/*.luau (require("solid") / require("route") / …).
+ * solid.* always IR tape; route/frames host-backed. Keep in sync with batteries/MANIFEST.
  */
 const TOP_BATTERY_LUAU = [
   "solid.luau",
@@ -65,7 +65,7 @@ const IR_LUAU_FILES = [
 ];
 
 /**
- * Analyze workspace: user entry + Path B batteries + ir package + tools/json stubs.
+ * Analyze workspace: user entry + top-level batteries + ir package + tools/json stubs.
  * Bare require("solid"|"cad"|"ir"|…) resolves via package.path next to main.
  * Batteries' require("tools")/require("json") are rewritten to relative paths
  * because the analyzer does not load AgentOS embedded builtins.
@@ -184,7 +184,7 @@ async function stageBatteries() {
     }),
   );
   if (!solidOk) {
-    throw new Error('batteries/solid.luau missing — cannot stage Path B solid');
+    throw new Error('batteries/solid.luau missing — cannot stage solid battery');
   }
 
   let initOk = false;
@@ -206,7 +206,7 @@ async function stageBatteries() {
 
 /**
  * Stage module graph for luau-analyze (no package.path prelude on user source).
- * Includes top-level Path B batteries + full ir/ package so require("cad") works
+ * Includes top-level batteries + full ir/ package so require("cad") works
  * (cad.luau eagerly requires "ir").
  * @param {string} userSource
  */
