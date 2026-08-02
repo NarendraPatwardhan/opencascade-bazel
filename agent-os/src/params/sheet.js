@@ -11,6 +11,9 @@ import { createCadamSlider } from "./slider.js";
  * @param {ReturnType<import('./store.js').createParamStore>} store
  * @param {{ debounceMs?: number }} [opts]
  */
+/** @type {Map<string, boolean>} */
+const groupOpenState = new Map();
+
 export function mountParamSheet(host, store, opts = {}) {
   const debounceMs = opts.debounceMs ?? 200;
   host.classList.add("param-sheet");
@@ -99,11 +102,20 @@ export function mountParamSheet(host, store, opts = {}) {
 
       const content = document.createElement("div");
       content.className = "param-group-content";
-      let open = true;
-      trigger.setAttribute("aria-expanded", "true");
-      trigger.addEventListener("click", () => {
+      // Persist open/closed across re-renders of the same group name.
+      const openKey = `param-group-open:${gname}`;
+      let open = groupOpenState.get(openKey);
+      if (open === undefined) open = true;
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      trigger.classList.toggle("is-collapsed", !open);
+      content.hidden = !open;
+      content.classList.toggle("is-collapsed", !open);
+      trigger.addEventListener("click", (ev) => {
+        ev.preventDefault();
         open = !open;
+        groupOpenState.set(openKey, open);
         content.hidden = !open;
+        content.classList.toggle("is-collapsed", !open);
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
         trigger.classList.toggle("is-collapsed", !open);
       });

@@ -18,7 +18,7 @@ const ANALYZE_DEBOUNCE_MS = 550;
 
 const els = {
   editorHost: document.querySelector("#editor"),
-  run: document.querySelector("#run"),
+  run: document.querySelector("#run"), // optional; live rebuild is the main path
   status: document.querySelector("#status"),
   log: document.querySelector("#log"),
   viewport: document.querySelector("#viewport"),
@@ -391,14 +391,14 @@ if (els.params) {
   paramSheet = mountParamSheet(els.params, paramStore, { debounceMs: 200 });
 }
 
-els.run.addEventListener("click", () => {
-  // Run means free-edit path: execute whatever is in the editor
+// Optional #run (removed from chrome — params live-rebuild + editor Ctrl/Cmd+Enter).
+els.run?.addEventListener("click", () => {
   sourceMode = "editor";
   syncParamsFromEditor();
   void runSource({ fit: true });
 });
 
-/** Background warm: first Run / slider rebuild is already slow without this. */
+/** Background warm: first slider rebuild is already slow without this. */
 async function autoWarm() {
   try {
     setStatus("Loading runtime…");
