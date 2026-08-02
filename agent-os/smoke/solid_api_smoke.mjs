@@ -167,7 +167,8 @@ local open_route = route.make_route({
   nodes = { { 0, 0, 0 }, { 0.5, 0, 0 }, { 0.5, 0.5, 0 } },
   closed = false,
 })
-assert(type(open_route) == "number", "make_route id")
+-- IR tape handle (string) or host number
+assert(type(open_route) == "string" or type(open_route) == "number", "make_route id")
 
 -- =====================================================================
 -- 3) frames: from_axes, compose_chain, place_at_chain (bbox moves)

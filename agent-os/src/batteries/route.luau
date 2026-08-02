@@ -1,9 +1,9 @@
--- @cad route helpers — centerline wires + pipe annulus (host-backed tools; AI-BOOST)
+-- @cad route helpers — centerline wires + pipe annulus (always → IR tape when possible)
 -- Usage: local route = require("route")
 
 local tools = require("tools")
 
-export type ShapeId = number
+export type ShapeId = number | string
 
 export type RouteOpts = {
 	nodes: { any },
@@ -27,6 +27,17 @@ export type AnnulusOpts = {
 
 local route = {}
 
+local function tape(): any
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	if not ok or t == nil then
+		error('route: require("ir.tape") unavailable')
+	end
+	t.ensure("session")
+	return t
+end
+
 local function call(op: string, args: { [string]: any }): any
 	local payload: { [string]: any } = {}
 	for k, v in pairs(args) do
@@ -49,87 +60,64 @@ local function call(op: string, args: { [string]: any }): any
 	return res.data
 end
 
---- Flatten nested {{x,y,z},…} or flat {x,y,z,x,y,z,…} into a flat number array.
-local function flatten_nodes(nodes: { any }): ({ number }, number)
-	if type(nodes) ~= "table" or #nodes == 0 then
-		error("route: nodes must be a non-empty array")
-	end
-	local first = nodes[1]
-	if type(first) == "number" then
-		local n = math.floor(#nodes / 3)
-		if n < 2 or #nodes < n * 3 then
-			error("route: flat nodes need length >= 6 (n_points>=2)")
-		end
-		local flat: { number } = {}
-		for i = 1, n * 3 do
-			flat[i] = nodes[i] :: number
-		end
-		return flat, n
-	end
-	local flat: { number } = {}
-	local n = 0
-	for i, p in ipairs(nodes) do
-		if type(p) ~= "table" then
-			error("route: nodes[" .. i .. "] must be Vec3 table")
-		end
-		local x = (p :: any)[1] or (p :: any).x
-		local y = (p :: any)[2] or (p :: any).y
-		local z = (p :: any)[3] or (p :: any).z
-		if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
-			error("route: nodes[" .. i .. "] components must be numbers")
-		end
-		table.insert(flat, x)
-		table.insert(flat, y)
-		table.insert(flat, z)
-		n += 1
-	end
-	if n < 2 then
-		error("route: need at least 2 points")
-	end
-	return flat, n
+local function is_ir(id: any): boolean
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	return ok and t ~= nil and t.is_handle(id)
 end
 
---- Polyline route wire (open or closed).
+local function host_id(id: ShapeId): number
+	if type(id) == "number" then
+		return id
+	end
+	if is_ir(id) then
+		return tape().eval_to_shape(id :: string)
+	end
+	error("route: expected IR handle or host id")
+end
+
+--- Polyline route wire (open or closed) → RoutePath IR.
 function route.make_route(opts: RouteOpts): ShapeId
 	local o = opts or ({} :: any)
-	local flat, n = flatten_nodes(o.nodes)
-	local data = call("make_route", {
-		nodes = flat,
-		n_points = o.n_points or n,
+	return tape().route_path({
+		style = "polyline",
+		nodes = o.nodes,
 		closed = o.closed == true,
 	})
-	return data.shapeId
 end
 
---- Route with circular bend fillets (G1 spine for pipe annulus).
+--- Route with circular bend fillets → RoutePath polyline_bend IR.
 function route.make_route_bends(opts: RouteBendsOpts): ShapeId
 	local o = opts or ({} :: any)
-	local flat, n = flatten_nodes(o.nodes)
-	local data = call("make_route_bends", {
-		nodes = flat,
-		n_points = o.n_points or n,
+	return tape().route_path({
+		style = "polyline_bend",
+		nodes = o.nodes,
 		bend_r = o.bend_r or o.bend_radius or 0,
 	})
-	return data.shapeId
 end
 
---- Hollow pipe (annulus OD/ID) swept along spine wire.
+--- Hollow pipe (annulus OD/ID) swept along spine → SweepAlong IR.
 function route.pipe_annulus(spine: ShapeId, opts: AnnulusOpts): ShapeId
 	local o = opts or ({} :: any)
 	local inner = o.inner or o.inner_diameter or o.id_bore
 	if type(o.od) ~= "number" or type(inner) ~= "number" then
 		error("route.pipe_annulus: od and inner required")
 	end
-	local data = call("pipe_annulus", {
+	if type(spine) == "string" or is_ir(spine) then
+		return tape().sweep_annulus(spine :: string, {
+			od = o.od,
+			inner = inner,
+		})
+	end
+	return call("pipe_annulus", {
 		od = o.od,
 		inner = inner,
-		spine = spine,
-	})
-	return data.shapeId
+		spine = host_id(spine),
+	}).shapeId
 end
 
---- Convenience: bend route + annulus solid in one call.
---- Intermediate spine wire is freed after annulus (result ownership only).
+--- Convenience: bend route + annulus solid in one call (both via IR when possible).
 function route.pipe_run(opts: {
 	nodes: { any },
 	bend_r: number?,
@@ -143,18 +131,13 @@ function route.pipe_run(opts: {
 		nodes = o.nodes,
 		bend_r = o.bend_r or o.bend_radius,
 	})
-	local solid = route.pipe_annulus(spine, {
+	return route.pipe_annulus(spine, {
 		od = o.od,
 		inner = o.inner or o.inner_diameter,
 	})
-	-- Best-effort free intermediate wire (not needed after annulus owns geometry).
-	pcall(function()
-		call("shape_free", { id = spine })
-	end)
-	return solid
 end
 
---- Rectangular structural member along a spine (C: occ_member_sweep_rect; seed home also solid.member_sweep_rect).
+--- Rectangular structural member along a spine (host tool; no IR MemberSweep yet).
 function route.member_sweep_rect(spine: ShapeId, opts: {
 	width: number?,
 	height: number?,
@@ -170,7 +153,7 @@ function route.member_sweep_rect(spine: ShapeId, opts: {
 	local data = call("member_sweep_rect", {
 		width = width,
 		height = height,
-		spine = spine,
+		spine = host_id(spine),
 	})
 	return data.shapeId
 end

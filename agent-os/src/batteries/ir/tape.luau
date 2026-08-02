@@ -330,8 +330,178 @@ function tape.pattern_linear(id: string, opts: any): string
 	})
 end
 
+--- Ensure tape is recording (shared by solid/route/frames/query).
+function tape.ensure(doc_id: string?)
+	if not tape.enabled then
+		tape.begin(doc_id or "session")
+	end
+end
+
+--- RoutePath: polyline or polyline_bend.
+function tape.route_path(opts: any): string
+	tape.ensure()
+	local o = opts or {}
+	local style = o.style
+	if not style then
+		if o.bend_r or o.bend_radius then
+			style = "polyline_bend"
+		else
+			style = "polyline"
+		end
+	end
+	local id = next_id("rt")
+	return push({
+		id = id,
+		op = "RoutePath",
+		params = {
+			style = style,
+			nodes = o.nodes,
+			bend_r = o.bend_r or o.bend_radius,
+			closed = o.closed == true,
+		},
+	})
+end
+
+--- SweepAlong annulus along path (spine IR handle).
+function tape.sweep_annulus(path_id: string, opts: any): string
+	tape.ensure()
+	local o = opts or {}
+	local id = next_id("sw")
+	return push({
+		id = id,
+		op = "SweepAlong",
+		params = {
+			profile_kind = "annulus",
+			od = o.od,
+			inner = o.inner or o.inner_diameter or o.id_bore,
+		},
+		refs = { path = body_ref(path_id) },
+	})
+end
+
+--- AttachFrame pure POD (name on params).
+function tape.attach_frame(opts: any): string
+	tape.ensure()
+	local o = opts or {}
+	local id = next_id("fr")
+	local name = o.name or id
+	return push({
+		id = id,
+		op = "AttachFrame",
+		params = {
+			name = name,
+			origin = o.origin or { o.ox or 0, o.oy or 0, o.oz or 0 },
+			z = o.z or { o.zx or 0, o.zy or 0, o.zz or 1 },
+			x = o.x,
+		},
+	})
+end
+
+--- ComposeChain measure; returns POD with _ir_id for place_at_chain.
+function tape.compose_chain(opts: any): any
+	tape.ensure()
+	local o = opts or {}
+	local id = next_id("fk")
+	push({
+		id = id,
+		op = "ComposeChain",
+		params = {
+			origins = o.origins,
+			axes = o.axes,
+			angles = o.angles,
+		},
+	})
+	local res = eval_mod.eval(tape.document(), { skip_free_all = true, root = id })
+	if errors.is_fail(res) or res.ok == false then
+		local e = (res :: any).error or res
+		error(tostring((e :: any).message or (e :: any).code or "ComposeChain eval failed"))
+	end
+	local pod = res.measures and res.measures[id]
+	if type(pod) ~= "table" then
+		error("ComposeChain: no measure pod")
+	end
+	pod._ir_id = id
+	return pod
+end
+
+--- RigidXform from matrix4x4 or from chain measure + prefix (0-based IR index).
+function tape.rigid_xform(shape_id: string, opts: any): string
+	tape.ensure()
+	local o = opts or {}
+	local nid = next_id("rx")
+	local params: { [string]: any } = {}
+	local refs: { [string]: any } = { shape = body_ref(shape_id) }
+	if type(o.matrix4x4) == "table" then
+		params.matrix4x4 = o.matrix4x4
+	elseif type(o.chain_id) == "string" then
+		refs.chain = { op = o.chain_id }
+		params.prefix_index = o.prefix_index or 0
+	elseif type(o.chain) == "table" and type(o.chain._ir_id) == "string" then
+		refs.chain = { op = o.chain._ir_id }
+		if type(o.prefix_1based) == "number" then
+			params.prefix_index = (o.prefix_1based :: number) - 1
+		elseif type(o.matrix4x4) == "table" then
+			params.matrix4x4 = o.matrix4x4
+		else
+			-- final matrix: bake from POD (script rebuilds on param change)
+			params.matrix4x4 = o.chain.final
+		end
+	else
+		error("tape.rigid_xform: need matrix4x4 or chain")
+	end
+	return push({
+		id = nid,
+		op = "RigidXform",
+		params = params,
+		refs = refs,
+	})
+end
+
+function tape.query_clash(a: string, b: string, clearance: number?): string
+	tape.ensure()
+	local id = next_id("cl")
+	return push({
+		id = id,
+		op = "QueryClash",
+		params = {
+			clearance = clearance or 0,
+			include_distance = true,
+			distance_optional = true,
+		},
+		refs = {
+			a = body_ref(a),
+			b = body_ref(b),
+		},
+	})
+end
+
+function tape.query_geom(shape_id: string, mode: string): string
+	tape.ensure()
+	local id = next_id("qg")
+	return push({
+		id = id,
+		op = "QueryGeom",
+		params = { mode = mode or "volume" },
+		refs = { shape = body_ref(shape_id) },
+	})
+end
+
+--- Eval measure op → POD (skip free_all).
+function tape.eval_measure(op_id: string): any
+	local res = eval_mod.eval(tape.document(), { skip_free_all = true, root = op_id })
+	if errors.is_fail(res) or res.ok == false then
+		local e = (res :: any).error or res
+		error(tostring((e :: any).message or (e :: any).code or "measure eval failed"))
+	end
+	local pod = res.measures and res.measures[op_id]
+	if type(pod) ~= "table" then
+		error("tape.eval_measure: no measure for " .. tostring(op_id))
+	end
+	return pod
+end
+
 --- Evaluate recorded IR; return host shape id for root handle.
---- skip_free_all so mid-session realize() does not wipe route/frame host shapes.
+--- skip_free_all so mid-session realize() does not wipe other host shapes.
 function tape.eval_to_shape(root: string, opts: any?): number
 	local o: { [string]: any } = { root = root, skip_free_all = true }
 	if type(opts) == "table" then
@@ -369,7 +539,6 @@ function tape.finish(root: string, extra: any?): number
 	if type(sid) == "number" then
 		return sid
 	end
-	-- Marker already printed; return 0 as sentinel if id not recovered
 	return 0
 end
 

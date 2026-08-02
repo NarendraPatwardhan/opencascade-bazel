@@ -1,9 +1,9 @@
--- @cad frames + serial FK helpers (host-backed tools; robot)
+-- @cad frames + serial FK helpers (ComposeChain / RigidXform via IR tape when possible)
 -- Usage: local frames = require("frames")
 
 local tools = require("tools")
 
-export type ShapeId = number
+export type ShapeId = number | string
 
 export type FramePod = {
 	ox: number,
@@ -24,9 +24,21 @@ export type ComposeChainResult = {
 	n: number,
 	prefixes: { { number } },
 	final: { number },
+	_ir_id: string?,
 }
 
 local frames = {}
+
+local function tape(): any
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	if not ok or t == nil then
+		error('frames: require("ir.tape") unavailable')
+	end
+	t.ensure("session")
+	return t
+end
 
 local function call(op: string, args: { [string]: any }): any
 	local payload: { [string]: any } = {}
@@ -48,6 +60,23 @@ local function call(op: string, args: { [string]: any }): any
 		error(msg)
 	end
 	return res.data
+end
+
+local function is_ir(id: any): boolean
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	return ok and t ~= nil and t.is_handle(id)
+end
+
+local function host_id(id: ShapeId): number
+	if type(id) == "number" then
+		return id
+	end
+	if is_ir(id) then
+		return tape().eval_to_shape(id :: string)
+	end
+	error("frames: expected IR handle or host id")
 end
 
 local function flatten_vec3_list(list: { any }, n: number?): ({ number }, number)
@@ -86,7 +115,7 @@ local function flatten_vec3_list(list: { any }, n: number?): ({ number }, number
 	return flat, count
 end
 
---- Orthonormal frame from origin + X hint + Z (host occ_frame_from_axes).
+--- Orthonormal frame from origin + X hint + Z (host POD helper — pure geometry math).
 function frames.from_axes(opts: {
 	origin: { number }?,
 	ox: number?,
@@ -119,7 +148,7 @@ function frames.from_axes(opts: {
 	return data.frame
 end
 
---- Serial FK: n revolute joints → prefix matrices + final 4×4 (row-major).
+--- Serial FK via IR ComposeChain; returns POD (+ _ir_id for place_at_chain).
 function frames.compose_chain(opts: {
 	origins: { any },
 	axes: { any },
@@ -133,63 +162,92 @@ function frames.compose_chain(opts: {
 		error("frames.compose_chain: angles required (n>=1)")
 	end
 	local n = o.n or #angles
-	local origins, _ = flatten_vec3_list(o.origins, n)
-	local axes, _ = flatten_vec3_list(o.axes, n)
-	local ang_flat: { number } = {}
-	for i = 1, n do
-		if type(angles[i]) ~= "number" then
-			error("frames.compose_chain: angles[" .. i .. "] must be number")
+	-- Keep nested Vec3 tables for IR (ComposeChain handler flattens)
+	local origins_t: { any } = {}
+	local axes_t: { any } = {}
+	if type(o.origins[1]) == "number" then
+		for i = 1, n do
+			local b = (i - 1) * 3
+			origins_t[i] = { o.origins[b + 1], o.origins[b + 2], o.origins[b + 3] }
 		end
-		ang_flat[i] = angles[i]
+	else
+		origins_t = o.origins
 	end
-	local data = call("compose_chain", {
-		n = n,
-		origins = origins,
-		axes = axes,
-		angles = ang_flat,
-		want_prefixes = if o.want_prefixes == false then false else true,
+	if type(o.axes[1]) == "number" then
+		for i = 1, n do
+			local b = (i - 1) * 3
+			axes_t[i] = { o.axes[b + 1], o.axes[b + 2], o.axes[b + 3] }
+		end
+	else
+		axes_t = o.axes
+	end
+	return tape().compose_chain({
+		origins = origins_t,
+		axes = axes_t,
+		angles = angles,
 	})
-	return {
-		n = data.n or n,
-		prefixes = data.prefixes or {},
-		final = data.final or {},
-	}
 end
 
---- Apply row-major 4×4 rigid transform → new shape id.
+--- Apply row-major 4×4 rigid transform → new shape (IR RigidXform when shape is IR handle).
 function frames.trsf_apply(id: ShapeId, matrix4x4: { number }): ShapeId
 	if type(matrix4x4) ~= "table" or #matrix4x4 < 16 then
 		error("frames.trsf_apply: matrix4x4 length 16 required")
 	end
-	return call("trsf_apply", { id = id, matrix4x4 = matrix4x4 }).shapeId
+	if type(id) == "string" or is_ir(id) then
+		return tape().rigid_xform(id :: string, { matrix4x4 = matrix4x4 })
+	end
+	return call("trsf_apply", { id = host_id(id), matrix4x4 = matrix4x4 }).shapeId
 end
 
 --- Place shape at chain.final, or at prefixes[prefix_1based] (Luau 1-based: 1..n).
---- Prefer this name over place() so it is not confused with solid.place(id, matrix4x4).
---- Seed home for FK place; future cad.asm may re-export.
 function frames.place_at_chain(id: ShapeId, chain: ComposeChainResult, prefix_1based: number?): ShapeId
-	local matrix: { number }
-	if prefix_1based == nil then
-		matrix = chain.final
-	else
-		local idx = prefix_1based :: number
-		if idx < 1 or idx > chain.n then
-			error("frames.place_at_chain: prefix_1based out of range (need 1..n)")
-		end
-		matrix = chain.prefixes[idx]
-		if matrix == nil then
-			error("frames.place_at_chain: missing prefix matrix")
-		end
+	if type(chain) ~= "table" then
+		error("frames.place_at_chain: chain required")
 	end
-	return frames.trsf_apply(id, matrix)
+	local shape_key: string
+	if type(id) == "string" or is_ir(id) then
+		shape_key = id :: string
+	else
+		-- Host shape cannot enter IR RigidXform refs; materialize not reverse.
+		-- Place via host matrix from chain POD.
+		local matrix: { number }
+		if prefix_1based == nil then
+			matrix = chain.final
+		else
+			local idx = prefix_1based :: number
+			if idx < 1 or idx > chain.n then
+				error("frames.place_at_chain: prefix_1based out of range (need 1..n)")
+			end
+			matrix = chain.prefixes[idx]
+			if matrix == nil then
+				error("frames.place_at_chain: missing prefix matrix")
+			end
+		end
+		return call("trsf_apply", { id = id, matrix4x4 = matrix }).shapeId
+	end
+	if type(chain._ir_id) == "string" then
+		if prefix_1based == nil then
+			return tape().rigid_xform(shape_key, { chain = chain, matrix4x4 = chain.final })
+		end
+		return tape().rigid_xform(shape_key, {
+			chain = chain,
+			prefix_1based = prefix_1based,
+		})
+	end
+	-- Chain without IR id: bake matrix
+	local matrix2: { number }
+	if prefix_1based == nil then
+		matrix2 = chain.final
+	else
+		matrix2 = chain.prefixes[prefix_1based :: number]
+	end
+	return tape().rigid_xform(shape_key, { matrix4x4 = matrix2 })
 end
 
---- Alias for place_at_chain (final matrix when prefix omitted).
 function frames.place(id: ShapeId, chain: ComposeChainResult, prefix_1based: number?): ShapeId
 	return frames.place_at_chain(id, chain, prefix_1based)
 end
 
---- Identity 4×4 (row-major).
 function frames.identity(): { number }
 	return {
 		1, 0, 0, 0,
@@ -199,7 +257,6 @@ function frames.identity(): { number }
 	}
 end
 
---- Pure translation 4×4.
 function frames.translation(dx: number, dy: number, dz: number): { number }
 	return {
 		1, 0, 0, dx,
