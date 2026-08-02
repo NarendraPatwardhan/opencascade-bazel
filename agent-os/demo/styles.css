@@ -732,23 +732,26 @@ button:not(.btn):not(.param-sheet-reset):not(.param-group-trigger):not(.param-sw
 
 .viewport-proj-btn {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
+  bottom: 10px;
+  right: 10px;
   z-index: 4;
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 0.28rem 0.55rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, #1a2030 92%, transparent);
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: rgba(17, 17, 17, 0.72);
   color: var(--fg);
   cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .viewport-proj-btn:hover {
   border-color: var(--accent);
+  color: #fff;
 }
 
 
