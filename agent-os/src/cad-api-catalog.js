@@ -423,7 +423,7 @@ export const SOLID_METHODS = [
   {
     name: "free_all",
     label: "solid.free_all",
-    documentation: "Free all host shapes (cleanup after realize/eval).",
+    documentation: "Free all host shapes (cleanup after mid-session eval / session end).",
     insertText: "free_all()",
     params: [],
     returns: "nil",
@@ -712,7 +712,7 @@ export const IR_METHODS = [
   {
     name: "run_demo",
     label: "ir.run_demo",
-    documentation: "Full Path A demo: eval + emit __OCC_CAD_RESULT__ marker.",
+    documentation: "Eval IR document + emit __OCC_CAD_RESULT__ marker.",
     insertText: "run_demo(${1:doc})",
     params: [{ name: "doc", type: "doc" }],
     returns: "result | fail",
@@ -766,38 +766,42 @@ export const MODULES = [
     name: "solid",
     label: 'require("solid")',
     documentation:
-      "CAD solid helpers. solid.* always lowers to IR tape then eval (no direct-host Path B).",
+      "CAD solid helpers. solid.* always records cad.ir ops (IR string handles → tape → eval → host). Features (fillet/drill/shell/…) are IR ops. solid.realize is rare interop only.",
     insertText: 'require("solid")',
   },
   {
     name: "route",
     label: 'require("route")',
-    documentation: "Centerline routes + pipe annulus (host-backed tools; AI-BOOST).",
+    documentation:
+      "Centerline routes + pipe annulus + member_sweep_rect via IR tape (RoutePath / SweepAlong / MemberSweepRect). AI-BOOST piping.",
     insertText: 'require("route")',
   },
   {
     name: "frames",
     label: 'require("frames")',
-    documentation: "Frames, compose_chain FK, place/trsf_apply (host-backed tools; robot).",
+    documentation:
+      "Frames, ComposeChain FK, place/trsf_apply via IR tape (robot). Shape args are IR string handles.",
     insertText: 'require("frames")',
   },
   {
     name: "query",
     label: 'require("query")',
-    documentation: "Measures, clash, mesh stats, mass properties.",
+    documentation:
+      "Measures, clash, mesh stats, mass properties via IR tape (QueryClash / QueryGeom / MassProps / MeshStats). Shape args are IR string handles.",
     insertText: 'require("query")',
   },
   {
     name: "cad",
     label: 'require("cad")',
-    documentation: "Aggregator: cad.solid / cad.route / cad.frames / cad.query / cad.ir.",
+    documentation:
+      "Aggregator: cad.solid / cad.route / cad.frames / cad.query / cad.ir. All batteries author through IR tape only.",
     insertText: 'require("cad")',
   },
   {
     name: "ir",
     label: 'require("ir")',
     documentation:
-      "Portable CAD IR runtime (cad.ir/v0). Path A: load/bind/validate/eval IR documents.",
+      "Portable CAD IR runtime (cad.ir/v0): load/bind/validate/eval IR documents. solid/route/frames/query record into the same session tape.",
     insertText: 'require("ir")',
   },
   {
@@ -870,25 +874,25 @@ export const SNIPPETS = [
   {
     label: "cad-ir-flange",
     documentation:
-      "Main-demo style flange via IR: base + boss + bore + bolt circle (Luau builds IR → ir.run_demo).",
+      "Flange via solid.* IR tape: base + boss + bore + bolt circle (see block_hole.luau).",
     insertText:
-      '-- Prefer the main demo param sheet; this is a static SI (meters) sketch of the IR path.\nlocal ir = require("ir")\n-- See agent-os/src/batteries/examples/block_hole.luau for the full flange recipe.\n',
+      'local solid = require("solid")\n-- See agent-os/src/batteries/examples/block_hole.luau for the full flange recipe.\n',
   },
   {
     label: "cad-pipe-run",
-    documentation: "Host-backed route with bends + pipe annulus (solid.finish still IR-eval).",
+    documentation: "IR route + annulus (RoutePath/SweepAlong) then solid.finish evaluates the tape.",
     insertText:
       'local solid = require("solid")\nlocal route = require("route")\n\nlocal pipe = route.pipe_run({\n  nodes = {\n    { 0, 0, 0 },\n    { ${1:1.0}, 0, 0 },\n    { 1.0, ${2:0.8}, 0 },\n  },\n  bend_r = ${3:0.15},\n  od = ${4:0.1},\n  inner = ${5:0.08},\n})\nsolid.finish(pipe, { name = "${6:pipe_run}" })\n',
   },
   {
     label: "cad-fk-place",
-    documentation: "Host-backed compose_chain FK + place_at_chain (solid link via IR).",
+    documentation: "IR compose_chain FK + place_at_chain (link stays IR handle until finish).",
     insertText:
       'local solid = require("solid")\nlocal frames = require("frames")\n\nlocal link = solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 })\nlocal chain = frames.compose_chain({\n  origins = { { 0, 0, 0.3 } },\n  axes = { { 0, 0, 1 } },\n  angles = { ${1:math.pi / 4} },\n})\nlocal placed = frames.place_at_chain(link, chain)\nsolid.finish(placed, { name = "${2:fk_place}" })\n',
   },
   {
     label: "cad-ir-box-cut",
-    documentation: "Path A: evaluate box-cut IR document and emit demo marker.",
+    documentation: "Evaluate box-cut IR document and emit demo marker.",
     insertText:
       'local ir = require("ir")\n\nlocal doc = ir.load([==[\n${1:-- paste cad.ir/v0 JSON}\n]==])\nif ir.is_fail(doc) then error(doc.error.message) end\nlocal res = ir.run_demo(doc)\nif ir.is_fail(res) or res.ok == false then error((res.error and res.error.message) or "ir eval failed") end\n',
   },

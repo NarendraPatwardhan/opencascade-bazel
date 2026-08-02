@@ -1,4 +1,5 @@
 -- PrimBox / PrimCylinder / Tier B prims
+-- (MakeRectProfile lives in ir.ops.features)
 
 local host = require("ir.host")
 local errors = require("ir.errors")

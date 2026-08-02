@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pure Luau unit smoke for cad.ir validate / bind / canonical / eval_pose (no dual-goal geom).
+ * Pure Luau unit smoke for cad.ir validate / bind / canonical / eval_pose (no full geom demos).
  *
  *   node agent-os/smoke/ir_unit_smoke.mjs
  */

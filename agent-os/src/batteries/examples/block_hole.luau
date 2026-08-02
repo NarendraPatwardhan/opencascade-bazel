@@ -1,4 +1,4 @@
--- Flange plate: clean solid.* always lowers to IR (no use_ir).
+-- Flange plate: solid.* IR tape end-to-end.
 package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path
 local solid = require("solid")
 

@@ -51,11 +51,11 @@ export OCC_BASE=$PWD/agent-os/vendor/occ
 export SOLID_LUAU=$PWD/agent-os/src/batteries/solid.luau
 node agent-os/smoke/node_smoke.mjs
 
-# 3b) Portable CAD IR (cad.ir/v0) — validate/bind units + Path A demos
+# 3b) Portable CAD IR (cad.ir/v0) — validate/bind units + document demos
 node agent-os/smoke/ir_unit_smoke.mjs   # bind/validate/canonical + eval_pose
 node agent-os/smoke/ir_smoke.mjs        # box-cut + pipe skid + robot FK via require("ir")
 
-# 3c) Dual-goal Luau surface (route/frames/query/cad + solid.* → IR)
+# 3c) Luau batteries surface (route/frames/query/cad + solid.* → IR tape)
 node agent-os/smoke/solid_api_smoke.mjs
 
 # 4) Browser demo (stages + serves)
@@ -102,7 +102,7 @@ agent-os/
 
 ## Luau surface (v0)
 
-**`solid.*` always lowers to IR** (tape → `cad.ir` eval → host). There is no direct-host Path B for solid authoring. **`route` / `frames`** remain host-backed tools for pipe runs and FK place.
+**Batteries author through IR tape only** (`solid` / `route` / `frames` / `query` → `cad.ir` ops → eval → host). Guest handles are IR string op ids end-to-end; `solid.finish` evaluates the tape. Features (fillet, drill, shell, revolve, member sweep, mass/mesh, STEP, …) are registered IR ops. `solid.realize` is rare interop only.
 
 ```luau
 local solid = require("solid")

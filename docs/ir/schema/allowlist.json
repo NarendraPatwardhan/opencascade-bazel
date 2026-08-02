@@ -1,7 +1,7 @@
 {
   "ir_schema": "cad.ir/v0",
   "cad_ir_version": "0.1.0",
-  "notes": "Machine-readable allowlist for cad.ir/v0. Authoritative narrative: docs/cad-ir-v0-design.md. Luau cad.ir.validate is product validator (K21).",
+  "notes": "Machine-readable allowlist for cad.ir/v0. Authoritative narrative: docs/cad-ir-v0-design.md. Luau cad.ir.validate is product validator (K21). Keep in sync with agent-os/src/batteries/ir/registry.luau OPS (registry is runtime source of truth for known ops).",
   "document": {
     "required": ["ir_schema", "version", "units", "params", "ops", "meta"],
     "optional": ["id", "catalog", "frames", "assembly", "results"],
@@ -48,52 +48,250 @@
     "portable face_index"
   ],
   "tier_a": {
-    "description": "v0-demo-required Path A dual-goal + box-cut",
+    "description": "v0-demo-required ops (dual-goal demos + box-cut); registered and host-ready",
     "ops": {
-      "PrimBox": { "host": "make_box", "binds": "shape" },
-      "PrimCylinder": { "host": "make_cylinder", "binds": "shape" },
-      "BoolCombine": { "host": ["fuse", "cut", "intersect"], "binds": "shape" },
-      "Translate": { "host": "translate", "binds": "shape" },
-      "Rotate": { "host": "rotate", "binds": "shape" },
-      "RigidXform": { "host": "trsf_apply", "binds": "shape" },
-      "RoutePath": { "host": ["make_route", "make_route_bends"], "binds": "shape" },
-      "SweepAlong": { "host": "pipe_annulus", "binds": "shape", "profile_kind_v0": "annulus" },
-      "AttachFrame": { "host": null, "pure_pod": true, "binds": "frame" },
-      "ComposeChain": { "host": "compose_chain", "binds": "measure" },
-      "QueryClash": { "host": ["clash", "distance"], "binds": "measure" },
-      "QueryGeom": { "host": ["volume", "bbox"], "binds": "measure" },
-      "ExportMesh": { "host": "mesh_stats", "binds": "measure", "notes": "stats-only; no full mesh arrays over host tool JSON" }
+      "PrimBox": { "host": "make_box", "binds": "shape", "tier": "A", "registered": true },
+      "PrimCylinder": { "host": "make_cylinder", "binds": "shape", "tier": "A", "registered": true },
+      "BoolCombine": {
+        "host": { "union": "fuse", "subtract": "cut", "intersect": "intersect" },
+        "binds": "shape",
+        "tier": "A",
+        "registered": true
+      },
+      "Translate": { "host": "translate", "binds": "shape", "tier": "A", "registered": true },
+      "Rotate": { "host": "rotate", "binds": "shape", "tier": "A", "registered": true },
+      "RigidXform": { "host": "trsf_apply", "binds": "shape", "tier": "A", "registered": true },
+      "RoutePath": {
+        "host": { "polyline": "make_route", "polyline_bend": "make_route_bends" },
+        "binds": "shape",
+        "tier": "A",
+        "registered": true
+      },
+      "SweepAlong": {
+        "host": "pipe_annulus",
+        "binds": "shape",
+        "profile_kind_v0": "annulus",
+        "tier": "A",
+        "registered": true
+      },
+      "AttachFrame": {
+        "host": null,
+        "pure_pod": true,
+        "binds": "frame",
+        "tier": "A",
+        "registered": true
+      },
+      "ComposeChain": {
+        "host": "compose_chain",
+        "binds": "measure",
+        "tier": "A",
+        "registered": true
+      },
+      "QueryClash": {
+        "host": { "clash": "clash", "distance": "distance" },
+        "binds": "measure",
+        "tier": "A",
+        "registered": true
+      },
+      "QueryGeom": {
+        "host": { "volume": "volume", "bbox": "bbox" },
+        "binds": "measure",
+        "tier": "A",
+        "registered": true
+      },
+      "ExportMesh": {
+        "host": "mesh_stats",
+        "binds": "measure",
+        "tier": "A",
+        "registered": true,
+        "notes": "stats-only; no full mesh arrays over host tool JSON"
+      }
     }
   },
   "tier_b": {
-    "description": "Optional when host ready; not dual-goal blockers",
+    "description": "Registered ops (solid/route/frames/query tape + features). bridge-need entries are aspirational only.",
     "ops": {
-      "PrimSphere": { "host": "make_sphere", "binds": "shape" },
-      "PrimCone": { "host": "make_cone", "binds": "shape" },
-      "PrimTorus": { "host": "make_torus", "binds": "shape" },
-      "MirrorCopy": { "host": "mirror", "binds": "shape" },
-      "PushPull": { "host": "extrude", "binds": "shape" },
-      "PatternLinear": { "host": "pattern_linear", "binds": "shape" },
-      "PatternPolar": { "host": "pattern_polar", "binds": "shape" },
-      "GroupBodies": { "host": "make_compound", "binds": "shape", "bridge": "need" },
-      "ExportBrep": { "host": "export_step", "binds": "side", "bridge": "need", "browser": "MEMFS-only" },
-      "MakeRectProfile": { "host": "make_rect_profile", "binds": "shape", "bridge": "need" },
-      "MakeCircleProfile": { "host": "make_circle_face", "binds": "shape", "bridge": "need" },
-      "MakePolyline": { "host": "make_polyline", "binds": "shape", "bridge": "need" }
+      "PrimSphere": {
+        "host": "make_sphere",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PrimCone": {
+        "host": "make_cone",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PrimTorus": {
+        "host": "make_torus",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "MakeRectProfile": {
+        "host": "make_face_rectangle",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true,
+        "notes": "planar rectangle face for extrude/revolve; ops/features.luau + tape"
+      },
+      "Scale": {
+        "host": "scale",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "MirrorCopy": {
+        "host": "mirror",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PushPull": {
+        "host": "extrude",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "FilletAll": {
+        "host": "fillet_all",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "SpinSolid": {
+        "host": "revolve",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "Offset3d": {
+        "host": "offset_3d",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "HollowBody": {
+        "host": "shell",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "DrillHoleThrough": {
+        "host": "drill_hole_through",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "DrillHoleBlind": {
+        "host": "drill_hole_blind",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PipeProfile": {
+        "host": "pipe",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true,
+        "notes": "profile + spine pipe (not annulus SweepAlong)"
+      },
+      "MemberSweepRect": {
+        "host": "member_sweep_rect",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PatternLinear": {
+        "host": "pattern_linear",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "PatternPolar": {
+        "host": "pattern_polar",
+        "binds": "shape",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "MeshStats": {
+        "host": "mesh_stats",
+        "binds": "measure",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true,
+        "notes": "explicit mesh stats measure; ExportMesh remains Tier A alias path"
+      },
+      "MassProps": {
+        "host": "mass_properties",
+        "binds": "measure",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true
+      },
+      "StepWrite": {
+        "host": "step_write",
+        "binds": "measure",
+        "tier": "B",
+        "registered": true,
+        "host_ready": true,
+        "browser": "MEMFS-only",
+        "notes": "side-effect write; binds measure for POD result {ok,path}"
+      },
+      "GroupBodies": {
+        "host": "make_compound",
+        "binds": "shape",
+        "bridge": "need",
+        "registered": false
+      },
+      "ExportBrep": {
+        "host": "export_step",
+        "binds": "side",
+        "bridge": "need",
+        "browser": "MEMFS-only",
+        "registered": false,
+        "notes": "prefer registered StepWrite when available"
+      },
+      "MakeCircleProfile": {
+        "host": "make_circle_face",
+        "binds": "shape",
+        "bridge": "need",
+        "registered": false
+      },
+      "MakePolyline": {
+        "host": "make_polyline",
+        "binds": "shape",
+        "bridge": "need",
+        "registered": false
+      }
     }
   },
   "tier_c_extension": {
-    "description": "Not in v0 allowlist",
+    "description": "Not in v0 allowlist / not registered for eval",
     "ops": [
       "Sketch2D",
       "SolveSketch",
-      "SpinSolid",
       "LoftSections",
-      "HollowBody",
       "RoundEdge",
       "BevelEdge",
-      "DrillHole",
-      "MemberSweep",
       "ImportBrep",
       "SpawnPart",
       "MeshPrep",
@@ -102,6 +300,41 @@
       "ParseIntent"
     ]
   },
+  "registry_ops": [
+    "PrimBox",
+    "PrimCylinder",
+    "PrimSphere",
+    "PrimCone",
+    "PrimTorus",
+    "MakeRectProfile",
+    "BoolCombine",
+    "Translate",
+    "Rotate",
+    "Scale",
+    "MirrorCopy",
+    "PushPull",
+    "RigidXform",
+    "FilletAll",
+    "SpinSolid",
+    "Offset3d",
+    "HollowBody",
+    "DrillHoleThrough",
+    "DrillHoleBlind",
+    "RoutePath",
+    "SweepAlong",
+    "PipeProfile",
+    "MemberSweepRect",
+    "AttachFrame",
+    "ComposeChain",
+    "QueryClash",
+    "QueryGeom",
+    "ExportMesh",
+    "MeshStats",
+    "MassProps",
+    "StepWrite",
+    "PatternLinear",
+    "PatternPolar"
+  ],
   "error_codes": [
     "IR_ERR_SCHEMA",
     "IR_ERR_UNKNOWN_OP",

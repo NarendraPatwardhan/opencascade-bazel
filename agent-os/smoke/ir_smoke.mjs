@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * IR Path A smoke: box-cut (+ optional pipe / robot) via cad.ir Luau runtime.
+ * Portable CAD IR smoke: box-cut + pipe skid + robot via cad.ir Luau runtime.
+ * Loads IR documents (JSON) → ir.run_demo → host mesh.
  *
  * Env (same as node_smoke): AGENT_OS_KERNEL, LOOM, MC_CORE, CATALOG, OCC_BASE, SOLID_LUAU
  * Optional: IR_EXAMPLES_DIR (default: repo docs/ir/examples)

@@ -1,4 +1,4 @@
--- QueryClash / QueryGeom / ExportMesh
+-- QueryClash / QueryGeom / ExportMesh / MeshStats / MassProps / StepWrite
 
 local host = require("ir.host")
 local errors = require("ir.errors")
@@ -114,6 +114,70 @@ function measure.ExportMesh(op: any, env: any): any
 	if res.volume ~= nil then
 		pod.volume = res.volume
 	end
+	env.measures[op.id] = pod
+	return pod
+end
+
+--- Explicit mesh_stats measure (same host as ExportMesh; always requires success).
+function measure.MeshStats(op: any, env: any): any
+	local p = op.params
+	local sid = resolve.resolve_shape(op.refs.shape, env)
+	if errors.is_fail(sid) then
+		return errors.annotate(sid, { op_id = op.id })
+	end
+	local deflection = p.deflection or 0.1
+	local res = host.call("mesh_stats", { id = sid, deflection = deflection })
+	local pod: { [string]: any } = {
+		kind = "mesh_stats",
+		deflection = deflection,
+		vertexCount = res.vertexCount,
+		indexCount = res.indexCount,
+	}
+	if res.volume ~= nil then
+		pod.volume = res.volume
+	end
+	env.measures[op.id] = pod
+	return pod
+end
+
+function measure.MassProps(op: any, env: any): any
+	local p = op.params
+	local sid = resolve.resolve_shape(op.refs.shape, env)
+	if errors.is_fail(sid) then
+		return errors.annotate(sid, { op_id = op.id })
+	end
+	local density = p.density or 1
+	local res = host.call("mass_properties", { id = sid, density = density })
+	local pod: { [string]: any } = {
+		kind = "mass_props",
+		density = density,
+		mass = res.mass,
+		com = res.com,
+		inertia = res.inertia,
+	}
+	env.measures[op.id] = pod
+	return pod
+end
+
+function measure.StepWrite(op: any, env: any): any
+	local p = op.params
+	local sid = resolve.resolve_shape(op.refs.shape, env)
+	if errors.is_fail(sid) then
+		return errors.annotate(sid, { op_id = op.id })
+	end
+	local path = p.path or p.file
+	if type(path) ~= "string" or path == "" then
+		return errors.fail("IR_ERR_VALIDATE", {
+			message = "StepWrite.path required (MEMFS)",
+			op_id = op.id,
+		})
+	end
+	local res = host.call("step_write", { id = sid, path = path })
+	local pod: { [string]: any } = {
+		kind = "step_write",
+		path = (type(res) == "table" and res.path) or path,
+		ok = true,
+	}
 	env.measures[op.id] = pod
 	return pod
 end

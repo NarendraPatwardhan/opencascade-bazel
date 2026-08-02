@@ -1,5 +1,5 @@
 # Top-level batteries staged under /opt/cad/*.luau
-# solid.* always lowers to IR; route/frames are host-backed tools.
+# Batteries author through IR tape only (solid/route/frames/query).
 # Keep runtime-worker.js TOP_BATTERY_LUAU in sync with this list.
 solid.luau
 route.luau

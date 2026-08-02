@@ -13,30 +13,46 @@ local route = require("ir.ops.route")
 local frames = require("ir.ops.frames")
 local measure = require("ir.ops.measure")
 local chain = require("ir.ops.chain")
+local features = require("ir.ops.features")
 
 local eval_mod = {}
 
+-- One handler per registry op. Feature-tier solid ops live in features.luau;
+-- measures in measure.luau; prims/boolean/xform/route/frames/chain cover the rest.
 local DISPATCH: { [string]: (any, any) -> any } = {
 	PrimBox = prims.PrimBox,
 	PrimCylinder = prims.PrimCylinder,
 	PrimSphere = prims.PrimSphere,
 	PrimCone = prims.PrimCone,
 	PrimTorus = prims.PrimTorus,
+	MakeRectProfile = features.MakeRectProfile,
 	BoolCombine = boolean.BoolCombine,
 	Translate = xform.Translate,
 	Rotate = xform.Rotate,
+	Scale = features.Scale,
 	RigidXform = xform.RigidXform,
 	MirrorCopy = xform.MirrorCopy,
 	PushPull = xform.PushPull,
 	PatternLinear = xform.PatternLinear,
 	PatternPolar = xform.PatternPolar,
+	FilletAll = features.FilletAll,
+	SpinSolid = features.SpinSolid,
+	Offset3d = features.Offset3d,
+	HollowBody = features.HollowBody,
+	DrillHoleThrough = features.DrillHoleThrough,
+	DrillHoleBlind = features.DrillHoleBlind,
 	RoutePath = route.RoutePath,
 	SweepAlong = route.SweepAlong,
+	PipeProfile = features.PipeProfile,
+	MemberSweepRect = features.MemberSweepRect,
 	AttachFrame = frames.AttachFrame,
 	ComposeChain = chain.ComposeChain,
 	QueryClash = measure.QueryClash,
 	QueryGeom = measure.QueryGeom,
 	ExportMesh = measure.ExportMesh,
+	MeshStats = measure.MeshStats,
+	MassProps = measure.MassProps,
+	StepWrite = measure.StepWrite,
 }
 
 local function new_env(): { [string]: any }

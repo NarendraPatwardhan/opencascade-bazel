@@ -10,25 +10,38 @@ registry.OPS = {
 	PrimSphere = { host = "make_sphere", binds = "shape", tier = "B" },
 	PrimCone = { host = "make_cone", binds = "shape", tier = "B" },
 	PrimTorus = { host = "make_torus", binds = "shape", tier = "B" },
+	MakeRectProfile = { host = "make_face_rectangle", binds = "shape", tier = "B" },
 	BoolCombine = { host = { union = "fuse", subtract = "cut", intersect = "intersect" }, binds = "shape", tier = "A" },
 	Translate = { host = "translate", binds = "shape", tier = "A" },
 	Rotate = { host = "rotate", binds = "shape", tier = "A" },
+	Scale = { host = "scale", binds = "shape", tier = "B" },
 	MirrorCopy = { host = "mirror", binds = "shape", tier = "B" },
 	PushPull = { host = "extrude", binds = "shape", tier = "B" },
 	RigidXform = { host = "trsf_apply", binds = "shape", tier = "A" },
+	FilletAll = { host = "fillet_all", binds = "shape", tier = "B" },
+	SpinSolid = { host = "revolve", binds = "shape", tier = "B" },
+	Offset3d = { host = "offset_3d", binds = "shape", tier = "B" },
+	HollowBody = { host = "shell", binds = "shape", tier = "B" },
+	DrillHoleThrough = { host = "drill_hole_through", binds = "shape", tier = "B" },
+	DrillHoleBlind = { host = "drill_hole_blind", binds = "shape", tier = "B" },
 	RoutePath = { host = { polyline = "make_route", polyline_bend = "make_route_bends" }, binds = "shape", tier = "A" },
 	SweepAlong = { host = "pipe_annulus", binds = "shape", tier = "A" },
+	PipeProfile = { host = "pipe", binds = "shape", tier = "B" },
+	MemberSweepRect = { host = "member_sweep_rect", binds = "shape", tier = "B" },
 	AttachFrame = { host = false, binds = "frame", tier = "A", pure = true },
 	ComposeChain = { host = "compose_chain", binds = "measure", tier = "A" },
 	QueryClash = { host = { clash = "clash", distance = "distance" }, binds = "measure", tier = "A" },
 	QueryGeom = { host = { volume = "volume", bbox = "bbox" }, binds = "measure", tier = "A" },
 	-- mesh_stats only — no full-mesh fallback over JSON tool bridge (security)
 	ExportMesh = { host = "mesh_stats", binds = "measure", tier = "A" },
+	MeshStats = { host = "mesh_stats", binds = "measure", tier = "B" },
+	MassProps = { host = "mass_properties", binds = "measure", tier = "B" },
+	StepWrite = { host = "step_write", binds = "measure", tier = "B" },
 	PatternLinear = { host = "pattern_linear", binds = "shape", tier = "B" },
 	PatternPolar = { host = "pattern_polar", binds = "shape", tier = "B" },
 }
 
--- Host ops present in OccBridge after dual-goal growth (K15 host-ready).
+-- Host ops present in OccBridge (K15 host-ready).
 registry.HOST_AVAILABLE = {
 	make_box = true,
 	make_cylinder = true,
@@ -53,6 +66,8 @@ registry.HOST_AVAILABLE = {
 	bbox = true,
 	mesh = true,
 	mesh_stats = true,
+	mass_properties = true,
+	step_write = true,
 	shape_free = true,
 	free_all = true,
 	make_route = true,
@@ -61,6 +76,13 @@ registry.HOST_AVAILABLE = {
 	compose_chain = true,
 	trsf_apply = true,
 	frame_from_axes = true,
+	make_face_rectangle = true,
+	revolve = true,
+	offset_3d = true,
+	shell = true,
+	drill_hole_through = true,
+	drill_hole_blind = true,
+	member_sweep_rect = true,
 }
 
 function registry.lookup(op: string): any

@@ -2,7 +2,7 @@
  * Main parametric demo: flange-style plate (base + boss + bore + bolt circle).
  *
  * Host owns params; editor shows clean solid.* Luau only.
- * solid.* always records cad.ir; solid.finish evaluates (no use_ir / no Path B).
+ * solid.* always records cad.ir; solid.finish evaluates the tape.
  */
 
 /** @type {import('../params/types.js').Parameter[]} */

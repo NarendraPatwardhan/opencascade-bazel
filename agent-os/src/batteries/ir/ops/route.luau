@@ -1,4 +1,5 @@
 -- RoutePath + SweepAlong (annulus)
+-- (PipeProfile / MemberSweepRect live in ir.ops.features)
 
 local host = require("ir.host")
 local errors = require("ir.errors")

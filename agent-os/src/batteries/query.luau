@@ -1,7 +1,8 @@
--- @cad query helpers — measures / clash via IR tape when shapes are IR handles
+-- @cad query helpers — measures / clash always via IR tape.
 -- Usage: local query = require("query")
-
-local tools = require("tools")
+--
+-- Policy: query.* measures use tape.query_* + tape.eval_measure. Shape args
+-- must be IR tape handles (string). Never host call for geometry queries.
 
 export type ShapeId = number | string
 
@@ -18,91 +19,66 @@ local function tape(): any
 	return t
 end
 
-local function is_ir(id: any): boolean
-	local ok, t = pcall(function()
-		return require("ir.tape")
-	end)
-	return ok and t ~= nil and t.is_handle(id)
-end
-
-local function call(op: string, args: { [string]: any }): any
-	local payload: { [string]: any } = {}
-	for k, v in pairs(args) do
-		payload[k] = v
-	end
-	payload.op = op
-	local res = tools.call("host.org.main.cad.call", payload)
-	if type(res) ~= "table" then
-		error("cad.call returned non-table")
-	end
-	if res.ok == false then
-		local msg = "cad.call failed"
-		if type(res.err) == "table" and (res.err :: any).message then
-			msg = (res.err :: any).message
-		elseif type(res.err) == "string" then
-			msg = res.err
-		end
-		error(msg)
-	end
-	return res.data
-end
-
-local function host_id(id: ShapeId): number
-	if type(id) == "number" then
+--- Require an IR tape handle for measures (never host geometry call).
+local function ir_id(id: ShapeId, where: string): string
+	if type(id) == "string" then
 		return id
 	end
-	if is_ir(id) then
-		return tape().eval_to_shape(id :: string)
-	end
-	error("query: expected IR handle or host id")
+	error(
+		where
+			.. ": expected IR tape handle (string); query.* measures are tape-only — do not realize mid-chain"
+	)
 end
 
 function query.clash(a: ShapeId, b: ShapeId, clearance: number?): any
-	if is_ir(a) and is_ir(b) then
-		local mid = tape().query_clash(a :: string, b :: string, clearance)
-		local pod = tape().eval_measure(mid)
-		-- Match host clash shape for smokes
-		return {
-			status = pod.status_code or 0,
-			name = pod.status or "unknown",
-			distance = pod.distance,
-		}
-	end
-	return call("clash", {
-		a = host_id(a),
-		b = host_id(b),
-		clearance = clearance or 0,
-	})
+	local mid = tape().query_clash(ir_id(a, "query.clash"), ir_id(b, "query.clash"), clearance)
+	local pod = tape().eval_measure(mid)
+	return {
+		status = pod.status_code or 0,
+		name = pod.status or "unknown",
+		distance = pod.distance,
+	}
 end
 
 function query.distance(a: ShapeId, b: ShapeId): any
-	return call("distance", { a = host_id(a), b = host_id(b) })
+	-- QueryClash with distance; no standalone Distance IR op in v0.
+	local mid = tape().query_clash(ir_id(a, "query.distance"), ir_id(b, "query.distance"), 0)
+	local pod = tape().eval_measure(mid)
+	return { distance = pod.distance }
 end
 
 function query.volume(id: ShapeId): number
-	if is_ir(id) then
-		local mid = tape().query_geom(id :: string, "volume")
-		local pod = tape().eval_measure(mid)
-		return pod.volume
-	end
-	return call("volume", { id = host_id(id) }).volume
+	local mid = tape().query_geom(ir_id(id, "query.volume"), "volume")
+	local pod = tape().eval_measure(mid)
+	return pod.volume
 end
 
 function query.bbox(id: ShapeId): any
-	if is_ir(id) then
-		local mid = tape().query_geom(id :: string, "bbox")
-		local pod = tape().eval_measure(mid)
-		return pod.bbox
-	end
-	return call("bbox", { id = host_id(id) }).bbox
+	local mid = tape().query_geom(ir_id(id, "query.bbox"), "bbox")
+	local pod = tape().eval_measure(mid)
+	return pod.bbox
 end
 
 function query.mesh_stats(id: ShapeId, deflection: number?): any
-	return call("mesh_stats", { id = host_id(id), deflection = deflection or 0.1 })
+	local mid = tape().mesh_stats(ir_id(id, "query.mesh_stats"), deflection or 0.1)
+	local pod = tape().eval_measure(mid)
+	return {
+		vertexCount = pod.vertexCount,
+		indexCount = pod.indexCount,
+		volume = pod.volume,
+		deflection = pod.deflection,
+	}
 end
 
 function query.mass_properties(id: ShapeId, density: number?): any
-	return call("mass_properties", { id = host_id(id), density = density or 1 })
+	local mid = tape().mass_props(ir_id(id, "query.mass_properties"), density or 1)
+	local pod = tape().eval_measure(mid)
+	return {
+		mass = pod.mass,
+		com = pod.com,
+		inertia = pod.inertia,
+		density = pod.density,
+	}
 end
 
 return query

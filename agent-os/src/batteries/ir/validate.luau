@@ -435,6 +435,199 @@ function validate.validate_op_params(op: { [string]: any }, caps: { [string]: nu
 				op = name,
 			})
 		end
+	elseif name == "Scale" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "Scale.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local factor = p.factor or p.f
+		if factor ~= nil and (not is_finite_number(factor) or factor == 0) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "Scale.factor must be finite non-zero when set",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "FilletAll" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "FilletAll.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		if p.radius ~= nil and not positive_size(p.radius, max_m) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "FilletAll.radius must be in (0, max_linear_m]",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "PipeProfile" then
+		if op.refs == nil or op.refs.profile == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "PipeProfile.refs.profile required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		if op.refs.spine == nil and op.refs.path == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "PipeProfile.refs.spine|path required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "SpinSolid" then
+		if op.refs == nil or (op.refs.profile == nil and op.refs.shape == nil) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "SpinSolid.refs.profile|shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "Offset3d" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "Offset3d.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local offset = p.offset or p.distance
+		if type(offset) ~= "number" or not is_finite_number(offset) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "Offset3d.offset (or distance) required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "HollowBody" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "HollowBody.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local faces = p.faces or p.face_idx
+		if type(faces) ~= "table" or #faces < 1 then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "HollowBody.faces (1-based indices) required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "DrillHoleThrough" or name == "DrillHoleBlind" then
+		if op.refs == nil or (op.refs.shape == nil and op.refs.solid == nil) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = name .. ".refs.shape|solid required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local diameter = p.diameter or p.d
+		if not positive_size(diameter, max_m) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = name .. ".diameter required in (0, max_linear_m]",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		if name == "DrillHoleBlind" then
+			if not positive_size(p.depth, max_m) then
+				return errors.fail("IR_ERR_VALIDATE", {
+					message = "DrillHoleBlind.depth required in (0, max_linear_m]",
+					op_id = op.id,
+					op = name,
+				})
+			end
+		end
+	elseif name == "MakeRectProfile" then
+		local width = p.width or p.dx
+		local height = p.height or p.dy
+		if not (positive_size(width, max_m) and positive_size(height, max_m)) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MakeRectProfile width/height must be in (0, max_linear_m]",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "MemberSweepRect" then
+		if op.refs == nil or (op.refs.spine == nil and op.refs.path == nil) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MemberSweepRect.refs.spine|path required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local width = p.width or p.w
+		local height = p.height or p.h
+		if not (positive_size(width, max_m) and positive_size(height, max_m)) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MemberSweepRect width/height must be in (0, max_linear_m]",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "MassProps" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MassProps.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		if p.density ~= nil and (not is_finite_number(p.density) or p.density <= 0) then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MassProps.density must be > 0 when set",
+				op_id = op.id,
+				op = name,
+			})
+		end
+	elseif name == "MeshStats" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "MeshStats.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local d = p.deflection
+		if d ~= nil then
+			local dmin = c.deflection_min or 1e-4
+			local dmax = c.deflection_max or 1.0
+			if not is_finite_number(d) or d < dmin or d > dmax then
+				return errors.fail("IR_ERR_VALIDATE", {
+					message = string.format(
+						"MeshStats.deflection must be in [%g, %g]",
+						dmin,
+						dmax
+					),
+					op_id = op.id,
+					op = name,
+				})
+			end
+		end
+	elseif name == "StepWrite" then
+		if op.refs == nil or op.refs.shape == nil then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "StepWrite.refs.shape required",
+				op_id = op.id,
+				op = name,
+			})
+		end
+		local path = p.path or p.file
+		if type(path) ~= "string" or path == "" then
+			return errors.fail("IR_ERR_VALIDATE", {
+				message = "StepWrite.path required",
+				op_id = op.id,
+				op = name,
+			})
+		end
 	end
 	return nil
 end

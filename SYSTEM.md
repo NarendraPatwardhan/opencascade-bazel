@@ -161,11 +161,9 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
 │  · Optional Monaco UX, analyze markers, catalog-driven completion        │
 │  · NEVER a new language name / dialect brand                             │
 └───────────────┬─────────────────────────────┬────────────────────────────┘
-                │ solid.* (always)            │ Path A (IR product)
-                │ Luau solid.* → IR tape      │ emit / load IR document
-                │                             │ (agents, goldens, hand edit)
-                │ route / frames batteries    │
-                │ may call host tools         │
+                │ batteries (always IR tape)  │ IR documents (product spine)
+                │ solid / route / frames /    │ emit / load IR JSON/table
+                │ query → cad.ir ops          │ (agents, goldens, hand edit)
                 │                             ▼
                 │              ┌──────────────────────────────────────────┐
                 │              │  PORTABLE IR  (data — “LLVM of CAD”)     │
@@ -183,7 +181,7 @@ Agents should read **SYSTEM → AGENTS → task-specific docs** in that order.
                 │                                 │
                 └────────────────┬────────────────┘
                                  │ tools.call / cad.call (allowlisted)
-                                 │ (route/frames host tools; IR eval lowers)
+                                 │ (tape finish / ir.eval lower here)
 ┌────────────────────────────────▼────────────────────────────────────────┐
 │  HOST BRIDGE                                                             │
 │  · AgentOS tools · shape ID table · status / fuel                        │
@@ -352,15 +350,14 @@ Index-based topology is allowed only **inside a single eval step** after a query
 | **Luau passes + `cad.ir.eval`** | Transform and **drive** evaluation |
 | Host / `occ_c` | **Only** geometry execution |
 
-**Solid authoring always lowers to IR (product law):**
+**Batteries author through IR tape only (product law):**
 
-| Path | Flow | Use |
-|------|------|-----|
-| **A — IR product** | Author or agent → IR document → Luau passes/eval → host → `occ_c` | Goldens, agent compile target, human review/diff, re-eval with new `params` |
-| **solid.* (always IR)** | Luau `solid.*` → IR tape → `cad.ir` eval → host → `occ_c` | Interactive demos, clean Luau authoring that still produces portable IR |
-| **route / frames** | Host-backed batteries → `tools.call` → `occ_c` (not solid Path B) | Pipe/FK helpers that may call host ops without going through solid’s tape |
+| Surface | Flow | Use |
+|---------|------|-----|
+| **IR document** | Author or agent → IR JSON/table → Luau passes/eval → host → `occ_c` | Goldens, agent compile target, human review/diff, re-eval with new `params` |
+| **`solid.*` / `route.*` / `frames.*` / `query.*`** | Luau → session IR tape (`cad.ir` ops) → eval → host → `occ_c` | Interactive demos and clean Luau that still produces portable IR |
 
-There is **no** direct-host “Path B” for solid geometry authoring. Path A remains the strategic spine for agents and explainability; clean `solid.*` is a convenient front-end that **always** records IR.
+Guest batteries **always** record geometry on the tape. Feature ops (fillet, drill, shell, revolve, face profiles, mass/mesh stats, STEP write, member sweep, …) are registered under `ir/ops/features.luau`. `solid.realize` is **rare interop only** (materialize a host shape id); do not call it mid-chain. `free` / `free_all` remain host session ops.
 
 **Why Luau for eval (not a mandatory separate IR VM):**
 
@@ -443,14 +440,14 @@ Today’s dual-goal Luau seed under `agent-os` batteries:
 
 | Module | Path | Role |
 |--------|------|------|
-| `solid` | `solid.luau` | Primitives, booleans, transforms, … — **always** IR tape → eval (not direct host) |
-| `route` | `route.luau` | Centerline + bends + pipe annulus + member sweep (host-backed tools) |
-| `frames` | `frames.luau` | `from_axes`, `compose_chain` FK, `place_at_chain` (host-backed tools) |
-| `query` | `query.luau` | Clash, distance, volume/bbox, mesh_stats, mass_properties |
-| `ir` | `ir/` | Portable `cad.ir/v0` load/bind/validate/eval + solid tape |
+| `solid` | `solid.luau` | Primitives, booleans, transforms, features — always IR tape → eval |
+| `route` | `route.luau` | Centerline + bends + pipe annulus + member sweep (`RoutePath`/`SweepAlong`/`MemberSweepRect`) |
+| `frames` | `frames.luau` | `compose_chain` / `place_at_chain` / `trsf_apply` via IR tape |
+| `query` | `query.luau` | Clash/volume/bbox/mesh/mass via IR measure ops |
+| `ir` | `ir/` | Portable `cad.ir/v0` load/bind/validate/eval + shared session tape |
 | `cad` | `cad.luau` | Aggregator: `cad.solid` / `.route` / `.frames` / `.query` / `.ir` |
 
-Geometry execution: IR eval and host-backed batteries → `tools.call` → OccBridge → `occ_*` → mesh. Full SYSTEM §5.2 map (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch, …) remains product growth — seed modules may later re-export into those names.
+Geometry execution: batteries → IR tape → `cad.ir` eval → `tools.call` → OccBridge → `occ_*` → mesh. Full SYSTEM §5.2 map (`units`, `piping`, `asm`, `holes`, `structure`, `io`, sketch, …) remains product growth — seed modules may later re-export into those names.
 
 ### 5.5 AgentOS structural Luau tooling ≠ CAD IR
 
@@ -665,13 +662,13 @@ When someone proposes a feature, score:
 
 ---
 
-## 12. Current state (honest snapshot as of last restatement)
+## 12. Current state (as of last restatement)
 
 ### 12.1 Done / vertical slice green
 
 - Hermetic Bazel OCCT **7.9.3** + `occ_c` C ABI + Wasm pipeline.  
 - Pure-C example.  
-- AgentOS path: Luau → host tools → `occ_*` → mesh; browser Monaco + viewer; node smoke.  
+- AgentOS path: Luau batteries → IR tape → host tools → `occ_*` → mesh; browser Monaco + viewer; node / IR / solid_api smokes.  
 - Analyze markers path (Phase A/B largely done).  
 - Architecture docs consolidated into **SYSTEM.md** + **clean-room FS report**; C API taught in `api/` comments.
 
@@ -722,9 +719,9 @@ We do **not** claim: “open-source FeatureScript” or “Parasolid replacement
 | **AgentOS / loom** | Sandboxed guest runtime used for Luau + tools broker |
 | **IR** | Portable CAD intermediate representation — **data** (op graph document), not a Luau dialect |
 | **Luau IR runtime** | Default evaluator: passes + op dispatch in guest Luau → host → `occ_c` |
-| **Path A** | IR document → Luau eval → host → `occ_c` (agents, goldens, review) |
-| **solid.* authoring** | Always IR tape → eval → host — **no** direct-host Path B for solids |
-| **route / frames** | Host-backed batteries (may `tools.call` without solid’s tape) |
+| **IR document path** | IR JSON/table → Luau eval → host → `occ_c` (agents, goldens, review) |
+| **Battery authoring** | `solid` / `route` / `frames` / `query` → IR tape → eval → host (string handles end-to-end) |
+| **realize** | Rare interop: materialize host shape id; not mid-chain authoring |
 | **Feature** | Multi-op recipe (product-level) |
 | **Operation** | Atomic kernel mutator/measure |
 | **Selector / Query** | Declarative topology reference re-resolved on eval |
@@ -834,8 +831,9 @@ Rejected alternatives (same file, condensed): expose OCCT C++ to the browser; ru
 | 2026-07-31 | Added **REACTIVITY.md** (Ao-style params, CADAM gimbals/sheet patterns) |
 | 2026-07-31 | Split CADAM steals: params → REACTIVITY, view chrome → DISPLAY |
 | 2026-08-01 | Sketch/solve **constitution**: depth-first Active Slice + Seal bar (vs wide `occ_c` iteration) |
-| 2026-08-01 | IR **data** + **Luau default evaluator** (passes/eval → host → `occ_c`); Path A/B; structural parse ≠ CAD IR |
-| 2026-08-02 | **solid.\* always lowers to IR** (tape → eval → host); Path B phrase for solid authoring obsolete; route/frames remain host-backed tools |
+| 2026-08-01 | IR **data** + **Luau default evaluator** (passes/eval → host → `occ_c`); structural parse ≠ CAD IR |
+| 2026-08-02 | **solid.\* always lowers to IR** (tape → eval → host) |
+| 2026-08-02 | **IR-everywhere batteries:** solid/route/frames/query + features ops always IR tape; no dual-path authoring |
 
 ---
 

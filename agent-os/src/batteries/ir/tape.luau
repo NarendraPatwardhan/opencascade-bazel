@@ -285,8 +285,261 @@ end
 -- Alias used by solid.extrude
 tape.extrude = tape.push_pull
 
--- No IR Scale op in registry (HOST_AVAILABLE has host "scale" only).
--- solid.scale remains host-only after realize via host_id().
+--- Uniform scale about a point → Scale IR op.
+function tape.scale(id: string, opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local nid = next_id("sc")
+	return push({
+		id = nid,
+		op = "Scale",
+		params = {
+			origin = {
+				origin[1] or o.cx or 0,
+				origin[2] or o.cy or 0,
+				origin[3] or o.cz or 0,
+			},
+			cx = origin[1] or o.cx or 0,
+			cy = origin[2] or o.cy or 0,
+			cz = origin[3] or o.cz or 0,
+			factor = o.factor or o.f or 1,
+		},
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Fillet all edges → FilletAll IR op.
+function tape.fillet_all(id: string, opts: any): string
+	local o = opts or {}
+	local nid = next_id("fil")
+	return push({
+		id = nid,
+		op = "FilletAll",
+		params = { radius = o.radius or 0.5 },
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Profile + spine pipe → PipeProfile IR op.
+function tape.pipe_profile(profile: string, spine: string): string
+	local nid = next_id("pipe")
+	return push({
+		id = nid,
+		op = "PipeProfile",
+		params = {},
+		refs = {
+			profile = body_ref(profile),
+			spine = body_ref(spine),
+		},
+	})
+end
+
+--- Revolve / spin a profile about an axis → SpinSolid IR op.
+function tape.spin_solid(profile: string, opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local axis = o.axis or {}
+	local nid = next_id("spin")
+	return push({
+		id = nid,
+		op = "SpinSolid",
+		params = {
+			angle = o.angle or o.angle_rad or (2 * math.pi),
+			origin = {
+				origin[1] or o.px or 0,
+				origin[2] or o.py or 0,
+				origin[3] or o.pz or 0,
+			},
+			axis = {
+				axis[1] or o.ax or 0,
+				axis[2] or o.ay or 0,
+				axis[3] or o.az or 1,
+			},
+		},
+		refs = { profile = body_ref(profile) },
+	})
+end
+
+tape.revolve = tape.spin_solid
+
+--- Uniform 3D offset → Offset3d IR op.
+function tape.offset3d(id: string, opts: any): string
+	local o = opts or {}
+	local offset = if type(opts) == "number" then opts else (o.offset or o.distance)
+	local nid = next_id("off")
+	return push({
+		id = nid,
+		op = "Offset3d",
+		params = { offset = offset },
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Shell / hollow body by opening faces → HollowBody IR op.
+function tape.hollow_body(id: string, opts: any): string
+	local o = opts or {}
+	local nid = next_id("hol")
+	return push({
+		id = nid,
+		op = "HollowBody",
+		params = {
+			faces = o.faces or o.face_idx,
+			thickness = o.thickness or o.t or 0.1,
+		},
+		refs = { shape = body_ref(id) },
+	})
+end
+
+tape.shell = tape.hollow_body
+
+--- Through cylindrical hole → DrillHoleThrough IR op.
+function tape.drill_through(id: string, opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local dir = o.direction or {}
+	local nid = next_id("drt")
+	return push({
+		id = nid,
+		op = "DrillHoleThrough",
+		params = {
+			origin = {
+				origin[1] or o.cx or o.ox or 0,
+				origin[2] or o.cy or o.oy or 0,
+				origin[3] or o.cz or o.oz or 0,
+			},
+			direction = {
+				dir[1] or o.dx or 0,
+				dir[2] or o.dy or 0,
+				dir[3] or o.dz or 1,
+			},
+			diameter = o.diameter or o.d,
+		},
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Blind cylindrical hole → DrillHoleBlind IR op.
+function tape.drill_blind(id: string, opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local dir = o.direction or {}
+	local nid = next_id("drb")
+	return push({
+		id = nid,
+		op = "DrillHoleBlind",
+		params = {
+			origin = {
+				origin[1] or o.ox or o.cx or 0,
+				origin[2] or o.oy or o.cy or 0,
+				origin[3] or o.oz or o.cz or 0,
+			},
+			direction = {
+				dir[1] or o.dx or 0,
+				dir[2] or o.dy or 0,
+				dir[3] or o.dz or 1,
+			},
+			diameter = o.diameter or o.d,
+			depth = o.depth,
+		},
+		refs = { shape = body_ref(id) },
+	})
+end
+
+--- Planar rectangle face profile → MakeRectProfile IR op.
+function tape.make_rect_profile(opts: any): string
+	local o = opts or {}
+	local origin = o.origin or {}
+	local normal = o.normal or {}
+	local id = next_id("rect")
+	return push({
+		id = id,
+		op = "MakeRectProfile",
+		params = {
+			origin = {
+				origin[1] or o.cx or 0,
+				origin[2] or o.cy or 0,
+				origin[3] or o.cz or 0,
+			},
+			normal = {
+				normal[1] or o.nx or 0,
+				normal[2] or o.ny or 0,
+				normal[3] or o.nz or 1,
+			},
+			width = o.width or o.dx,
+			height = o.height or o.dy,
+		},
+	})
+end
+
+--- Rectangular structural member along spine → MemberSweepRect IR op.
+function tape.member_sweep_rect(spine: string, opts: any): string
+	local o = opts or {}
+	local nid = next_id("msr")
+	return push({
+		id = nid,
+		op = "MemberSweepRect",
+		params = {
+			width = o.width or o.w,
+			height = o.height or o.h,
+		},
+		refs = { spine = body_ref(spine) },
+	})
+end
+
+--- Mass properties measure op id (caller may tape.eval_measure).
+function tape.mass_props(shape_id: string, density: number?): string
+	tape.ensure()
+	local id = next_id("mp")
+	return push({
+		id = id,
+		op = "MassProps",
+		params = { density = density or 1 },
+		refs = { shape = body_ref(shape_id) },
+	})
+end
+
+--- Mesh stats measure op id (caller may tape.eval_measure).
+function tape.mesh_stats(shape_id: string, deflection: number?): string
+	tape.ensure()
+	local id = next_id("ms")
+	return push({
+		id = id,
+		op = "MeshStats",
+		params = { deflection = deflection or 0.1 },
+		refs = { shape = body_ref(shape_id) },
+	})
+end
+
+--- ExportMesh (Tier A stats-only mesh measure; host mesh_stats, no full mesh).
+function tape.export_mesh(shape_id: string, opts: any?): string
+	tape.ensure()
+	local o = opts or {}
+	local id = next_id("em")
+	local params: { [string]: any } = {
+		deflection = o.deflection or 0.001,
+	}
+	if o.mesh_optional == true then
+		params.mesh_optional = true
+	end
+	return push({
+		id = id,
+		op = "ExportMesh",
+		params = params,
+		refs = { shape = body_ref(shape_id) },
+	})
+end
+
+--- STEP write measure op id (caller may tape.eval_measure).
+function tape.step_write(shape_id: string, path: string): string
+	tape.ensure()
+	local id = next_id("stp")
+	return push({
+		id = id,
+		op = "StepWrite",
+		params = { path = path },
+		refs = { shape = body_ref(shape_id) },
+	})
+end
 
 function tape.pattern_polar(id: string, opts: any): string
 	local o = opts or {}
@@ -498,6 +751,33 @@ function tape.eval_measure(op_id: string): any
 		error("tape.eval_measure: no measure for " .. tostring(op_id))
 	end
 	return pod
+end
+
+--- Eval AttachFrame op → frame POD from env (skip free_all).
+function tape.eval_frame(op_id: string): any
+	local res = eval_mod.eval(tape.document(), { skip_free_all = true, root = op_id })
+	if errors.is_fail(res) or res.ok == false then
+		local e = (res :: any).error or res
+		error(tostring((e :: any).message or (e :: any).code or "frame eval failed"))
+	end
+	local env = res.env
+	if type(env) == "table" and type(env.frames_by_op) == "table" then
+		local pod = env.frames_by_op[op_id]
+		if type(pod) == "table" then
+			return pod
+		end
+	end
+	if type(res.frames) == "table" then
+		for _, op in ipairs(tape._ops) do
+			if op.id == op_id and op.op == "AttachFrame" then
+				local name = op.params and op.params.name
+				if type(name) == "string" and type(res.frames[name]) == "table" then
+					return res.frames[name]
+				end
+			end
+		end
+	end
+	error("tape.eval_frame: no frame for " .. tostring(op_id))
 end
 
 --- Evaluate recorded IR; return host shape id for root handle.

@@ -1,6 +1,6 @@
 {
   "example": "box_cut_cyl.cad.json",
-  "description": "Measure-only golden for box-cut Path A. Never assert absolute shape ids (K16).",
+  "description": "Measure-only golden for box-cut IR demo. Never assert absolute shape ids (K16).",
   "expect": {
     "ok": true,
     "root": "body_cut",

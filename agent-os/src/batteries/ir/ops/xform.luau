@@ -1,4 +1,5 @@
--- Translate / Rotate / RigidXform / MirrorCopy / PushPull
+-- Translate / Rotate / RigidXform / MirrorCopy / PushPull / Pattern*
+-- (Scale lives in ir.ops.features)
 
 local host = require("ir.host")
 local errors = require("ir.errors")

@@ -1,14 +1,18 @@
--- @cad solid helpers — host geometry via require("tools") + cad.call
+-- @cad solid helpers — ALL geometry authoring via ir.tape (never host call).
 --
 -- Runtime: bare require("tools") / require("json") resolve to AgentOS builtins.
 -- Analyze: worker stages this file next to typed stubs and rewrites those two
 -- requires to relative paths so luau-analyze can follow the module graph.
+--
+-- Policy: solid.* records cad.ir ops on the session tape. Measures use
+-- tape.eval_measure. finish always tape.finish. realize is rare interop only.
+-- Session free/free_all may still touch the host (not geometry authoring).
 
 local tools = require("tools")
 local json = require("json")
 
--- Host shape ids are numbers. solid.* authoring records IR tape handles (string op ids).
--- Host-only tools (fillet/pipe/drill/shell/…) realize handles first via host_id().
+-- Authoring returns IR tape handles (string op ids). Host numbers only after
+-- finish / realize (interop).
 export type ShapeId = number | string
 
 export type BoxOpts = {
@@ -196,8 +200,6 @@ export type StepWriteOpts = {
 
 local solid = {}
 
--- solid.* is always IR: geometry calls record cad.ir ops; finish evaluates.
--- There is no direct-host "Path B" for solid authoring.
 local function tape(): any
 	local ok, t = pcall(function()
 		return require("ir.tape")
@@ -218,7 +220,18 @@ local function is_ir_handle(id: any): boolean
 	return ok and t ~= nil and t.is_handle(id)
 end
 
---- Materialize IR tape through root handle → host shape id (for host-only tools).
+--- Require an IR tape handle for authoring (never host geometry call).
+local function ir_id(id: ShapeId, where: string): string
+	if type(id) == "string" then
+		return id
+	end
+	error(
+		where
+			.. ": expected IR tape handle (string); solid.* authoring is tape-only — do not realize mid-chain"
+	)
+end
+
+--- Materialize IR tape through root handle → host shape id (rare interop only).
 function solid.realize(rootId: ShapeId): number
 	if type(rootId) == "number" then
 		return rootId
@@ -226,7 +239,8 @@ function solid.realize(rootId: ShapeId): number
 	return tape().eval_to_shape(rootId :: string)
 end
 
-local function call(op: string, args: { [string]: any }): any
+-- Session cleanup only (not geometry authoring).
+local function host_session(op: string, args: { [string]: any }): any
 	local payload: { [string]: any } = {}
 	for k, v in pairs(args) do
 		payload[k] = v
@@ -246,16 +260,6 @@ local function call(op: string, args: { [string]: any }): any
 		error(msg)
 	end
 	return res.data
-end
-
-local function host_id(id: ShapeId): number
-	if type(id) == "number" then
-		return id
-	end
-	if is_ir_handle(id) then
-		return solid.realize(id)
-	end
-	error("solid: expected IR handle or host shape id, got " .. type(id))
 end
 
 function solid.box(opts: BoxOpts?): ShapeId
@@ -284,105 +288,101 @@ function solid.torus(opts: TorusOpts?): ShapeId
 end
 
 function solid.fuse(a: ShapeId, b: ShapeId): ShapeId
-	return tape().bool("union", a :: string, b :: string)
+	return tape().bool("union", ir_id(a, "solid.fuse"), ir_id(b, "solid.fuse"))
 end
 
 function solid.cut(a: ShapeId, b: ShapeId): ShapeId
-	return tape().bool("subtract", a :: string, b :: string)
+	return tape().bool("subtract", ir_id(a, "solid.cut"), ir_id(b, "solid.cut"))
 end
 
 function solid.intersect(a: ShapeId, b: ShapeId): ShapeId
-	return tape().bool("intersect", a :: string, b :: string)
+	return tape().bool("intersect", ir_id(a, "solid.intersect"), ir_id(b, "solid.intersect"))
 end
 
 function solid.translate(id: ShapeId, opts: TranslateOpts?): ShapeId
 	local o: TranslateOpts = if opts then opts else {}
-	return tape().translate(id :: string, o)
+	return tape().translate(ir_id(id, "solid.translate"), o)
 end
 
 function solid.rotate(id: ShapeId, opts: RotateOpts?): ShapeId
 	local o: RotateOpts = if opts then opts else {}
-	return tape().rotate(id :: string, o)
+	return tape().rotate(ir_id(id, "solid.rotate"), o)
 end
 
--- No IR Scale op in registry — host-only after realize (not Path B authoring).
 function solid.scale(id: ShapeId, opts: ScaleOpts?): ShapeId
 	local o: ScaleOpts = if opts then opts else {}
-	local origin = o.origin or {}
-	return call("scale", {
-		id = host_id(id),
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		factor = o.factor or 1,
-	}).shapeId
+	return tape().scale(ir_id(id, "solid.scale"), o)
 end
 
 function solid.mirror(id: ShapeId, opts: MirrorOpts?): ShapeId
 	local o: MirrorOpts = if opts then opts else {}
-	return tape().mirror(id :: string, o)
+	return tape().mirror(ir_id(id, "solid.mirror"), o)
 end
 
 function solid.extrude(profile: ShapeId, opts: ExtrudeOpts?): ShapeId
 	local o: ExtrudeOpts = if opts then opts else {}
-	-- IR handle → PushPull tape op. Host profile (face_rectangle) has no Face IR op.
-	if is_ir_handle(profile) then
-		return tape().push_pull(profile :: string, o)
-	end
-	return call("extrude", {
-		profile = host_id(profile),
-		dx = o.dx or 0,
-		dy = o.dy or 0,
-		dz = o.dz or 1,
-	}).shapeId
+	return tape().push_pull(ir_id(profile, "solid.extrude"), o)
 end
 
--- Host-only after realize (no IR pipe/sweep-profile op for solid authoring).
 function solid.pipe(profile: ShapeId, spine: ShapeId): ShapeId
-	return call("pipe", { profile = host_id(profile), spine = host_id(spine) }).shapeId
+	return tape().pipe_profile(ir_id(profile, "solid.pipe"), ir_id(spine, "solid.pipe"))
 end
 
--- Host-only after realize (no IR Fillet op).
 function solid.fillet_all(id: ShapeId, opts: FilletOpts?): ShapeId
 	local o: FilletOpts = if opts then opts else {}
-	return call("fillet_all", { id = host_id(id), radius = o.radius or 0.5 }).shapeId
+	return tape().fillet_all(ir_id(id, "solid.fillet_all"), o)
 end
 
 function solid.pattern_linear(id: ShapeId, opts: PatternLinearOpts?): ShapeId
 	local o: PatternLinearOpts = if opts then opts else {}
-	return tape().pattern_linear(id :: string, o)
+	return tape().pattern_linear(ir_id(id, "solid.pattern_linear"), o)
 end
 
 function solid.pattern_polar(id: ShapeId, opts: PatternPolarOpts?): ShapeId
 	local o: PatternPolarOpts = if opts then opts else {}
-	return tape().pattern_polar(id :: string, o)
+	return tape().pattern_polar(ir_id(id, "solid.pattern_polar"), o)
 end
 
 function solid.clash(a: ShapeId, b: ShapeId, clearance: number?): any
-	return call("clash", { a = host_id(a), b = host_id(b), clearance = clearance or 0 })
+	local mid = tape().query_clash(ir_id(a, "solid.clash"), ir_id(b, "solid.clash"), clearance)
+	local pod = tape().eval_measure(mid)
+	return {
+		status = pod.status_code or 0,
+		name = pod.status or "unknown",
+		distance = pod.distance,
+	}
 end
 
 function solid.distance(a: ShapeId, b: ShapeId): any
-	return call("distance", { a = host_id(a), b = host_id(b) })
+	-- QueryClash with distance; no standalone Distance IR op in v0.
+	local mid = tape().query_clash(ir_id(a, "solid.distance"), ir_id(b, "solid.distance"), 0)
+	local pod = tape().eval_measure(mid)
+	return { distance = pod.distance }
 end
 
 function solid.volume(id: ShapeId): number
-	return call("volume", { id = host_id(id) }).volume
+	local mid = tape().query_geom(ir_id(id, "solid.volume"), "volume")
+	local pod = tape().eval_measure(mid)
+	return pod.volume
 end
 
 function solid.bbox(id: ShapeId): any
-	return call("bbox", { id = host_id(id) }).bbox
+	local mid = tape().query_geom(ir_id(id, "solid.bbox"), "bbox")
+	local pod = tape().eval_measure(mid)
+	return pod.bbox
 end
 
 function solid.mesh_stats(id: ShapeId, deflection: number?): any
-	return call("mesh_stats", { id = host_id(id), deflection = deflection or 0.1 })
+	local mid = tape().mesh_stats(ir_id(id, "solid.mesh_stats"), deflection)
+	return tape().eval_measure(mid)
 end
 
 function solid.mass_properties(id: ShapeId, density: number?): any
-	return call("mass_properties", { id = host_id(id), density = density or 1 })
+	local mid = tape().mass_props(ir_id(id, "solid.mass_properties"), density)
+	return tape().eval_measure(mid)
 end
 
---- Planar rectangle face (profile for extrude/revolve). Host-only — no Face IR op yet.
+--- Planar rectangle face (profile for extrude/revolve) → MakeRectProfile.
 function solid.face_rectangle(opts: {
 	cx: number?,
 	cy: number?,
@@ -398,44 +398,21 @@ function solid.face_rectangle(opts: {
 	dy: number?,
 }?): ShapeId
 	local o = opts or ({} :: any)
-	local origin = o.origin or {}
-	local normal = o.normal or {}
 	local width = o.width or o.dx
 	local height = o.height or o.dy
 	if type(width) ~= "number" or type(height) ~= "number" then
 		error("solid.face_rectangle: width and height required")
 	end
-	return call("make_face_rectangle", {
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		nx = normal[1] or o.nx or 0,
-		ny = normal[2] or o.ny or 0,
-		nz = normal[3] or o.nz or 1,
-		width = width,
-		height = height,
-	}).shapeId
+	return tape().make_rect_profile(o)
 end
 
---- Revolve a profile about an axis by angle (radians). Host-only after realize (no Revolve IR op).
---- Profile must be a host shape (face_rectangle); IR solid handles need solid.realize first.
+--- Revolve a profile about an axis by angle (radians) → SpinSolid.
 function solid.revolve(profile: ShapeId, opts: RevolveOpts?): ShapeId
 	local o: RevolveOpts = if opts then opts else {}
-	local origin = o.origin or {}
-	local axis = o.axis or {}
-	return call("revolve", {
-		profile = host_id(profile),
-		px = origin[1] or o.px or 0,
-		py = origin[2] or o.py or 0,
-		pz = origin[3] or o.pz or 0,
-		ax = axis[1] or o.ax or 0,
-		ay = axis[2] or o.ay or 0,
-		az = axis[3] or o.az or 1,
-		angle = o.angle or o.angle_rad or (2 * math.pi),
-	}).shapeId
+	return tape().spin_solid(ir_id(profile, "solid.revolve"), o)
 end
 
---- Uniform 3D offset of a solid. Host-only after realize. Offset distance required.
+--- Uniform 3D offset → Offset3d.
 function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
 	local offset: number?
 	if type(opts) == "number" then
@@ -447,51 +424,31 @@ function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
 	if type(offset) ~= "number" then
 		error("solid.offset: offset (or distance) required")
 	end
-	return call("offset_3d", { id = host_id(id), offset = offset }).shapeId
+	return tape().offset3d(ir_id(id, "solid.offset"), { offset = offset })
 end
 
---- Shell (hollow) by opening 1-based face indices with thickness. Host-only after realize.
+--- Shell (hollow) by opening 1-based face indices → HollowBody.
 function solid.shell(id: ShapeId, opts: ShellOpts): ShapeId
 	local o = opts
 	if type(o) ~= "table" or type(o.faces) ~= "table" then
 		error("solid.shell: opts.faces (1-based indices) required")
 	end
-	id = host_id(id)
-	return call("shell", {
-		id = id,
-		faces = o.faces,
-		thickness = o.thickness or o.t or 0.1,
-	}).shapeId
+	return tape().hollow_body(ir_id(id, "solid.shell"), o)
 end
 
---- Through cylindrical hole (tool length auto-sized from solid bbox). Host-only after realize.
---- diameter required. Seed home for holes; future cad.holes may re-export.
+--- Through cylindrical hole → DrillHoleThrough.
 function solid.drill_through(id: ShapeId, opts: DrillOpts): ShapeId
 	local o = opts or ({} :: any)
-	local origin = o.origin or {}
-	local dir = o.direction or {}
 	local diameter = o.diameter or o.d
 	if type(diameter) ~= "number" then
 		error("solid.drill_through: diameter required")
 	end
-	return call("drill_hole_through", {
-		id = host_id(id),
-		cx = origin[1] or o.cx or o.ox or 0,
-		cy = origin[2] or o.cy or o.oy or 0,
-		cz = origin[3] or o.cz or o.oz or 0,
-		dx = dir[1] or o.dx or 0,
-		dy = dir[2] or o.dy or 0,
-		dz = dir[3] or o.dz or 1,
-		diameter = diameter,
-	}).shapeId
+	return tape().drill_through(ir_id(id, "solid.drill_through"), o)
 end
 
---- Blind cylindrical hole of given depth along +direction from origin. Host-only after realize.
---- diameter and depth required. Seed home for holes; future cad.holes may re-export.
+--- Blind cylindrical hole → DrillHoleBlind.
 function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
 	local o = opts or ({} :: any)
-	local origin = o.origin or {}
-	local dir = o.direction or {}
 	local diameter = o.diameter or o.d
 	if type(diameter) ~= "number" then
 		error("solid.drill_blind: diameter required")
@@ -499,21 +456,10 @@ function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
 	if type(o.depth) ~= "number" then
 		error("solid.drill_blind: depth required")
 	end
-	return call("drill_hole_blind", {
-		id = host_id(id),
-		ox = origin[1] or o.ox or o.cx or 0,
-		oy = origin[2] or o.oy or o.cy or 0,
-		oz = origin[3] or o.oz or o.cz or 0,
-		dx = dir[1] or o.dx or 0,
-		dy = dir[2] or o.dy or 0,
-		dz = dir[3] or o.dz or 1,
-		diameter = diameter,
-		depth = o.depth,
-	}).shapeId
+	return tape().drill_blind(ir_id(id, "solid.drill_blind"), o)
 end
 
---- Rectangular structural member swept along a spine wire (also route.member_sweep_rect).
---- Host-only after realize. width and height required. Seed home; future cad.structure may re-export.
+--- Rectangular structural member along spine → MemberSweepRect.
 function solid.member_sweep_rect(spine: ShapeId, opts: MemberSweepRectOpts): ShapeId
 	local o = opts or ({} :: any)
 	local width = o.width or o.w
@@ -521,40 +467,36 @@ function solid.member_sweep_rect(spine: ShapeId, opts: MemberSweepRectOpts): Sha
 	if type(width) ~= "number" or type(height) ~= "number" then
 		error("solid.member_sweep_rect: width and height required")
 	end
-	return call("member_sweep_rect", {
-		width = width,
-		height = height,
-		spine = host_id(spine),
-	}).shapeId
+	return tape().member_sweep_rect(ir_id(spine, "solid.member_sweep_rect"), o)
 end
 
---- Apply row-major 4×4 rigid transform (copy) → new shape id.
+--- Apply row-major 4×4 rigid transform → RigidXform.
 function solid.trsf_apply(id: ShapeId, matrix4x4: { number }): ShapeId
 	if type(matrix4x4) ~= "table" or #matrix4x4 < 16 then
 		error("solid.trsf_apply: matrix4x4 length 16 required")
 	end
-	return call("trsf_apply", { id = host_id(id), matrix4x4 = matrix4x4 }).shapeId
+	return tape().rigid_xform(ir_id(id, "solid.trsf_apply"), { matrix4x4 = matrix4x4 })
 end
 
---- Place shape by 4×4 matrix only (alias of trsf_apply). For chain FK use frames.place_at_chain.
+--- Place shape by 4×4 matrix only (alias of trsf_apply).
 function solid.place(id: ShapeId, matrix4x4: { number }): ShapeId
 	return solid.trsf_apply(id, matrix4x4)
 end
 
 --- Free one host shape id (best-effort). IR handles are not host pointers.
 function solid.free(id: ShapeId)
-	if is_ir_handle(id) then
+	if is_ir_handle(id) or type(id) == "string" then
 		return
 	end
-	call("shape_free", { id = id })
+	host_session("shape_free", { id = id })
 end
 
 --- Free all host shapes (K17 / session cleanup).
 function solid.free_all()
-	call("free_all", {})
+	host_session("free_all", {})
 end
 
---- Write STEP to Emscripten MEMFS path (browser/Node wasm FS only in v0).
+--- Write STEP via StepWrite measure (eval_measure).
 function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 	local path: string
 	if type(opts) == "string" then
@@ -566,10 +508,11 @@ function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 	if type(path) ~= "string" or path == "" then
 		error('solid.step_write: path required (e.g. "/tmp/part.step")')
 	end
-	return call("step_write", { id = host_id(id), path = path })
+	local mid = tape().step_write(ir_id(id, "solid.step_write"), path)
+	return tape().eval_measure(mid)
 end
 
--- Always IR-eval tape handles (box/fuse/cut/… authoring); host ids only emit marker.
+-- Always IR-eval tape handles; finish ends recording after demo eval.
 function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 	if type(rootId) == "string" then
 		local t = tape()
@@ -578,7 +521,7 @@ function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 		return if hostId ~= 0 then hostId else rootId
 	end
 	if type(rootId) == "number" then
-		-- Already a host id (e.g. after realize / host-only tool chain); emit marker only.
+		-- Already a host id (rare interop after realize); emit marker only.
 		local payload: { [string]: any } = { schema = 1, root = rootId }
 		if type(extra) == "table" then
 			for k, v in pairs(extra) do
@@ -592,4 +535,3 @@ function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
 end
 
 return solid
-

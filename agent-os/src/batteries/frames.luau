@@ -1,7 +1,9 @@
--- @cad frames + serial FK helpers (ComposeChain / RigidXform via IR tape when possible)
+-- @cad frames + serial FK helpers (ComposeChain / RigidXform always via IR tape).
 -- Usage: local frames = require("frames")
-
-local tools = require("tools")
+--
+-- Policy: frames.* authoring records cad.ir ops on the session tape. Shape args
+-- must be IR tape handles (string). Pure POD helpers (identity, translation)
+-- stay host-free math.
 
 export type ShapeId = number | string
 
@@ -40,43 +42,15 @@ local function tape(): any
 	return t
 end
 
-local function call(op: string, args: { [string]: any }): any
-	local payload: { [string]: any } = {}
-	for k, v in pairs(args) do
-		payload[k] = v
-	end
-	payload.op = op
-	local res = tools.call("host.org.main.cad.call", payload)
-	if type(res) ~= "table" then
-		error("cad.call returned non-table")
-	end
-	if res.ok == false then
-		local msg = "cad.call failed"
-		if type(res.err) == "table" and (res.err :: any).message then
-			msg = (res.err :: any).message
-		elseif type(res.err) == "string" then
-			msg = res.err
-		end
-		error(msg)
-	end
-	return res.data
-end
-
-local function is_ir(id: any): boolean
-	local ok, t = pcall(function()
-		return require("ir.tape")
-	end)
-	return ok and t ~= nil and t.is_handle(id)
-end
-
-local function host_id(id: ShapeId): number
-	if type(id) == "number" then
+--- Require an IR tape handle for authoring (never host geometry call).
+local function ir_id(id: ShapeId, where: string): string
+	if type(id) == "string" then
 		return id
 	end
-	if is_ir(id) then
-		return tape().eval_to_shape(id :: string)
-	end
-	error("frames: expected IR handle or host id")
+	error(
+		where
+			.. ": expected IR tape handle (string); frames.* authoring is tape-only — do not realize mid-chain"
+	)
 end
 
 local function flatten_vec3_list(list: { any }, n: number?): ({ number }, number)
@@ -115,7 +89,7 @@ local function flatten_vec3_list(list: { any }, n: number?): ({ number }, number
 	return flat, count
 end
 
---- Orthonormal frame from origin + X hint + Z (host POD helper — pure geometry math).
+--- Orthonormal frame from origin + X hint + Z via pure IR AttachFrame.
 function frames.from_axes(opts: {
 	origin: { number }?,
 	ox: number?,
@@ -129,23 +103,40 @@ function frames.from_axes(opts: {
 	zx: number?,
 	zy: number?,
 	zz: number?,
+	name: string?,
 }?): FramePod
 	local o = opts or {}
-	local origin = o.origin or {}
-	local x = o.x or {}
-	local z = o.z or {}
-	local data = call("frame_from_axes", {
-		ox = origin[1] or o.ox or 0,
-		oy = origin[2] or o.oy or 0,
-		oz = origin[3] or o.oz or 0,
-		xx = x[1] or o.xx or 1,
-		xy = x[2] or o.xy or 0,
-		xz = x[3] or o.xz or 0,
-		zx = z[1] or o.zx or 0,
-		zy = z[2] or o.zy or 0,
-		zz = z[3] or o.zz or 1,
+	local origin_t = o.origin or {}
+	local x_t = o.x
+	local z_t = o.z or {}
+	local origin = {
+		(origin_t :: any)[1] or o.ox or 0,
+		(origin_t :: any)[2] or o.oy or 0,
+		(origin_t :: any)[3] or o.oz or 0,
+	}
+	local z = {
+		(z_t :: any)[1] or o.zx or 0,
+		(z_t :: any)[2] or o.zy or 0,
+		(z_t :: any)[3] or o.zz or 1,
+	}
+	local x: { number }?
+	if type(x_t) == "table" and ((x_t :: any)[1] ~= nil or (x_t :: any).x ~= nil) then
+		x = {
+			(x_t :: any)[1] or (x_t :: any).x or 1,
+			(x_t :: any)[2] or (x_t :: any).y or 0,
+			(x_t :: any)[3] or (x_t :: any).z or 0,
+		}
+	elseif o.xx ~= nil then
+		x = { o.xx or 1, o.xy or 0, o.xz or 0 }
+	end
+	local t = tape()
+	local id = t.attach_frame({
+		name = o.name,
+		origin = origin,
+		z = z,
+		x = x,
 	})
-	return data.frame
+	return t.eval_frame(id)
 end
 
 --- Serial FK via IR ComposeChain; returns POD (+ _ir_id for place_at_chain).
@@ -188,60 +179,48 @@ function frames.compose_chain(opts: {
 	})
 end
 
---- Apply row-major 4×4 rigid transform → new shape (IR RigidXform when shape is IR handle).
+--- Apply row-major 4×4 rigid transform → new shape (IR RigidXform).
 function frames.trsf_apply(id: ShapeId, matrix4x4: { number }): ShapeId
 	if type(matrix4x4) ~= "table" or #matrix4x4 < 16 then
 		error("frames.trsf_apply: matrix4x4 length 16 required")
 	end
-	if type(id) == "string" or is_ir(id) then
-		return tape().rigid_xform(id :: string, { matrix4x4 = matrix4x4 })
-	end
-	return call("trsf_apply", { id = host_id(id), matrix4x4 = matrix4x4 }).shapeId
+	return tape().rigid_xform(ir_id(id, "frames.trsf_apply"), { matrix4x4 = matrix4x4 })
 end
 
 --- Place shape at chain.final, or at prefixes[prefix_1based] (Luau 1-based: 1..n).
 function frames.place_at_chain(id: ShapeId, chain: ComposeChainResult, prefix_1based: number?): ShapeId
+	local shape_key = ir_id(id, "frames.place_at_chain")
 	if type(chain) ~= "table" then
 		error("frames.place_at_chain: chain required")
-	end
-	local shape_key: string
-	if type(id) == "string" or is_ir(id) then
-		shape_key = id :: string
-	else
-		-- Host shape cannot enter IR RigidXform refs; materialize not reverse.
-		-- Place via host matrix from chain POD.
-		local matrix: { number }
-		if prefix_1based == nil then
-			matrix = chain.final
-		else
-			local idx = prefix_1based :: number
-			if idx < 1 or idx > chain.n then
-				error("frames.place_at_chain: prefix_1based out of range (need 1..n)")
-			end
-			matrix = chain.prefixes[idx]
-			if matrix == nil then
-				error("frames.place_at_chain: missing prefix matrix")
-			end
-		end
-		return call("trsf_apply", { id = id, matrix4x4 = matrix }).shapeId
 	end
 	if type(chain._ir_id) == "string" then
 		if prefix_1based == nil then
 			return tape().rigid_xform(shape_key, { chain = chain, matrix4x4 = chain.final })
+		end
+		local idx = prefix_1based :: number
+		if idx < 1 or idx > chain.n then
+			error("frames.place_at_chain: prefix_1based out of range (need 1..n)")
 		end
 		return tape().rigid_xform(shape_key, {
 			chain = chain,
 			prefix_1based = prefix_1based,
 		})
 	end
-	-- Chain without IR id: bake matrix
-	local matrix2: { number }
+	-- Chain without IR id: bake matrix via RigidXform
+	local matrix: { number }
 	if prefix_1based == nil then
-		matrix2 = chain.final
+		matrix = chain.final
 	else
-		matrix2 = chain.prefixes[prefix_1based :: number]
+		local idx = prefix_1based :: number
+		if idx < 1 or idx > chain.n then
+			error("frames.place_at_chain: prefix_1based out of range (need 1..n)")
+		end
+		matrix = chain.prefixes[idx]
+		if matrix == nil then
+			error("frames.place_at_chain: missing prefix matrix")
+		end
 	end
-	return tape().rigid_xform(shape_key, { matrix4x4 = matrix2 })
+	return tape().rigid_xform(shape_key, { matrix4x4 = matrix })
 end
 
 function frames.place(id: ShapeId, chain: ComposeChainResult, prefix_1based: number?): ShapeId

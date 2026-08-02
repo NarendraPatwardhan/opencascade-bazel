@@ -3,8 +3,8 @@
  * Luau surface smoke: route+annulus+clash, frames FK place oracles,
  * solid high-ROI (drill, mass, revolve, shell, step_write, member), cad.* aggregator + IR.
  *
- * solid.* always records cad.ir; call solid.realize() before host-only tools
- * (query.*, frames.place_at_chain, drill/shell/step_write) that need host shape ids.
+ * Batteries author through IR tape end-to-end (solid/route/frames/query + features).
+ * Guest scripts keep IR handles (strings); no solid.realize() required.
  *
  * Env (same as node_smoke): AGENT_OS_KERNEL, LOOM, MC_CORE, CATALOG, OCC_BASE, SOLID_LUAU
  *
@@ -126,8 +126,9 @@ if ir.is_fail(ir_res) or ir_res.ok == false then
   error("ir eval: " .. tostring(e.code) .. " " .. tostring(e.message))
 end
 assert(ir_res.root == "body_cut", "ir_root_op body_cut got " .. tostring(ir_res.root))
+-- ir.eval of a document yields host shape ids (post-eval), not authoring handles
 local ir_root = ir_res.shapes and ir_res.shapes[ir_res.root]
-assert(type(ir_root) == "number", "ir root shape id")
+assert(type(ir_root) == "number", "ir.eval root host shape id")
 
 -- =====================================================================
 -- 2) route: make_route_bends + pipe_annulus + pipe_run + clash
@@ -153,10 +154,10 @@ local pipe2 = route.pipe_run({
 })
 assert(query.volume(pipe2) > 0, "pipe_run volume")
 
--- Equipment envelope for clash (realize IR solid handles → host ids for query.*)
+-- Equipment envelope for clash (IR handles end-to-end; query.clash records QueryClash)
 local eq = solid.box({ dx = 0.3, dy = 0.3, dz = 0.3 })
 eq = solid.translate(eq, { dx = 0.85, dy = 0.35, dz = -0.1 })
-eq = solid.realize(eq)
+assert(type(eq) == "string", "eq IR handle")
 local clash = query.clash(pipe, eq, 0.0)
 assert(type(clash.status) == "number", "clash status")
 assert(type(clash.name) == "string" and #clash.name > 0, "clash name")
@@ -167,8 +168,8 @@ local open_route = route.make_route({
   nodes = { { 0, 0, 0 }, { 0.5, 0, 0 }, { 0.5, 0.5, 0 } },
   closed = false,
 })
--- IR tape handle (string) or host number
-assert(type(open_route) == "string" or type(open_route) == "number", "make_route id")
+-- IR tape handle (string) — route.* records RoutePath
+assert(type(open_route) == "string", "make_route IR handle got " .. type(open_route))
 
 -- =====================================================================
 -- 3) frames: from_axes, compose_chain, place_at_chain (bbox moves)
@@ -181,7 +182,9 @@ local fr = frames.from_axes({
 assert(almost_eq(fr.ox, 1) and almost_eq(fr.oz, 3), "from_axes origin")
 assert(almost_eq(fr.zz, 1) and almost_eq(fr.xx, 1), "from_axes axes")
 
-local link = solid.realize(solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 }))
+-- IR string handles end-to-end (no mid-chain realize)
+local link = solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 })
+assert(type(link) == "string", "link IR handle")
 local bb0 = query.bbox(link)
 local chain = frames.compose_chain({
   origins = { { 0, 0, 0.5 } },
@@ -197,32 +200,36 @@ assert(almost_eq(chain.final[12], 0.5, 1e-5), "final tz≈0.5 got " .. tostring(
 -- Note: Luau is 1-based → final[4]=tx, final[8]=ty, final[12]=tz (C 0-based 3,7,11)
 
 local placed = frames.place_at_chain(link, chain)
+assert(type(placed) == "string", "place_at_chain IR handle")
 local bb_placed = query.bbox(placed)
 assert(type(bb_placed.min) == "table", "placed bbox")
 -- After place: box z extent should sit around +0.5 translation
 assert(bb_placed.min[3] > bb0.min[3] + 0.3, "placed z min moved: " .. tostring(bb_placed.min[3]))
 
 local placed_p1 = frames.place_at_chain(link, chain, 1)
-assert(type(placed_p1) == "number", "prefix_1based place")
+assert(type(placed_p1) == "string", "prefix_1based place IR handle")
 
 local m = frames.translation(2, 0, 0)
+-- solid.place → RigidXform IR handle
 local moved = solid.place(link, m)
+assert(type(moved) == "string", "solid.place IR handle")
 local moved_bb = query.bbox(moved)
 assert(moved_bb.min[1] > 1.5, "translated bbox min.x")
 local m_id = frames.identity()
 local same = frames.trsf_apply(link, m_id)
-assert(type(same) == "number", "trsf_apply identity")
+assert(type(same) == "string", "trsf_apply IR handle")
 
 -- =====================================================================
--- 4) solid high-ROI: drill volume drop, mass shape, shell, revolve, member, step
+-- 4) solid high-ROI: drill, mass, shell, revolve, member, step (all IR ops)
 -- =====================================================================
-local block = solid.realize(solid.box({ dx = 0.2, dy = 0.2, dz = 0.1 }))
+local block = solid.box({ dx = 0.2, dy = 0.2, dz = 0.1 })
 local vol0 = query.volume(block)
 local drilled = solid.drill_through(block, {
   origin = { 0.1, 0.1, 0.05 },
   direction = { 0, 0, 1 },
   diameter = 0.04,
 })
+assert(type(drilled) == "string", "drill IR handle")
 local vol_drilled = query.volume(drilled)
 assert(vol_drilled < vol0 * 0.99, "drill must remove material " .. vol_drilled .. " vs " .. vol0)
 assert(vol_drilled > vol0 * 0.5, "drill should not destroy solid")
@@ -238,7 +245,7 @@ end
 local stats = solid.mesh_stats(drilled, 0.05)
 assert(type(stats.vertexCount) == "number" and stats.vertexCount > 0, "mesh_stats")
 
-local blind_block = solid.realize(solid.box({ dx = 0.1, dy = 0.1, dz = 0.1 }))
+local blind_block = solid.box({ dx = 0.1, dy = 0.1, dz = 0.1 })
 local vol_b0 = query.volume(blind_block)
 local blind = solid.drill_blind(blind_block, {
   origin = { 0.05, 0.05, 0.1 },
@@ -246,39 +253,42 @@ local blind = solid.drill_blind(blind_block, {
   diameter = 0.02,
   depth = 0.04,
 })
+assert(type(blind) == "string", "blind IR handle")
 local vol_b1 = query.volume(blind)
 assert(vol_b1 < vol_b0, "blind drill removes material")
 
--- shell: open one face (1-based); negative thickness = inward for MakeThickSolid
-local shell_box = solid.realize(solid.box({ dx = 0.05, dy = 0.05, dz = 0.05 }))
+-- shell: HollowBody IR; open one face (1-based); negative thickness = inward
+local shell_box = solid.box({ dx = 0.05, dy = 0.05, dz = 0.05 })
 local vol_shell0 = query.volume(shell_box)
 local shelled = solid.shell(shell_box, { faces = { 6 }, thickness = -0.005 })
-assert(type(shelled) == "number", "shell id")
+assert(type(shelled) == "string", "shell IR handle got " .. type(shelled))
 local vol_shell1 = query.volume(shelled)
 assert(vol_shell1 > 0 and vol_shell1 < vol_shell0, "shell hollows solid")
 
--- revolve: rectangular face profile offset from Z → solid of revolution
+-- revolve: MakeRectProfile + SpinSolid
 local profile = solid.face_rectangle({
   origin = { 0.1, 0, 0 },
   normal = { 0, 1, 0 },
   width = 0.04,
   height = 0.05,
 })
+assert(type(profile) == "string", "face_rectangle IR handle")
 local revolved = solid.revolve(profile, {
   origin = { 0, 0, 0 },
   axis = { 0, 0, 1 },
   angle = math.pi / 2,
 })
-assert(type(revolved) == "number" and query.volume(revolved) > 0, "revolve")
+assert(type(revolved) == "string" and query.volume(revolved) > 0, "revolve")
 
--- member_sweep_rect along polyline spine
+-- member_sweep_rect along polyline spine (IR MemberSweepRect)
 local beam_spine = route.make_route({
   nodes = { { 0, 0, 0 }, { 0.5, 0, 0 } },
 })
 local beam = route.member_sweep_rect(beam_spine, { width = 0.04, height = 0.06 })
+assert(type(beam) == "string", "member_sweep_rect IR handle")
 assert(query.volume(beam) > 0, "member_sweep_rect volume")
 
--- step_write MEMFS
+-- step_write MEMFS via StepWrite measure
 local step = solid.step_write(drilled, "/tmp/solid_api_smoke.step")
 assert(step.ok == true and step.path == "/tmp/solid_api_smoke.step", "step_write")
 
@@ -327,7 +337,7 @@ try {
   const out = await engine.execute(source, { deflection: 0.15 });
   const payload = parseMarker(out.stdout || "", "__SOLID_API_SMOKE__");
   if (!payload) {
-    throw new Error("missing __SOLID_API_SMOKE__ marker in stdout — dual-goal checks not verified");
+    throw new Error("missing __SOLID_API_SMOKE__ marker in stdout");
   }
   console.log("checks:", JSON.stringify(payload));
   if (!(payload.pipe_vol > 0.002 && payload.pipe_vol < 0.012)) {

@@ -6,9 +6,9 @@ Apache-friendly schema home for the portable CAD Intermediate Representation.
 |----------|------|------|
 | **Design authority** | [`../cad-ir-v0-design.md`](../cad-ir-v0-design.md) | Full system design (envelope, catalog, eval, security, PR plan) |
 | **Allowlist / document shape** | [`schema/`](schema/) | Machine-readable Tier A/B op list + envelope notes |
-| **Examples** | [`examples/`](examples/) | Dual-goal + box-cut JSON (`*.cad.json`) |
+| **Examples** | [`examples/`](examples/) | Box-cut + pipe skid + robot JSON (`*.cad.json`) |
 | **Goldens** | [`goldens/`](goldens/) | Measure/frame-only expected fixtures (never absolute shape ids) |
-| **Luau runtime** | [`../../agent-os/src/batteries/ir/`](../../agent-os/src/batteries/ir/) | BSL evaluator (`cad.ir.*`) — not required by Apache consumers |
+| **Luau runtime** | [`../../agent-os/src/batteries/ir/`](../../agent-os/src/batteries/ir/) | BSL evaluator (`cad.ir.*`) + session tape — not required by Apache consumers |
 
 ## Schema id
 
@@ -50,9 +50,13 @@ Full field rules: design §1. Op nodes: design §2. Freestanding selectors only:
 | `AttachFrame` | pure POD (no host) | pipe, robot |
 | `ComposeChain` | `compose_chain` | robot |
 | `QueryClash`, `QueryGeom` | `clash`/`distance`, `volume`/`bbox` | pipe |
-| `ExportMesh` | `mesh` | demos |
+| `ExportMesh` | `mesh_stats` (stats-only) | demos |
 
-Tier B/C and deferred sketch ops: design §4.2–§4.3, §14. **Do not** implement `Sketch2D` / `SolveSketch` here — see [`../sketch-solve-constitution.md`](../sketch-solve-constitution.md).
+**Tier B (registered / host-ready):** `PrimSphere`/`Cone`/`Torus`, `MakeRectProfile`, `Scale`, `MirrorCopy`, `PushPull`, `FilletAll`, `SpinSolid`, `Offset3d`, `HollowBody`, `DrillHoleThrough`/`Blind`, `PipeProfile`, `MemberSweepRect`, `PatternLinear`/`Polar`, `MeshStats`, `MassProps`, `StepWrite` — see [`schema/allowlist.json`](schema/allowlist.json) `registry_ops` and `agent-os/.../ir/ops/features.luau`. Remaining bridge-need: `GroupBodies`, `MakeCircleProfile`, `MakePolyline`, `ExportBrep`.
+
+**Authoring:** AgentOS batteries (`solid` / `route` / `frames` / `query`) always record these ops on the session IR tape. Load/eval IR documents and Luau batteries share the same runtime. No dual-path host authoring.
+
+Tier C and deferred sketch ops: design §4.2–§4.3, §14. **Do not** implement `Sketch2D` / `SolveSketch` here — see [`../sketch-solve-constitution.md`](../sketch-solve-constitution.md).
 
 ## Security (design §11)
 
