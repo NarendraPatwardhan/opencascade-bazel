@@ -52,6 +52,8 @@ resolve_concrete_tag() {
         -o "$meta" \
         "${API}/repos/${REPO}/releases?per_page=30"
 
+      # Sort by created_at ourselves — GitHub often returns the non-prerelease
+      # "latest" first even when newer prereleases exist (our demo-v* stream).
       tag="$(node -e '
         const fs = require("fs");
         const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -61,17 +63,23 @@ resolve_concrete_tag() {
           console.error("releases list is not an array");
           process.exit(2);
         }
-        for (const rel of j) {
-          if (rel.draft) continue;
-          const t = String(rel.tag_name || "");
-          if (prefix && !t.startsWith(prefix)) continue;
-          const assets = rel.assets || [];
-          if (!assets.some((a) => a.name === asset)) continue;
-          process.stdout.write(t);
-          process.exit(0);
+        const candidates = j
+          .filter((rel) => !rel.draft)
+          .filter((rel) => {
+            const t = String(rel.tag_name || "");
+            if (prefix && !t.startsWith(prefix)) return false;
+            return (rel.assets || []).some((a) => a.name === asset);
+          })
+          .sort((a, b) => {
+            const ta = Date.parse(a.created_at || a.published_at || 0);
+            const tb = Date.parse(b.created_at || b.published_at || 0);
+            return tb - ta;
+          });
+        if (!candidates.length) {
+          console.error("no release found matching prefix=" + prefix + " asset=" + asset);
+          process.exit(2);
         }
-        console.error("no release found matching prefix=" + prefix + " asset=" + asset);
-        process.exit(2);
+        process.stdout.write(String(candidates[0].tag_name));
       ' "$meta" "$PREFIX" "$ASSET_NAME")"
       if [ -z "$tag" ]; then
         log "could not resolve latest tag"
