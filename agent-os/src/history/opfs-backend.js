@@ -275,6 +275,7 @@ export function createIdbHistoryBackend() {
         ts: Date.now(),
         parentId,
         shortHash: commitId.slice(0, 7),
+        auto: !name || /^auto\s*·/i.test(message),
       };
       rec.blobs[commitId] = cloneDoc(doc);
       rec.commits.push(entry);
@@ -356,10 +357,12 @@ function createFallbackHistoryBackend() {
 }
 
 /**
- * Prefer GitEngine when git-engine.tar + mc-core load; else IDB; else memory.
+ * Product history backend: **IDB/memory is always the UI timeline** (reliable
+ * in browser). Optionally dual-writes to AgentOS GitEngine when it loads.
  *
- * Returns a facade immediately; the first backend call resolves git (async).
- * Pass `opts` with `assetBase` / `engineBytes` / `durableDir` for product wiring.
+ * Why hybrid: pure git-only path often left the History drawer empty when
+ * engine load/commit failed silently in the browser. Overleaf-style UX needs
+ * a list that always works.
  *
  * @param {{
  *   assetBase?: string,
@@ -376,76 +379,183 @@ function createFallbackHistoryBackend() {
  */
 export function createDefaultHistoryBackend(opts = {}) {
   const preferGit = opts.preferGit !== false;
-  const fallback = createFallbackHistoryBackend();
-  if (!preferGit) return fallback;
+  const primary = createFallbackHistoryBackend(); // idb or memory
 
   /** @type {import('./backend.js').HistoryBackend | null} */
-  let resolved = null;
-  /** @type {Promise<import('./backend.js').HistoryBackend> | null} */
-  let resolving = null;
+  let git = null;
+  /** @type {Promise<void> | null} */
+  let gitWarm = null;
 
-  async function ensure() {
-    if (resolved) return resolved;
-    if (!resolving) {
-      resolving = (async () => {
-        try {
-          const { tryCreateGitHistoryBackend } = await import("./git-backend.js");
-          const git = await tryCreateGitHistoryBackend(opts);
-          if (git) {
-            resolved = git;
-            return git;
-          }
-        } catch {
-          /* fall through */
+  function warmGit() {
+    if (!preferGit) return Promise.resolve();
+    if (gitWarm) return gitWarm;
+    gitWarm = (async () => {
+      try {
+        const { tryCreateGitHistoryBackend } = await import("./git-backend.js");
+        git = await tryCreateGitHistoryBackend(opts);
+      } catch (err) {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn(
+            "[history] GitEngine warm failed:",
+            err instanceof Error ? err.message : err,
+          );
         }
-        resolved = fallback;
-        return fallback;
-      })();
-    }
-    return resolving;
+        git = null;
+      }
+    })();
+    return gitWarm;
   }
+
+  // Kick warm in background; first commit does not wait for git.
+  void warmGit();
 
   /** @type {import('./backend.js').HistoryBackend} */
   const facade = {
     get kind() {
-      return resolved?.kind || "default";
+      return git ? `local+${git.kind}` : primary.kind || "local";
     },
 
     async open(projectId) {
-      return (await ensure()).open(projectId);
+      void warmGit();
+      // Prefer primary worktree; fall back to git worktree if IDB empty.
+      let doc = null;
+      try {
+        doc = await primary.open(projectId);
+      } catch {
+        doc = null;
+      }
+      if (!doc && git) {
+        try {
+          doc = await git.open(projectId);
+          if (doc) await primary.saveWorktree(projectId, doc);
+        } catch {
+          /* */
+        }
+      }
+      return doc;
     },
+
     async saveWorktree(projectId, doc) {
-      return (await ensure()).saveWorktree(projectId, doc);
+      await primary.saveWorktree(projectId, doc);
+      if (git) {
+        try {
+          await git.saveWorktree(projectId, doc);
+        } catch {
+          /* best-effort */
+        }
+      }
     },
+
     async commit(projectId, doc, o) {
-      return (await ensure()).commit(projectId, doc, o);
+      // UI timeline always from primary (IDB) so listVersions is never empty
+      // after a successful local commit.
+      const entry = await primary.commit(projectId, doc, o);
+      if (git) {
+        try {
+          await git.commit(projectId, doc, o);
+        } catch (err) {
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn(
+              "[history] git dual-write commit failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      }
+      return entry;
     },
+
     async listVersions(projectId) {
-      return (await ensure()).listVersions(projectId);
+      void warmGit();
+      let list = [];
+      try {
+        list = (await primary.listVersions(projectId)) || [];
+      } catch {
+        list = [];
+      }
+      // If primary empty but git has history (e.g. after reload with only git durable).
+      if (!list.length && git) {
+        try {
+          const g = (await git.listVersions(projectId)) || [];
+          if (g.length) {
+            // Mirror into primary so future lists stay local.
+            for (let i = g.length - 1; i >= 0; i--) {
+              const v = g[i];
+              try {
+                const blob =
+                  typeof git.readVersion === "function"
+                    ? await git.readVersion(projectId, v.id)
+                    : null;
+                if (blob) {
+                  await primary.commit(projectId, blob, {
+                    name: v.name,
+                    message: v.message,
+                  });
+                }
+              } catch {
+                /* skip one */
+              }
+            }
+            list = (await primary.listVersions(projectId)) || g;
+          }
+        } catch {
+          /* */
+        }
+      }
+      return list;
     },
+
     async restore(projectId, ref) {
-      return (await ensure()).restore(projectId, ref);
+      // Prefer primary (ids are from primary list).
+      try {
+        return await primary.restore(projectId, ref);
+      } catch (e) {
+        if (git) {
+          const doc = await git.restore(projectId, ref);
+          await primary.saveWorktree(projectId, doc);
+          return doc;
+        }
+        throw e;
+      }
     },
+
     async readVersion(projectId, ref) {
-      const b = await ensure();
-      if (typeof b.readVersion === "function") {
-        return b.readVersion(projectId, ref);
+      if (typeof primary.readVersion === "function") {
+        const d = await primary.readVersion(projectId, ref);
+        if (d) return d;
+      }
+      if (git && typeof git.readVersion === "function") {
+        return git.readVersion(projectId, ref);
       }
       return null;
     },
+
     async tip(projectId) {
-      return (await ensure()).tip(projectId);
+      try {
+        const t = await primary.tip(projectId);
+        if (t) return t;
+      } catch {
+        /* */
+      }
+      if (git) {
+        try {
+          return await git.tip(projectId);
+        } catch {
+          /* */
+        }
+      }
+      return null;
     },
+
     async close(projectId) {
-      const b = await ensure();
-      if (typeof b.close === "function") return b.close(projectId);
+      if (typeof primary.close === "function") await primary.close(projectId);
+      if (git && typeof git.close === "function") await git.close(projectId);
     },
   };
 
-  // Expose remote ops when the resolved backend is git (panel uses these).
   Object.defineProperty(facade, "available", {
     get() {
-      return resolved?.kind === "git";
+      return !!git;
     },
     enumerable: true,
   });
@@ -455,29 +565,28 @@ export function createDefaultHistoryBackend(opts = {}) {
    */
   function forwardRemote(name) {
     return async (...args) => {
-      const b = /** @type {any} */ (await ensure());
-      if (typeof b[name] === "function") {
-        return b[name](...args);
+      await warmGit();
+      if (git && typeof /** @type {any} */ (git)[name] === "function") {
+        return /** @type {any} */ (git)[name](...args);
       }
       return {
         ok: false,
-        message: `Remote ${name} unavailable (history backend is ${b.kind || "unknown"})`,
+        message: `Remote ${name} unavailable (local history only)`,
       };
     };
   }
 
   /** @type {any} */ (facade).setRemote = forwardRemote("setRemote");
   /** @type {any} */ (facade).getRemote = async () => {
-    const b = /** @type {any} */ (await ensure());
-    if (typeof b.getRemote === "function") return b.getRemote();
+    await warmGit();
+    if (git && typeof /** @type {any} */ (git).getRemote === "function") {
+      return /** @type {any} */ (git).getRemote();
+    }
     return null;
   };
   /** @type {any} */ (facade).push = forwardRemote("push");
   /** @type {any} */ (facade).pull = forwardRemote("pull");
   /** @type {any} */ (facade).clone = forwardRemote("clone");
-
-  // Kick resolution early so kind settles before first UI paint when possible.
-  void ensure();
 
   return facade;
 }

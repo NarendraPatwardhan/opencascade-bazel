@@ -242,6 +242,36 @@ export function createProjectController(opts = {}) {
           dirty = !loaded;
         }
         await opts.onApply?.(cloneDoc(doc), { reason: "open" });
+
+        // Seed timeline: if no durable versions yet, write an auto checkpoint
+        // so History is never empty after first open (Overleaf always has points).
+        let existing = [];
+        try {
+          existing = (await backend.listVersions(projectId)) || [];
+        } catch {
+          existing = [];
+        }
+        if (!existing.length && (doc.source || Object.keys(doc.values || {}).length)) {
+          try {
+            const message = autoVersionMessage("open");
+            const entry = await backend.commit(projectId, doc, { message });
+            if (entry) {
+              entry.auto = true;
+              if (!entry.name) entry.name = undefined;
+              tipCommit = entry;
+              tipDoc = cloneDoc(doc);
+              dirty = false;
+            }
+          } catch (err) {
+            if (typeof console !== "undefined" && console.warn) {
+              console.warn(
+                "[history] seed auto-commit failed:",
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+        }
+
         emitHistory();
         return cloneDoc(doc);
       });

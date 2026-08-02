@@ -256,6 +256,7 @@ export function createMemoryHistoryBackend() {
         ts: Date.now(),
         parentId,
         shortHash: id.slice(0, 7),
+        auto: !name || /^auto\s*·/i.test(message),
       };
       p.blobs.set(id, cloneDoc(doc));
       p.commits.push(entry);

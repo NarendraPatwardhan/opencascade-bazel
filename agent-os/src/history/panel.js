@@ -147,6 +147,8 @@ export function mountHistoryPanel(host, handlers = {}) {
   function hideConfirm() {
     pendingRestoreId = null;
     confirmBar.hidden = true;
+    confirmBar.setAttribute("hidden", "");
+    confirmText.textContent = "";
   }
 
   confirmNo.addEventListener("click", () => hideConfirm());
@@ -164,6 +166,7 @@ export function mountHistoryPanel(host, handlers = {}) {
     pendingRestoreId = id;
     confirmText.textContent = `Restore “${displayName}” to the working copy? You can Undo afterward.`;
     confirmBar.hidden = false;
+    confirmBar.removeAttribute("hidden");
     confirmYes.focus();
   }
 

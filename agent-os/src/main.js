@@ -1054,6 +1054,8 @@ mountLuauEditor({
       project: { name: "flange_plate", schema_version: 1 },
       values: paramStore.values(),
     });
+    // Refresh history chip after seed auto-checkpoint (open).
+    void refreshHistoryPanel({ full: isHistoryOpen() });
     void autoWarm().then(() => {
       // First mesh from demo params once runtime is hot
       void runSource({ fromParams: true, fit: true, fine: true });

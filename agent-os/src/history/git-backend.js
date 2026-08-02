@@ -547,11 +547,13 @@ export async function createGitHistoryBackend(opts = {}) {
 
         return {
           id,
-          name: name || message,
+          // Only set name when the user labeled; auto messages stay unnamed.
+          name: name || undefined,
           message,
           ts: Date.now(),
           parentId: null,
           shortHash: id.slice(0, 7),
+          auto: !name,
         };
       });
     },

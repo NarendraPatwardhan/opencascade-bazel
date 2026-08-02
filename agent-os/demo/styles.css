@@ -952,7 +952,13 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   border-color: rgba(255, 107, 107, 0.7);
 }
 
-.history-confirm {
+/* [hidden] must win over display:flex — otherwise the empty Restore bar always shows */
+.history-confirm[hidden],
+.history-overlay[hidden] {
+  display: none !important;
+}
+
+.history-confirm:not([hidden]) {
   flex-shrink: 0;
   margin: 0.4rem 0.65rem 0;
   padding: 0.55rem 0.65rem;
