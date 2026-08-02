@@ -33,6 +33,7 @@ export function createCadamSlider(opts) {
   root.setAttribute("role", "slider");
   root.tabIndex = 0;
   if (opts.id) root.id = opts.id;
+  // Not a native form control — avoid a11y "form field without name/id" noise.
   root.setAttribute("aria-valuemin", String(min));
   root.setAttribute("aria-valuemax", String(max));
 

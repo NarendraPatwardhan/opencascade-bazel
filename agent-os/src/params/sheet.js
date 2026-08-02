@@ -176,7 +176,8 @@ export function mountParamSheet(host, store, opts = {}) {
 
     const label = document.createElement("label");
     label.className = "param-label";
-    label.htmlFor = `param-${p.name}`;
+    label.id = `param-${p.name}-label`;
+    // htmlFor set after control is chosen (slider vs number vs switch).
     label.textContent = p.displayName || p.name;
     label.title = p.displayName || p.name;
     row.appendChild(label);
@@ -186,9 +187,12 @@ export function mountParamSheet(host, store, opts = {}) {
       sw.type = "button";
       sw.className = "param-switch";
       sw.id = `param-${p.name}`;
+      sw.name = p.name;
       sw.setAttribute("role", "switch");
+      sw.setAttribute("aria-labelledby", label.id);
       sw.setAttribute("aria-checked", p.value ? "true" : "false");
       if (p.value) sw.classList.add("is-on");
+      label.htmlFor = sw.id;
       const thumb = document.createElement("span");
       thumb.className = "param-switch-thumb";
       sw.appendChild(thumb);
@@ -215,8 +219,7 @@ export function mountParamSheet(host, store, opts = {}) {
       group.className = "param-toggle-group";
       group.id = `param-${p.name}`;
       group.setAttribute("role", "group");
-      group.setAttribute("aria-labelledby", `param-${p.name}-label`);
-      label.id = `param-${p.name}-label`;
+      group.setAttribute("aria-labelledby", label.id);
 
       /** @type {HTMLButtonElement[]} */
       const buttons = [];
@@ -277,7 +280,8 @@ export function mountParamSheet(host, store, opts = {}) {
         step,
         value: Number(p.value),
         defaultValue: p.defaultValue,
-        id: `param-${p.name}`,
+        // Slider is not a form field; keep a distinct id for a11y only.
+        id: `param-${p.name}-slider`,
         onChange(v) {
           num.value = formatNum(v, step);
           scheduleCommit(p.name, v);
@@ -287,6 +291,8 @@ export function mountParamSheet(host, store, opts = {}) {
           commit(p.name, v);
         },
       });
+      // Associate custom slider with the row label (Lighthouse/a11y).
+      slider.el.setAttribute("aria-labelledby", label.id);
       controls.appendChild(slider.el);
     }
 
@@ -298,7 +304,11 @@ export function mountParamSheet(host, store, opts = {}) {
     num.inputMode = "decimal";
     num.autocomplete = "off";
     num.className = "param-number";
-    if (!hasRange) num.id = `param-${p.name}`;
+    // Always id + name — form fields without either spam a11y audits (×N params).
+    num.id = `param-${p.name}`;
+    num.name = p.name;
+    num.setAttribute("aria-labelledby", label.id);
+    label.htmlFor = num.id;
     num.value = formatNum(Number(p.value), step);
     num.addEventListener("focus", () => num.select());
     num.addEventListener("keydown", (e) => {
