@@ -81,11 +81,6 @@ button.primary {
 }
 
 /* Full remaining viewport under the top bar (no footer). */
-body {
-  display: flex;
-  flex-direction: column;
-}
-
 .layout {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.25fr) minmax(200px, 260px);
