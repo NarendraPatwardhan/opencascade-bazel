@@ -1,17 +1,18 @@
 /**
- * Ensure globalThis.crypto.subtle.digest("SHA-256", …) works.
+ * Web Crypto shims for AgentOS mc-core in the browser worker.
  *
- * AgentOS mc-core hashes kernel/loom with SubtleCrypto. On non-secure
- * origins (http://LAN-IP, http://hostname) browsers leave crypto.subtle
- * undefined → TypeError: Cannot read properties of undefined (reading 'digest').
+ * mc-core needs:
+ *   crypto.subtle.digest("SHA-256", bytes)  — hash kernel / loom / catalog
+ *   crypto.randomUUID()                    — tool / session ids
  *
- * Secure contexts (https, http://127.0.0.1, http://localhost) already have
- * subtle; this is a no-op there.
+ * Never replace globalThis.crypto wholesale: that drops native methods
+ * (randomUUID, etc.) and is what caused "crypto.randomUUID is not a function"
+ * after the first subtle polyfill attempt.
  */
 
 /** @param {Uint8Array} message */
 function sha256Bytes(message) {
-  // FIPS 180-4 SHA-256, compact implementation (public domain style).
+  // FIPS 180-4 SHA-256 (compact public-domain-style impl).
   const K = new Uint32Array([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
     0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -37,7 +38,6 @@ function sha256Bytes(message) {
   buf.set(message);
   buf[len] = 0x80;
   const dv = new DataView(buf.buffer);
-  // length in bits as 64-bit big-endian at end
   const hi = Math.floor(bitLen / 0x100000000);
   const lo = bitLen >>> 0;
   dv.setUint32(withPad - 8, hi, false);
@@ -83,61 +83,118 @@ function sha256Bytes(message) {
   return out;
 }
 
-/** Install SHA-256-only subtle.digest if missing. Idempotent. */
-export function ensureCryptoSubtleDigest() {
-  const c =
-    globalThis.crypto ||
-    (globalThis.crypto = /** @type {Crypto} */ ({}));
-  if (c.subtle && typeof c.subtle.digest === "function") return false;
+function randomUUIDPolyfill() {
+  const bytes = new Uint8Array(16);
+  const g = globalThis.crypto;
+  if (g && typeof g.getRandomValues === "function") {
+    g.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
+  }
+  // RFC 4122 version 4
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
-  const subtle = {
-    /**
-     * @param {AlgorithmIdentifier} algorithm
-     * @param {BufferSource} data
-     */
-    async digest(algorithm, data) {
-      const name =
-        typeof algorithm === "string"
-          ? algorithm
-          : algorithm && /** @type {any} */ (algorithm).name;
-      if (String(name).toUpperCase().replace("-", "") !== "SHA256") {
-        throw new Error(`sha256-polyfill: only SHA-256 supported, got ${name}`);
-      }
-      let bytes;
-      if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
-      else if (ArrayBuffer.isView(data)) {
-        bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-      } else {
-        throw new TypeError("sha256-polyfill: expected BufferSource");
-      }
-      // Return a fresh ArrayBuffer (SubtleCrypto contract).
-      return sha256Bytes(bytes).buffer;
-    },
-  };
-
+function defineOn(obj, key, value) {
   try {
-    Object.defineProperty(c, "subtle", {
-      value: subtle,
+    Object.defineProperty(obj, key, {
+      value,
       configurable: true,
       enumerable: true,
       writable: true,
     });
+    return true;
   } catch {
-    // Some engines freeze crypto; last resort overwrite.
     try {
-      // @ts-expect-error assign
-      c.subtle = subtle;
+      obj[key] = value;
+      return true;
     } catch {
-      globalThis.crypto = /** @type {Crypto} */ ({
-        getRandomValues:
-          c.getRandomValues?.bind(c) ||
-          ((arr) => {
-            for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() * 256) | 0;
-            return arr;
-          }),
-        subtle,
-      });
+      return false;
     }
   }
-  return true;
+}
+
+/**
+ * Ensure crypto.subtle.digest (SHA-256) and crypto.randomUUID exist.
+ * Idempotent. Does not replace the Crypto object.
+ * @returns {{ subtle: boolean, randomUUID: boolean }}
+ */
+export function ensureWebCrypto() {
+  const c = globalThis.crypto;
+  if (!c) {
+    // Extremely hostile env: install a minimal object once.
+    const minimal = {
+      getRandomValues(arr) {
+        for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() * 256) | 0;
+        return arr;
+      },
+      randomUUID: randomUUIDPolyfill,
+      subtle: {
+        async digest(algorithm, data) {
+          return digestImpl(algorithm, data);
+        },
+      },
+    };
+    globalThis.crypto = /** @type {Crypto} */ (minimal);
+    return { subtle: true, randomUUID: true };
+  }
+
+  let subtlePatched = false;
+  let uuidPatched = false;
+
+  if (!(c.subtle && typeof c.subtle.digest === "function")) {
+    const subtle = {
+      async digest(algorithm, data) {
+        return digestImpl(algorithm, data);
+      },
+    };
+    // Prefer adding .subtle only — never rebuild crypto (that drops randomUUID).
+    if (!defineOn(c, "subtle", subtle)) {
+      console.warn(
+        "[cad-runtime] could not install crypto.subtle polyfill; open http://127.0.0.1 (secure origin)",
+      );
+    } else {
+      subtlePatched = true;
+    }
+  }
+
+  if (typeof c.randomUUID !== "function") {
+    if (!defineOn(c, "randomUUID", randomUUIDPolyfill)) {
+      console.warn("[cad-runtime] could not install crypto.randomUUID polyfill");
+    } else {
+      uuidPatched = true;
+    }
+  }
+
+  return { subtle: subtlePatched, randomUUID: uuidPatched };
+}
+
+/** @deprecated use ensureWebCrypto */
+export function ensureCryptoSubtleDigest() {
+  return ensureWebCrypto().subtle;
+}
+
+/**
+ * @param {AlgorithmIdentifier} algorithm
+ * @param {BufferSource} data
+ */
+async function digestImpl(algorithm, data) {
+  const name =
+    typeof algorithm === "string"
+      ? algorithm
+      : algorithm && /** @type {any} */ (algorithm).name;
+  if (String(name).toUpperCase().replace(/-/g, "") !== "SHA256") {
+    throw new Error(`webcrypto-polyfill: only SHA-256 supported, got ${name}`);
+  }
+  let bytes;
+  if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+  else if (ArrayBuffer.isView(data)) {
+    bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  } else {
+    throw new TypeError("webcrypto-polyfill: expected BufferSource");
+  }
+  return sha256Bytes(bytes).buffer;
 }

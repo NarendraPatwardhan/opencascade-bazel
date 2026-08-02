@@ -3,7 +3,7 @@
  * Kinds: config | warm | analyze | execute
  */
 
-import { ensureCryptoSubtleDigest } from "./sha256-polyfill.js";
+import { ensureWebCrypto } from "./sha256-polyfill.js";
 import { PROTOCOL } from "./protocol.js";
 import { OccBridge } from "./occ-bridge.js";
 import {
@@ -12,9 +12,9 @@ import {
   filterDiagnosticsByPath,
 } from "./analyze-parse.js";
 
-// mc-core calls crypto.subtle.digest while loading kernel/loom. Non-secure
-// pages (http://<LAN-IP>) have no subtle → TypeError on .digest.
-ensureCryptoSubtleDigest();
+// mc-core needs crypto.subtle.digest + crypto.randomUUID. Patch only missing
+// methods — never replace globalThis.crypto (that deleted randomUUID before).
+ensureWebCrypto();
 
 let assetBase = "/agent-os/";
 /** @type {import('./occ-bridge.js').OccBridge | null} */
