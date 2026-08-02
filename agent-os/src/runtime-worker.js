@@ -1,6 +1,6 @@
 /**
  * Browser module worker: AgentOS + host CAD tools + libocc_c.
- * Kinds: config | warm | analyze | execute
+ * Kinds: config | warm | analyze | execute | params_resolve
  */
 
 import { ensureWebCrypto } from "./sha256-polyfill.js";
@@ -44,7 +44,11 @@ const TOP_BATTERY_LUAU = [
   "query.luau",
   "cad.luau",
   "params.luau",
+  "params_resolve.luau",
 ];
+
+/** Guest → host POD marker for params harvest (parallel to __OCC_CAD_RESULT__). */
+const PARAMS_RESULT_MARKER = "__OCC_PARAMS_RESULT__";
 
 /**
  * cad.ir package files under /opt/cad/ir/ (require("ir") → ir/init.luau).
@@ -176,6 +180,11 @@ async function mkdirp(path) {
   }
 }
 
+/** @type {boolean} */
+let batteriesStaged = false;
+/** @type {boolean} */
+let paramsResolveStaged = false;
+
 async function stageBatteries() {
   const b = base();
   await mkdirp("/opt/cad");
@@ -189,6 +198,7 @@ async function stageBatteries() {
         const text = await fetchText(new URL(`batteries/${name}`, b).href);
         await vm.fs.write(`/opt/cad/${name}`, text);
         if (name === "solid.luau") solidOk = true;
+        if (name === "params_resolve.luau") paramsResolveStaged = true;
       } catch (e) {
         log("battery skip", name, e?.message || e);
       }
@@ -212,6 +222,28 @@ async function stageBatteries() {
   );
   if (!initOk) {
     throw new Error('batteries/ir/init.luau missing — cannot stage cad.ir (require("ir"))');
+  }
+  batteriesStaged = true;
+}
+
+/**
+ * Schema harvest only needs params_resolve.luau (+ loom syntax/json builtins).
+ * Avoid re-staging solid/ir on every debounced editor params resolve.
+ */
+async function stageParamsResolveBattery() {
+  if (paramsResolveStaged) return;
+  const b = base();
+  await mkdirp("/opt/cad");
+  try {
+    const text = await fetchText(
+      new URL("batteries/params_resolve.luau", b).href,
+    );
+    await vm.fs.write("/opt/cad/params_resolve.luau", text);
+    paramsResolveStaged = true;
+  } catch (e) {
+    throw new Error(
+      `batteries/params_resolve.luau missing: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 }
 
@@ -288,6 +320,23 @@ function parseResult(stdout) {
   for (const line of String(stdout || "").split(/\r?\n/).reverse()) {
     const idx = line.indexOf(marker);
     if (idx >= 0) return JSON.parse(line.slice(idx + marker.length));
+  }
+  return null;
+}
+
+/**
+ * Parse __OCC_PARAMS_RESULT__ + JSON POD array from guest stdout.
+ * @param {string} stdout
+ * @returns {any[] | null}
+ */
+function parseParamsResult(stdout) {
+  for (const line of String(stdout || "").split(/\r?\n/).reverse()) {
+    const idx = line.indexOf(PARAMS_RESULT_MARKER);
+    if (idx >= 0) {
+      const raw = line.slice(idx + PARAMS_RESULT_MARKER.length);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    }
   }
   return null;
 }
@@ -416,6 +465,90 @@ async function execute(req) {
   };
 }
 
+/**
+ * Product path: guest Luau + require("syntax") → POD param list.
+ * Host only stores / sheets / injects values — no JS Luau parse.
+ * Needs AgentOS VM only (no OCCT). syntax service starts lazily on first use.
+ * @param {{ id: number, source?: string }} req
+ */
+async function paramsResolve(req) {
+  await ensureVm();
+  // Only params_resolve.luau — not full solid/ir restage on every editor debounce.
+  await stageParamsResolveBattery();
+  const source = req.source ?? "";
+  await mkdirp("/tmp");
+  // Unique path per request to reduce races with concurrent harvest calls.
+  const srcPath = `/tmp/params_resolve_src_${req.id ?? 0}.luau`;
+  await vm.fs.write(srcPath, source);
+
+  const harness =
+    `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` +
+    `local pr = require("params_resolve")\n` +
+    `pr.run_file(${JSON.stringify(srcPath)})\n`;
+
+  const result = await vm.luau(harness);
+  if (result.exitCode !== 0) {
+    const errText = (result.stderr || result.stdout || "params_resolve failed").trim();
+    return {
+      id: req.id,
+      kind: "params_resolve",
+      code: result.exitCode || 1,
+      diagnostics: [],
+      error: errText,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      params: [],
+      meta: { protocol: PROTOCOL, path: "syntax", syntax: false },
+    };
+  }
+
+  let params;
+  try {
+    params = parseParamsResult(result.stdout);
+  } catch (e) {
+    return {
+      id: req.id,
+      kind: "params_resolve",
+      code: 2,
+      diagnostics: [],
+      error: `params_resolve: invalid POD JSON: ${e instanceof Error ? e.message : String(e)}`,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      params: [],
+      meta: { protocol: PROTOCOL, path: "syntax", syntax: false },
+    };
+  }
+  if (!params) {
+    return {
+      id: req.id,
+      kind: "params_resolve",
+      code: 2,
+      diagnostics: [],
+      error: `missing ${PARAMS_RESULT_MARKER} — params_resolve battery failed`,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      params: [],
+      meta: { protocol: PROTOCOL, path: "syntax", syntax: false },
+    };
+  }
+
+  return {
+    id: req.id,
+    kind: "params_resolve",
+    code: 0,
+    diagnostics: [],
+    params,
+    meta: {
+      protocol: PROTOCOL,
+      path: "syntax",
+      syntax: true,
+      count: params.length,
+    },
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
 self.onmessage = async (ev) => {
   const msg = ev.data;
   if (!msg || typeof msg !== "object") return;
@@ -456,6 +589,11 @@ self.onmessage = async (ev) => {
       } else {
         self.postMessage(reply);
       }
+      return;
+    }
+    if (msg.kind === "params_resolve") {
+      const reply = await paramsResolve(msg);
+      self.postMessage(reply);
       return;
     }
     self.postMessage({

@@ -32,6 +32,8 @@ export class CadEngine {
     this.occ = null;
     this.vm = null;
     this.mcApi = null;
+    /** @type {boolean} */
+    this._paramsResolveStaged = false;
   }
 
   async #bytes(pathOrUrl) {
@@ -185,6 +187,96 @@ export class CadEngine {
       if (idx >= 0) return JSON.parse(line.slice(idx + marker.length));
     }
     return null;
+  }
+
+  /**
+   * Parse __OCC_PARAMS_RESULT__ + JSON POD array from guest stdout.
+   * @param {string} stdout
+   * @returns {any[] | null}
+   */
+  parseParamsResult(stdout) {
+    const marker = "__OCC_PARAMS_RESULT__";
+    for (const line of String(stdout || "").split(/\r?\n/).reverse()) {
+      const idx = line.indexOf(marker);
+      if (idx >= 0) {
+        const parsed = JSON.parse(line.slice(idx + marker.length));
+        return Array.isArray(parsed) ? parsed : null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Stage only params_resolve.luau (schema harvest needs syntax/json builtins only).
+   */
+  async stageParamsResolveBattery() {
+    if (this._paramsResolveStaged) return;
+    await this.#mkdirp("/opt/cad");
+    const batteriesDir =
+      this.paths.batteriesDir || dirname(this.paths.solidLuau);
+    const hostPath = join(batteriesDir, "params_resolve.luau");
+    const text = await this.#text(hostPath);
+    await this.vm.fs.write("/opt/cad/params_resolve.luau", text);
+    this._paramsResolveStaged = true;
+  }
+
+  /**
+   * Product params harvest: guest require("syntax") → pure POD list.
+   * Stages params_resolve.luau only (not full solid/ir); starts syntax lazily.
+   * Hard-fails if marker/JSON missing or luau exits nonzero.
+   *
+   * @param {string} source
+   * @returns {Promise<{ params: any[], meta: object, stdout: string, stderr: string }>}
+   */
+  async resolveParams(source) {
+    await this.warm();
+    await this.stageParamsResolveBattery();
+    const src = source ?? "";
+    await this.#mkdirp("/tmp");
+    const srcPath = `/tmp/params_resolve_src_${Date.now()}.luau`;
+    await this.vm.fs.write(srcPath, src);
+    const harness =
+      `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` +
+      `local pr = require("params_resolve")\n` +
+      `pr.run_file(${JSON.stringify(srcPath)})\n`;
+    const result = await this.vm.luau(harness);
+    if (result.exitCode !== 0) {
+      const err = new Error(
+        (result.stderr || result.stdout || "params_resolve failed").trim(),
+      );
+      err.stdout = result.stdout;
+      err.stderr = result.stderr;
+      err.exitCode = result.exitCode;
+      throw err;
+    }
+    let params;
+    try {
+      params = this.parseParamsResult(result.stdout);
+    } catch (e) {
+      const err = new Error(
+        `params_resolve: invalid POD JSON: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      err.stdout = result.stdout;
+      throw err;
+    }
+    if (!params) {
+      const err = new Error(
+        "missing __OCC_PARAMS_RESULT__ — params_resolve battery / syntax failed",
+      );
+      err.stdout = result.stdout;
+      throw err;
+    }
+    return {
+      params,
+      meta: {
+        protocol: PROTOCOL,
+        path: "syntax",
+        syntax: true,
+        count: params.length,
+      },
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
   }
 
   /**

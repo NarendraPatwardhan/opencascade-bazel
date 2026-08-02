@@ -1,21 +1,20 @@
 /**
- * Static analysis of Luau for free parameters (end-user clean authoring).
+ * FALLBACK / unit-test double — host-side Luau line walk for free parameters.
  *
- * Preferred look (CADAM-like, interleaved — not a giant header block):
+ * **Product truth** is guest `require("syntax")` via batteries/params_resolve.luau
+ * (worker kind `params_resolve` → POD JSON). Do not extend this file as the
+ * schema authority; use the syntax battery for metaprogramming / AST walks.
  *
- *   -- Size
+ * Kept for:
+ *   - cold UI before AgentOS VM is warm
+ *   - node unit smokes without loom
+ *   - inject rewrite position helper (`applyParamValuesToSource`)
+ *
+ * Preferred authoring look (CADAM-like, interleaved):
+ *
+ *   -- [Size]
  *   local width = 40 -- [16:0.5:120] mm
- *   local depth = 40 -- [16:120] mm
- *   local show_grid = true -- view
- *
- *   local base = solid.box({ dx = width, dy = depth, ... })
- *
- * Annotations are optional trailing comments on the same line as the binding.
- * Unannotated bare header locals still become params (range inferred).
- *
- * This is a structured line walk over source (comment-aware), not a VM dry-run.
- * agent-os-master's tree-sitter luau grammar / syntax service is the long-term
- * AST home; this host-side analyzer matches that intent for the browser product.
+ *   local base = solid.box({ dx = width, ... })
  */
 
 import { normalizeParam } from "./types.js";
@@ -365,6 +364,10 @@ export function analyzeLuauParams(source) {
 /**
  * Rewrite bare local literals for execute inject-without-params-table.
  * Preserves trailing comments. Editor buffer can stay as-is; this is for run.
+ *
+ * Inject position truth is this host helper (findHeaderLocalBindings). Guest POD
+ * litStart/litEnd are optional future fields — not required here.
+ *
  * @param {string} source
  * @param {Record<string, any>} values
  */

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Unit smoke: resolveParams / extract / infer / inject / merge priority.
- * No AgentOS / OCCT required — pure host JS.
+ * Unit smoke: resolveParams (host fallback) / extract / infer / inject / merge.
+ * No AgentOS / OCCT required — pure host JS (degraded path double).
+ *
+ * Product schema path (guest syntax → POD) is exercised by:
+ *   node agent-os/smoke/params_syntax_smoke.mjs
  *
  *   node agent-os/smoke/params_smoke.mjs
  */
@@ -23,6 +26,7 @@ import {
   adjustInjectedDiagnostics,
   PARAMS_INJECT_LINE_COUNT,
 } from "../src/params/inject.js";
+import { applyParamValuesToSource } from "../src/params/luau-locals.js";
 import { adjustPreludeLines } from "../src/analyze-parse.js";
 import { FLANGE_SOURCE } from "../src/demos/block-hole-params.js";
 
@@ -306,6 +310,27 @@ build()
   expect(formatParamsTable({}) === "{}", "inject: empty table");
   const vals = valuesFromParams([{ name: "a", value: 1 }]);
   expect(vals.a === 1, "valuesFromParams");
+}
+
+// --- literal rewrite preserves trailing annotations (execute path) ---
+{
+  const user = `local width = 40 -- [16:120] mm\nlocal show = true -- view\nlocal z = -2\n`;
+  const rewritten = applyParamValuesToSource(user, {
+    width: 99,
+    show: false,
+    z: -5,
+  });
+  expect(rewritten.includes("local width = 99"), "rewrite: number");
+  expect(rewritten.includes("-- [16:120] mm"), "rewrite: keep trailing annotation");
+  expect(rewritten.includes("local show = false"), "rewrite: bool");
+  expect(rewritten.includes("-- view"), "rewrite: keep view scrub comment");
+  expect(rewritten.includes("local z = -5"), "rewrite: signed number");
+
+  const built = buildParamsInjectedSource(user, { width: 99, show: false, z: -5 });
+  expect(built.source.includes("local width = 99"), "build inject: rewritten width");
+  expect(built.source.includes("-- [16:120] mm"), "build inject: trailing kept");
+  expect(built.source.includes("_HOST_PARAMS"), "build inject: host table");
+  expect(built.source.includes("local show = false"), "build inject: bool rewrite");
 }
 
 // --- inject skip non-identifiers / non-literals ---

@@ -411,31 +411,45 @@ local base = solid.box({ dx = width, dy = depth, dz = 8 })
 
 **Ugly (legacy only):** a huge `--[[params …]]` table at the top of the file. Still parsed for compat, not recommended.
 
-### 16.2 Schema from source — `resolveParams(source, { seed? })`
+### 16.2 Schema from source — guest syntax → POD
 
-| Priority | Source | Notes |
-|----------|--------|-------|
-| **1 primary** | Header `local name = lit` + trailing comments | Static analysis (`luau-locals.js`) |
-| **2 legacy** | `--[[params]]`, `-- @param`, `P.number(...)` | Advanced / migration |
-| **seed** | Host defaults | Demo gaps only |
+**Product path (IR-shaped, same discipline as cad.ir):**
 
-Static analysis stops at the first geometry call / function so nested magic numbers are not inventing sliders.
+```
+guest Luau + require("syntax")  →  POD param list (JSON)
+JS host                         →  store / sheet / inject values only
+```
 
-Long-term: agent-os-master **syntax** service (tree-sitter Luau grammar) can replace the host line walk with a true AST; the authoring surface stays the same.
+| Layer | Piece | Notes |
+|-------|--------|-------|
+| **1 primary** | `batteries/params_resolve.luau` + loom `syntax` | Header `local name = lit` + trailing comments / `-- [Group]` |
+| **2 legacy** | `--[[params]]`, `-- @param`, `P.number(...)` | Host gap-fill only (not the authoring surface) |
+| **seed** | Host defaults | Demo migration gaps only |
+| **fallback** | `luau-locals.js` | Cold UI / unit tests without loom — **not product truth** |
+
+Worker op: `kind: "params_resolve"` with `{ source }` → stages battery → prints `__OCC_PARAMS_RESULT__` + JSON. Host uses `resolveParamsFromPods(pods, source, { seed? })`. CadEngine: `engine.resolveParams(source)`.
+
+Harvest stops at the first geometry call / function so nested magic numbers are not inventing sliders. `syntax` is lazy-resident on loom; first use may start the service.
+
+**Do not** reimplement Luau parsing in JS/C++ for product schema when guest `syntax` is available.
 
 ### 16.3 Execute binding
 
 On analyze/execute the host:
 
-1. Rewrites header local literals to live store values (comments preserved).
+1. Rewrites header local literals to live store values **from the POD values map** (comments preserved).
 2. Injects `_HOST_PARAMS` + `params = require("params")` for advanced `params.*` / registration APIs.
 
-The Monaco buffer is not rewritten on every scrub tick; run uses a transformed copy.
+The Monaco buffer is not rewritten on every scrub tick; run uses a transformed copy. Inject is value rewrite only — schema harvest stays guest syntax.
 
 ### 16.4 Tests
 
 ```bash
+# Host fallback / inject / merge (no loom)
 node agent-os/smoke/params_smoke.mjs
+
+# Product path: loom + syntax → POD (hard-fails if syntax missing)
+node agent-os/smoke/params_syntax_smoke.mjs
 ```
 
 ---
@@ -448,6 +462,7 @@ node agent-os/smoke/params_smoke.mjs
 | 2026-07-31 | **Split CADAM steals:** params/eval only here; view cube / ortho / lights / grid moved to DISPLAY |
 | 2026-08-02 | Framework `resolveParams` + inject-only execute; Luau-declared flange demo; params battery |
 | 2026-08-02 | **Primary authoring:** interleaved locals + trailing annotations; demote giant params block |
+| 2026-08-02 | **Params harvest = Luau + syntax → POD**; JS `luau-locals` demoted to cold/fallback only |
 
 ---
 

@@ -12,6 +12,7 @@ filegroup(
         "ir_unit_smoke.mjs",
         "solid_api_smoke.mjs",
         "params_smoke.mjs",
+        "params_syntax_smoke.mjs",
         "command_router_smoke.mjs",
         "run_node_smoke.sh",
     ],

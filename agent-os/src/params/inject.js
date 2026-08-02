@@ -6,8 +6,12 @@
  *   solid.box({ dx = width, … })
  *
  * On run we:
- *   1) rewrite header local literals to store values (preserves trailing comments)
+ *   1) rewrite header local literals to store values (from POD values map only)
  *   2) inject `_HOST_PARAMS` + `params = require("params")` for advanced/params.* use
+ *
+ * Rewrite uses applyParamValuesToSource (host position helper — inject offset
+ * truth today). Guest POD may carry litStart/litEnd for a future POD-driven
+ * rewrite; schema harvest remains guest syntax → POD, not this inject path.
  *
  * Staged shape (hot comments preserved at file head):
  *   --!strict

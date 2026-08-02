@@ -2,7 +2,7 @@
 
 export const PROTOCOL = 1;
 
-/** @typedef {"config"|"warm"|"analyze"|"execute"|"cancel"} CadRequestKind */
+/** @typedef {"config"|"warm"|"analyze"|"execute"|"params_resolve"|"cancel"} CadRequestKind */
 
 /**
  * @typedef {object} CadExecuteRequest
@@ -24,6 +24,14 @@ export const PROTOCOL = 1;
  * @typedef {object} CadWarmRequest
  * @property {number} id
  * @property {"warm"} kind
+ */
+
+/**
+ * Guest syntax harvest → POD param list (no host Luau parse).
+ * @typedef {object} CadParamsResolveRequest
+ * @property {number} id
+ * @property {"params_resolve"} kind
+ * @property {string} source
  */
 
 /**

@@ -1,10 +1,9 @@
 /**
- * Legacy explicit param forms (secondary).
+ * Legacy explicit param forms (secondary gap-fill on the host).
  *
- * Preferred authoring is interleaved locals — see luau-locals.js / resolve.js:
- *   local width = 40 -- [16:0.5:120] mm
- *
- * Still supported: --[[params]] blocks, -- @param lines, P.number(...) calls.
+ * Preferred authoring is interleaved locals harvested by guest syntax
+ * (batteries/params_resolve.luau). Still supported here:
+ *   --[[params]] blocks, -- @param lines, P.number(...) calls.
  */
 
 import { normalizeParam } from "./types.js";

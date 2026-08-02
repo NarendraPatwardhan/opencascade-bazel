@@ -2,7 +2,9 @@
  * Host loop: editor + param sheet + scheduler + worker + viewport.
  * sourceMode: 'demo' | 'editor'
  *
- * Params: resolveParams(source) → store; execute injects values (no source rewrite).
+ * Params (product): worker params_resolve → guest syntax POD → store.
+ * Cold UI only: sync resolveParams() fallback until VM is warm.
+ * Execute injects values from POD map (no host language analysis as schema truth).
  * View keys: viewport command-router consults editor.hasTextFocus().
  */
 
@@ -10,7 +12,10 @@ import { createViewport } from "./view/index.js";
 import { mountLuauEditor } from "./luau-editor.js";
 import { createParamStore } from "./params/store.js";
 import { mountParamSheet } from "./params/sheet.js";
-import { resolveParams } from "./params/resolve.js";
+import {
+  resolveParams,
+  resolveParamsFromPods,
+} from "./params/resolve.js";
 import { createScheduler } from "./eval/scheduler.js";
 import {
   BLOCK_HOLE_SEED,
@@ -55,8 +60,14 @@ let lastSchemaSig = "";
 /** @type {'demo'|'editor'} */
 let sourceMode = "demo";
 
+/** True after worker warm (params_resolve uses guest syntax). */
+let runtimeWarm = false;
+/** Generation token so stale async resolves are dropped. */
+let paramsResolveGen = 0;
+
 /**
- * Initial store from demo Luau declarations only (Luau is schema authority).
+ * Initial store: cold fallback (JS line walk) until AgentOS VM is warm, then
+ * product path re-resolves via guest require("syntax") → POD.
  * Seed is applied only in demo mode on re-resolve (migration gaps), never for
  * arbitrary editor buffers.
  */
@@ -182,15 +193,11 @@ function resolveSeed() {
 }
 
 /**
- * Re-resolve param schema from source into the store.
- * Empty resolve clears the sheet (no sticky ghost schema).
- * @param {string} [src]
+ * Apply a resolved Parameter[] into the store (shared by cold + guest paths).
+ * @param {import('./params/types.js').Parameter[]} resolved
  * @param {{ preserveValues?: boolean, force?: boolean }} [opts]
  */
-function syncParamsFromSource(src, opts = {}) {
-  const source = src ?? getSource();
-  const seed = resolveSeed();
-  const resolved = resolveParams(source, seed ? { seed } : {});
+function applyResolvedParams(resolved, opts = {}) {
   if (!resolved.length) {
     if (paramStore.list().length) {
       lastSchemaSig = "";
@@ -204,6 +211,66 @@ function syncParamsFromSource(src, opts = {}) {
   if (!opts.force && sig === lastSchemaSig) return;
   lastSchemaSig = sig;
   paramStore.replace(list);
+}
+
+/**
+ * Cold / degraded: host-side resolveParams (luau-locals fallback).
+ * Used only before runtimeWarm or if guest path errors.
+ * @param {string} [src]
+ * @param {{ preserveValues?: boolean, force?: boolean }} [opts]
+ */
+function syncParamsFromSourceFallback(src, opts = {}) {
+  const source = src ?? getSource();
+  const seed = resolveSeed();
+  const resolved = resolveParams(source, seed ? { seed } : {});
+  applyResolvedParams(resolved, opts);
+}
+
+/**
+ * Product path: worker params_resolve → guest syntax POD → store.
+ * @param {string} [src]
+ * @param {{ preserveValues?: boolean, force?: boolean }} [opts]
+ */
+async function syncParamsFromSourceGuest(src, opts = {}) {
+  const source = src ?? getSource();
+  const seed = resolveSeed();
+  const gen = ++paramsResolveGen;
+  await ensureConfigured();
+  const reply = await callWorker(
+    { kind: "params_resolve", source },
+    120_000,
+  );
+  if (gen !== paramsResolveGen) return;
+  if (reply.code !== 0) {
+    const err = reply.error || `params_resolve code ${reply.code}`;
+    appendLog(`params_resolve (syntax) failed: ${err}`);
+    // Degraded: keep sheet usable via host fallback (document as non-product).
+    syncParamsFromSourceFallback(source, opts);
+    return;
+  }
+  const resolved = resolveParamsFromPods(
+    reply.params || [],
+    source,
+    seed ? { seed } : {},
+  );
+  applyResolvedParams(resolved, opts);
+}
+
+/**
+ * Re-resolve param schema from source into the store.
+ * When VM is warm, product path is guest syntax; else cold fallback.
+ * @param {string} [src]
+ * @param {{ preserveValues?: boolean, force?: boolean }} [opts]
+ */
+function syncParamsFromSource(src, opts = {}) {
+  if (runtimeWarm) {
+    void syncParamsFromSourceGuest(src, opts).catch((err) => {
+      appendLog(`params_resolve failed: ${err.message}`);
+      syncParamsFromSourceFallback(src, opts);
+    });
+    return;
+  }
+  syncParamsFromSourceFallback(src, opts);
 }
 
 function scheduleParamsResolve(source) {
@@ -234,8 +301,15 @@ function ensureWorker() {
     const slot = pending.get(msg.id);
     if (!slot) return;
     pending.delete(msg.id);
-    if (msg.kind === "analyze" || msg.code === 0) slot.resolve(msg);
-    else {
+    // analyze + params_resolve always resolve structured replies (soft-fail via code).
+    // execute/warm/config reject on nonzero so runSource still throws hard errors.
+    if (
+      msg.kind === "analyze" ||
+      msg.kind === "params_resolve" ||
+      msg.code === 0
+    ) {
+      slot.resolve(msg);
+    } else {
       const err = new Error(msg.error || `worker code ${msg.code}`);
       /** @type {any} */ (err).diagnostics = msg.diagnostics;
       /** @type {any} */ (err).stdout = msg.stdout;
@@ -510,6 +584,22 @@ async function autoWarm() {
     setStatus("Loading runtime…");
     await ensureConfigured();
     const reply = await callWorker({ kind: "warm" }, 300_000);
+    runtimeWarm = true;
+    // Product path re-harvest; never fail Ready if only schema path degrades.
+    try {
+      await syncParamsFromSourceGuest(getSource(), {
+        preserveValues: true,
+        force: true,
+      });
+    } catch (harvestErr) {
+      appendLog(
+        `params_resolve after warm failed: ${harvestErr instanceof Error ? harvestErr.message : String(harvestErr)}`,
+      );
+      syncParamsFromSourceFallback(getSource(), {
+        preserveValues: true,
+        force: true,
+      });
+    }
     setStatus(`Ready · OCCT ${reply.meta?.occVersion || "?"}`);
   } catch (err) {
     setStatus(err.message, true);

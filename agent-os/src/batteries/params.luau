@@ -10,8 +10,8 @@
 --   local P = require("params"); P.number(...)     -- equivalent
 --
 -- Registrations do not invent host-side sheet entries at runtime; the host
--- resolves schema from source (resolveParams). At runtime this battery returns
--- injected values, falling back to opts.default.
+-- resolves schema via guest params_resolve + syntax (POD), with cold JS fallback.
+-- At runtime this battery returns injected values, falling back to opts.default.
 
 local M = {}
 

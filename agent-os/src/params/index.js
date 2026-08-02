@@ -1,7 +1,10 @@
 /**
  * Framework params public surface.
  *
- *   import { resolveParams, injectParamsPrelude, createParamStore } from './params/index.js'
+ * Product schema path: guest syntax → POD → resolveParamsFromPods
+ * (worker kind "params_resolve"). resolveParams() is cold/fallback only.
+ *
+ *   import { resolveParamsFromPods, injectParamsPrelude, createParamStore } from './params/index.js'
  */
 
 export { normalizeParam, clampParam, autoStep } from "./types.js";
@@ -13,7 +16,12 @@ export {
   applyParamValuesToSource,
   parseTrailingAnnotation,
 } from "./luau-locals.js";
-export { resolveParams } from "./resolve.js";
+export {
+  resolveParams,
+  resolveParamsFromPods,
+  normalizeParamPods,
+  mergeParamLayers,
+} from "./resolve.js";
 export {
   injectParamsPrelude,
   buildParamsInjectedSource,

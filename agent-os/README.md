@@ -124,7 +124,7 @@ Host meshes the finished root and returns positions/normals/indices to the page.
 
 ## Parameters (framework)
 
-Params are **normal Luau locals** discovered by static analysis (see root [`REACTIVITY.md`](../REACTIVITY.md) §16). Optional trailing annotations, not a giant top block.
+Params are **normal Luau locals**. Harvest is **guest Luau + `require("syntax")` → pure POD** (same layering as cad.ir). Optional trailing annotations, not a giant top block. See root [`REACTIVITY.md`](../REACTIVITY.md) §16.
 
 ```luau
 local solid = require("solid")
@@ -138,12 +138,19 @@ local base = solid.box({ dx = width, dy = depth, dz = 8 })
 
 | Piece | Path |
 |-------|------|
-| Static analysis | [`src/params/luau-locals.js`](src/params/luau-locals.js) |
-| `resolveParams` / inject | [`src/params/`](src/params/) |
+| **Product harvest** | [`src/batteries/params_resolve.luau`](src/batteries/params_resolve.luau) + loom `syntax` |
+| Worker op | `kind: "params_resolve"` → `__OCC_PARAMS_RESULT__` + JSON |
+| Host merge / inject | [`src/params/`](src/params/) (`resolveParamsFromPods`) |
+| Fallback (cold / unit) | [`src/params/luau-locals.js`](src/params/luau-locals.js) — not product truth |
 | Sheet + store | `sheet.js`, `store.js` |
 | Demo | `src/demos/block-hole-params.js` — interleaved locals |
 
-On run, the host rewrites header local literals to live values and injects optional `params` for advanced APIs. The Monaco buffer is not rewritten on every scrub tick.
+On run, the host rewrites header local literals from the **values map** and injects optional `params` for advanced APIs. The Monaco buffer is not rewritten on every scrub tick.
+
+```bash
+node agent-os/smoke/params_syntax_smoke.mjs   # syntax path (needs vendor loom)
+node agent-os/smoke/params_smoke.mjs          # host fallback / inject unit tests
+```
 
 ## View command focus
 

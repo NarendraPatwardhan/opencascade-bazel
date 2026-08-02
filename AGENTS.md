@@ -150,6 +150,7 @@ Bazel version: see `.bazelversion`. C++17, `-fPIC`, hidden visibility, BuildBudd
 - Geometry: host tools → `createOccModule` / `occ_*`; guest holds shape **IDs** only.
 - Never freestanding-port OCCT or run it as an mc/wasmi guest.
 - Do not commit freestanding Steamboat-style Luau as the product path (local design notes in gitignored `scripting/` may still exist).
+- **Metaprogramming / structural Luau:** use guest `require("syntax")` (loom ships `bin/syntax` + `lib/luau/syntax.luau`). Do **not** reimplement Luau parsing in JS or expand host-side regex AST clones for product paths. Host consumes **POD only** (same layering as cad.ir). Param harvest: `batteries/params_resolve.luau` → `__OCC_PARAMS_RESULT__` JSON; worker kind `params_resolve`.
 
 ## Documentation hygiene
 

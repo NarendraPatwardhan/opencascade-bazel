@@ -4,8 +4,9 @@
  *
  *   local width = 40 -- [16:0.5:120] mm
  *
- * Host resolveParams() static-analyzes header locals; execute rewrites
- * literals to live store values and still injects `params` for advanced use.
+ * Schema harvest (product): guest require("syntax") via params_resolve battery
+ * → POD → host store. Execute rewrites literals from the values map and injects
+ * `params` for advanced use.
  */
 
 /** Optional seed (demo migration gaps only). */
