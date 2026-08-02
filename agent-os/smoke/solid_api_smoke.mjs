@@ -150,9 +150,10 @@ local pipe2 = route.pipe_run({
 })
 assert(query.volume(pipe2) > 0, "pipe_run volume")
 
--- Equipment envelope for clash
+-- Equipment envelope for clash (realize IR solid handles → host ids for query.*)
 local eq = solid.box({ dx = 0.3, dy = 0.3, dz = 0.3 })
 eq = solid.translate(eq, { dx = 0.85, dy = 0.35, dz = -0.1 })
+eq = solid.realize(eq)
 local clash = query.clash(pipe, eq, 0.0)
 assert(type(clash.status) == "number", "clash status")
 assert(type(clash.name) == "string" and #clash.name > 0, "clash name")
@@ -176,7 +177,7 @@ local fr = frames.from_axes({
 assert(almost_eq(fr.ox, 1) and almost_eq(fr.oz, 3), "from_axes origin")
 assert(almost_eq(fr.zz, 1) and almost_eq(fr.xx, 1), "from_axes axes")
 
-local link = solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 })
+local link = solid.realize(solid.box({ dx = 0.1, dy = 0.1, dz = 0.3 }))
 local bb0 = query.bbox(link)
 local chain = frames.compose_chain({
   origins = { { 0, 0, 0.5 } },
@@ -211,7 +212,7 @@ assert(type(same) == "number", "trsf_apply identity")
 -- =====================================================================
 -- 4) solid high-ROI: drill volume drop, mass shape, shell, revolve, member, step
 -- =====================================================================
-local block = solid.box({ dx = 0.2, dy = 0.2, dz = 0.1 })
+local block = solid.realize(solid.box({ dx = 0.2, dy = 0.2, dz = 0.1 }))
 local vol0 = query.volume(block)
 local drilled = solid.drill_through(block, {
   origin = { 0.1, 0.1, 0.05 },
@@ -233,7 +234,7 @@ end
 local stats = solid.mesh_stats(drilled, 0.05)
 assert(type(stats.vertexCount) == "number" and stats.vertexCount > 0, "mesh_stats")
 
-local blind_block = solid.box({ dx = 0.1, dy = 0.1, dz = 0.1 })
+local blind_block = solid.realize(solid.box({ dx = 0.1, dy = 0.1, dz = 0.1 }))
 local vol_b0 = query.volume(blind_block)
 local blind = solid.drill_blind(blind_block, {
   origin = { 0.05, 0.05, 0.1 },
@@ -245,7 +246,7 @@ local vol_b1 = query.volume(blind)
 assert(vol_b1 < vol_b0, "blind drill removes material")
 
 -- shell: open one face (1-based); negative thickness = inward for MakeThickSolid
-local shell_box = solid.box({ dx = 0.05, dy = 0.05, dz = 0.05 })
+local shell_box = solid.realize(solid.box({ dx = 0.05, dy = 0.05, dz = 0.05 }))
 local vol_shell0 = query.volume(shell_box)
 local shelled = solid.shell(shell_box, { faces = { 6 }, thickness = -0.005 })
 assert(type(shelled) == "number", "shell id")

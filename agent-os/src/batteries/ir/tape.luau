@@ -233,9 +233,16 @@ function tape.pattern_linear(id: string, opts: any): string
 end
 
 --- Evaluate recorded IR; return host shape id for root handle.
+--- skip_free_all so mid-session realize() does not wipe route/frame host shapes.
 function tape.eval_to_shape(root: string, opts: any?): number
+	local o: { [string]: any } = { root = root, skip_free_all = true }
+	if type(opts) == "table" then
+		for k, v in pairs(opts) do
+			o[k] = v
+		end
+	end
 	local doc = tape.document()
-	local res = eval_mod.eval(doc, opts or { root = root })
+	local res = eval_mod.eval(doc, o)
 	if errors.is_fail(res) or res.ok == false then
 		local e = (res :: any).error or res
 		error(tostring((e :: any).message or (e :: any).code or "IR tape eval failed"))

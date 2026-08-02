@@ -195,42 +195,34 @@ export type StepWriteOpts = {
 
 local solid = {}
 
--- Lazy require so Path B works even if ir/ is not staged (pure solid smoke).
-local function tape_mod(): any?
+-- solid.* is always IR: geometry calls record cad.ir ops; finish evaluates.
+-- There is no direct-host "Path B" for solid authoring.
+local function tape(): any
 	local ok, t = pcall(function()
 		return require("ir.tape")
 	end)
-	if ok then
-		return t
+	if not ok or t == nil then
+		error('solid: require("ir.tape") unavailable — stage batteries/ir/')
 	end
-	return nil
+	if not t.is_enabled() then
+		t.begin("solid")
+	end
+	return t
 end
 
-local function recording(): boolean
-	local t = tape_mod()
-	return t ~= nil and t.is_enabled()
+local function is_ir_handle(id: any): boolean
+	local ok, t = pcall(function()
+		return require("ir.tape")
+	end)
+	return ok and t ~= nil and t.is_handle(id)
 end
 
---- Enable IR tape: subsequent solid.* geometry calls record cad.ir ops instead of
---- calling the host immediately. solid.finish evaluates the IR document.
---- Pass false to return to direct host Path B.
-function solid.use_ir(on: boolean?)
-	local t = tape_mod()
-	if not t then
-		if on == false then
-			return
-		end
-		error('solid.use_ir: require("ir.tape") unavailable — stage batteries/ir/')
+--- Materialize IR tape through root handle → host shape id (for host-only tools).
+function solid.realize(rootId: ShapeId): number
+	if type(rootId) == "number" then
+		return rootId
 	end
-	if on == false then
-		t.end_recording()
-	else
-		t.begin("solid_tape")
-	end
-end
-
-function solid.ir_recording(): boolean
-	return recording()
+	return tape().eval_to_shape(rootId :: string)
 end
 
 local function call(op: string, args: { [string]: any }): any
@@ -255,59 +247,29 @@ local function call(op: string, args: { [string]: any }): any
 	return res.data
 end
 
+local function host_id(id: ShapeId): number
+	if type(id) == "number" then
+		return id
+	end
+	if is_ir_handle(id) then
+		return solid.realize(id)
+	end
+	error("solid: expected IR handle or host shape id, got " .. type(id))
+end
+
 function solid.box(opts: BoxOpts?): ShapeId
 	local o: BoxOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).prim_box(o)
-	end
-	local data = call("make_box", {
-		dx = o.dx or o.x or 10,
-		dy = o.dy or o.y or 10,
-		dz = o.dz or o.z or 10,
-	})
-	local id = data.shapeId
-	-- Direct host has no corner param; approximate centered_xy_bottom
-	if o.corner == "centered_xy_bottom" then
-		local dx = o.dx or o.x or 10
-		local dy = o.dy or o.y or 10
-		id = call("translate", { id = id, dx = -dx / 2, dy = -dy / 2, dz = 0 }).shapeId
-	end
-	return id
+	return tape().prim_box(o)
 end
 
 function solid.cylinder(opts: CylinderOpts?): ShapeId
 	local o: CylinderOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).prim_cylinder(o)
-	end
-	local origin = o.origin or {}
-	local axis = o.axis or { 0, 0, 1 }
-	local data = call("make_cylinder", {
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		ax = axis[1] or 0,
-		ay = axis[2] or 0,
-		az = axis[3] or 1,
-		radius = o.radius or 1,
-		height = o.height or 1,
-	})
-	return data.shapeId
+	return tape().prim_cylinder(o)
 end
 
 function solid.sphere(opts: SphereOpts?): ShapeId
 	local o: SphereOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).prim_sphere(o)
-	end
-	local origin = o.origin or {}
-	local data = call("make_sphere", {
-		cx = origin[1] or o.cx or 0,
-		cy = origin[2] or o.cy or 0,
-		cz = origin[3] or o.cz or 0,
-		radius = o.radius or 1,
-	})
-	return data.shapeId
+	return tape().prim_sphere(o)
 end
 
 function solid.cone(opts: ConeOpts?): ShapeId
@@ -346,63 +308,32 @@ function solid.torus(opts: TorusOpts?): ShapeId
 end
 
 function solid.fuse(a: ShapeId, b: ShapeId): ShapeId
-	if recording() then
-		return (tape_mod() :: any).bool("union", a :: string, b :: string)
-	end
-	return call("fuse", { a = a, b = b }).shapeId
+	return tape().bool("union", a :: string, b :: string)
 end
 
 function solid.cut(a: ShapeId, b: ShapeId): ShapeId
-	if recording() then
-		return (tape_mod() :: any).bool("subtract", a :: string, b :: string)
-	end
-	return call("cut", { a = a, b = b }).shapeId
+	return tape().bool("subtract", a :: string, b :: string)
 end
 
 function solid.intersect(a: ShapeId, b: ShapeId): ShapeId
-	if recording() then
-		return (tape_mod() :: any).bool("intersect", a :: string, b :: string)
-	end
-	return call("intersect", { a = a, b = b }).shapeId
+	return tape().bool("intersect", a :: string, b :: string)
 end
 
 function solid.translate(id: ShapeId, opts: TranslateOpts?): ShapeId
 	local o: TranslateOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).translate(id :: string, o)
-	end
-	return call("translate", {
-		id = id,
-		dx = o.dx or 0,
-		dy = o.dy or 0,
-		dz = o.dz or 0,
-	}).shapeId
+	return tape().translate(id :: string, o)
 end
 
 function solid.rotate(id: ShapeId, opts: RotateOpts?): ShapeId
 	local o: RotateOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).rotate(id :: string, o)
-	end
-	local origin = o.origin or {}
-	local axis = o.axis or {}
-	return call("rotate", {
-		id = id,
-		px = origin[1] or o.px or 0,
-		py = origin[2] or o.py or 0,
-		pz = origin[3] or o.pz or 0,
-		ax = axis[1] or o.ax or 0,
-		ay = axis[2] or o.ay or 0,
-		az = axis[3] or o.az or 1,
-		angle = o.angle or o.angle_rad or 0,
-	}).shapeId
+	return tape().rotate(id :: string, o)
 end
 
 function solid.scale(id: ShapeId, opts: ScaleOpts?): ShapeId
 	local o: ScaleOpts = if opts then opts else {}
 	local origin = o.origin or {}
 	return call("scale", {
-		id = id,
+		id = host_id(id),
 		cx = origin[1] or o.cx or 0,
 		cy = origin[2] or o.cy or 0,
 		cz = origin[3] or o.cz or 0,
@@ -415,7 +346,7 @@ function solid.mirror(id: ShapeId, opts: MirrorOpts?): ShapeId
 	local point = o.point or {}
 	local normal = o.normal or {}
 	return call("mirror", {
-		id = id,
+		id = host_id(id),
 		px = point[1] or o.px or 0,
 		py = point[2] or o.py or 0,
 		pz = point[3] or o.pz or 0,
@@ -428,7 +359,7 @@ end
 function solid.extrude(profile: ShapeId, opts: ExtrudeOpts?): ShapeId
 	local o: ExtrudeOpts = if opts then opts else {}
 	return call("extrude", {
-		profile = profile,
+		profile = host_id(profile),
 		dx = o.dx or 0,
 		dy = o.dy or 0,
 		dz = o.dz or 1,
@@ -436,70 +367,46 @@ function solid.extrude(profile: ShapeId, opts: ExtrudeOpts?): ShapeId
 end
 
 function solid.pipe(profile: ShapeId, spine: ShapeId): ShapeId
-	return call("pipe", { profile = profile, spine = spine }).shapeId
+	return call("pipe", { profile = host_id(profile), spine = host_id(spine) }).shapeId
 end
 
 function solid.fillet_all(id: ShapeId, opts: FilletOpts?): ShapeId
 	local o: FilletOpts = if opts then opts else {}
-	return call("fillet_all", { id = id, radius = o.radius or 0.5 }).shapeId
+	return call("fillet_all", { id = host_id(id), radius = o.radius or 0.5 }).shapeId
 end
 
 function solid.pattern_linear(id: ShapeId, opts: PatternLinearOpts?): ShapeId
 	local o: PatternLinearOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).pattern_linear(id :: string, o)
-	end
-	return call("pattern_linear", {
-		id = id,
-		dx = o.dx or 0,
-		dy = o.dy or 0,
-		dz = o.dz or 0,
-		count = o.count or 2,
-	}).shapeId
+	return tape().pattern_linear(id :: string, o)
 end
 
 function solid.pattern_polar(id: ShapeId, opts: PatternPolarOpts?): ShapeId
 	local o: PatternPolarOpts = if opts then opts else {}
-	if recording() then
-		return (tape_mod() :: any).pattern_polar(id :: string, o)
-	end
-	local origin = o.origin or {}
-	local axis = o.axis or {}
-	return call("pattern_polar", {
-		id = id,
-		px = origin[1] or o.px or 0,
-		py = origin[2] or o.py or 0,
-		pz = origin[3] or o.pz or 0,
-		ax = axis[1] or o.ax or 0,
-		ay = axis[2] or o.ay or 0,
-		az = axis[3] or o.az or 1,
-		angle_step = o.angle_step or o.angle_step_rad or (math.pi / 2),
-		count = o.count or 4,
-	}).shapeId
+	return tape().pattern_polar(id :: string, o)
 end
 
 function solid.clash(a: ShapeId, b: ShapeId, clearance: number?): any
-	return call("clash", { a = a, b = b, clearance = clearance or 0 })
+	return call("clash", { a = host_id(a), b = host_id(b), clearance = clearance or 0 })
 end
 
 function solid.distance(a: ShapeId, b: ShapeId): any
-	return call("distance", { a = a, b = b })
+	return call("distance", { a = host_id(a), b = host_id(b) })
 end
 
 function solid.volume(id: ShapeId): number
-	return call("volume", { id = id }).volume
+	return call("volume", { id = host_id(id) }).volume
 end
 
 function solid.bbox(id: ShapeId): any
-	return call("bbox", { id = id }).bbox
+	return call("bbox", { id = host_id(id) }).bbox
 end
 
 function solid.mesh_stats(id: ShapeId, deflection: number?): any
-	return call("mesh_stats", { id = id, deflection = deflection or 0.1 })
+	return call("mesh_stats", { id = host_id(id), deflection = deflection or 0.1 })
 end
 
 function solid.mass_properties(id: ShapeId, density: number?): any
-	return call("mass_properties", { id = id, density = density or 1 })
+	return call("mass_properties", { id = host_id(id), density = density or 1 })
 end
 
 --- Planar rectangle face (profile for extrude/revolve). Center + normal + width×height.
@@ -538,12 +445,13 @@ function solid.face_rectangle(opts: {
 end
 
 --- Revolve a profile about an axis by angle (radians).
+--- Profile must be a host shape (face_rectangle); IR solid handles need solid.realize first.
 function solid.revolve(profile: ShapeId, opts: RevolveOpts?): ShapeId
 	local o: RevolveOpts = if opts then opts else {}
 	local origin = o.origin or {}
 	local axis = o.axis or {}
 	return call("revolve", {
-		profile = profile,
+		profile = host_id(profile),
 		px = origin[1] or o.px or 0,
 		py = origin[2] or o.py or 0,
 		pz = origin[3] or o.pz or 0,
@@ -566,7 +474,7 @@ function solid.offset(id: ShapeId, opts: OffsetOpts | number): ShapeId
 	if type(offset) ~= "number" then
 		error("solid.offset: offset (or distance) required")
 	end
-	return call("offset_3d", { id = id, offset = offset }).shapeId
+	return call("offset_3d", { id = host_id(id), offset = offset }).shapeId
 end
 
 --- Shell (hollow) by opening 1-based face indices with thickness.
@@ -575,6 +483,7 @@ function solid.shell(id: ShapeId, opts: ShellOpts): ShapeId
 	if type(o) ~= "table" or type(o.faces) ~= "table" then
 		error("solid.shell: opts.faces (1-based indices) required")
 	end
+	id = host_id(id)
 	return call("shell", {
 		id = id,
 		faces = o.faces,
@@ -593,7 +502,7 @@ function solid.drill_through(id: ShapeId, opts: DrillOpts): ShapeId
 		error("solid.drill_through: diameter required")
 	end
 	return call("drill_hole_through", {
-		id = id,
+		id = host_id(id),
 		cx = origin[1] or o.cx or o.ox or 0,
 		cy = origin[2] or o.cy or o.oy or 0,
 		cz = origin[3] or o.cz or o.oz or 0,
@@ -618,7 +527,7 @@ function solid.drill_blind(id: ShapeId, opts: DrillOpts): ShapeId
 		error("solid.drill_blind: depth required")
 	end
 	return call("drill_hole_blind", {
-		id = id,
+		id = host_id(id),
 		ox = origin[1] or o.ox or o.cx or 0,
 		oy = origin[2] or o.oy or o.cy or 0,
 		oz = origin[3] or o.oz or o.cz or 0,
@@ -642,7 +551,7 @@ function solid.member_sweep_rect(spine: ShapeId, opts: MemberSweepRectOpts): Sha
 	return call("member_sweep_rect", {
 		width = width,
 		height = height,
-		spine = spine,
+		spine = host_id(spine),
 	}).shapeId
 end
 
@@ -651,7 +560,7 @@ function solid.trsf_apply(id: ShapeId, matrix4x4: { number }): ShapeId
 	if type(matrix4x4) ~= "table" or #matrix4x4 < 16 then
 		error("solid.trsf_apply: matrix4x4 length 16 required")
 	end
-	return call("trsf_apply", { id = id, matrix4x4 = matrix4x4 }).shapeId
+	return call("trsf_apply", { id = host_id(id), matrix4x4 = matrix4x4 }).shapeId
 end
 
 --- Place shape by 4×4 matrix only (alias of trsf_apply). For chain FK use frames.place_at_chain.
@@ -659,19 +568,20 @@ function solid.place(id: ShapeId, matrix4x4: { number }): ShapeId
 	return solid.trsf_apply(id, matrix4x4)
 end
 
---- Free one host shape id (best-effort).
+--- Free one host shape id (best-effort). IR handles are not host pointers.
 function solid.free(id: ShapeId)
+	if is_ir_handle(id) then
+		return
+	end
 	call("shape_free", { id = id })
 end
 
---- Free all host shapes (Path B cleanup / IR K17 parity).
+--- Free all host shapes (K17 / session cleanup).
 function solid.free_all()
 	call("free_all", {})
 end
 
 --- Write STEP to Emscripten MEMFS path (browser/Node wasm FS only in v0).
---- Prefer a unique path (e.g. "/tmp/part_<name>.step"); default is easy to clobber.
---- Seed home for IO; future cad.io may re-export.
 function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 	local path: string
 	if type(opts) == "string" then
@@ -683,32 +593,26 @@ function solid.step_write(id: ShapeId, opts: StepWriteOpts | string): any
 	if type(path) ~= "string" or path == "" then
 		error('solid.step_write: path required (e.g. "/tmp/part.step")')
 	end
-	return call("step_write", { id = id, path = path })
+	return call("step_write", { id = host_id(id), path = path })
 end
 
--- Emit a single JSON result line the host can parse.
--- If IR tape is active (or rootId is a tape handle "@…"), evaluate the IR document first.
+-- Evaluate IR tape for root handle and emit host mesh marker.
 function solid.finish(rootId: ShapeId, extra: FinishExtra?): ShapeId
-	local t = tape_mod()
-	if t and (t.is_enabled() or t.is_handle(rootId)) then
-		if not t.is_enabled() then
-			error("solid.finish: tape handle without active recording")
+	if type(rootId) == "number" then
+		-- Already a host id (e.g. after realize); emit marker only.
+		local payload: { [string]: any } = { schema = 1, root = rootId }
+		if type(extra) == "table" then
+			for k, v in pairs(extra) do
+				payload[k] = v
+			end
 		end
-		local hostId = t.finish(rootId :: string, extra)
-		t.end_recording()
-		return if hostId ~= 0 then hostId else rootId
+		print("__OCC_CAD_RESULT__" .. json.encode(payload))
+		return rootId
 	end
-	local payload: { [string]: any } = {
-		schema = 1,
-		root = rootId,
-	}
-	if type(extra) == "table" then
-		for k, v in pairs(extra) do
-			payload[k] = v
-		end
-	end
-	print("__OCC_CAD_RESULT__" .. json.encode(payload))
-	return rootId
+	local t = tape()
+	local hostId = t.finish(rootId :: string, extra)
+	t.end_recording()
+	return if hostId ~= 0 then hostId else rootId
 end
 
 return solid

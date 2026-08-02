@@ -1,9 +1,8 @@
 /**
  * Main parametric demo: flange-style plate (base + boss + bore + bolt circle).
  *
- * Host owns params (BLOCK_HOLE_PARAMS); editor shows **clean Luau** only.
- * solid.use_ir(true) records solid.* into cad.ir; solid.finish evaluates IR.
- * Users do not write IR tables — they write solid.box / fuse / cut / pattern.
+ * Host owns params; editor shows clean solid.* Luau only.
+ * solid.* always records cad.ir; solid.finish evaluates (no use_ir / no Path B).
  */
 
 /** @type {import('../params/types.js').Parameter[]} */
@@ -142,14 +141,8 @@ export const BLOCK_HOLE_PARAMS = [
 ];
 
 /**
- * Clean Luau for the editor / worker.
- * solid.use_ir(true) → solid.* records IR → solid.finish evaluates IR.
- *
- * Model numbers match the param sheet (same scale as the original box+hole
- * demo: width=40 fills the view). Do **not** convert UI "mm" labels to SI
- * meters here — that made the part ~1000× too small next to the gizmo.
- * (IR schema still says store=SI; this demo uses consistent model units.)
- *
+ * Clean Luau — solid.* always lowers to IR; finish evaluates.
+ * Model units = param numbers (same scale as original demo).
  * @param {Record<string, any>} values
  */
 export function blockHoleSource(values) {
@@ -166,13 +159,9 @@ export function blockHoleSource(values) {
   const throughH = h + bossH + 4;
   const zTool = -2;
 
-  return `-- Flange plate: clean Luau → IR tape → eval → mesh
--- (solid.use_ir records cad.ir ops; finish evaluates them)
+  return `-- Flange plate: clean solid.* (always → IR → mesh)
 local solid = require("solid")
 
-solid.use_ir(true)
-
--- Base plate (centered on XY)
 local base = solid.box({
   dx = ${w},
   dy = ${d},
@@ -180,7 +169,6 @@ local base = solid.box({
   corner = "centered_xy_bottom",
 })
 
--- Raised boss
 local boss = solid.cylinder({
   radius = ${bossR},
   height = ${bossH},
@@ -189,7 +177,6 @@ local boss = solid.cylinder({
 })
 local body = solid.fuse(base, boss)
 
--- Center through-bore
 local bore = solid.cylinder({
   radius = ${holeR},
   height = ${throughH},
@@ -198,7 +185,6 @@ local bore = solid.cylinder({
 })
 body = solid.cut(body, bore)
 
--- Bolt circle
 local bolt = solid.cylinder({
   radius = ${boltR},
   height = ${throughH},

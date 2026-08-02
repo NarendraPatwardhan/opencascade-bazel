@@ -1,9 +1,6 @@
--- Flange plate via clean Luau → IR tape (same scale as main browser demo).
--- Param numbers are model units (same as the original box+hole demo: ~40 units wide).
+-- Flange plate: clean solid.* always lowers to IR (no use_ir).
 package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path
 local solid = require("solid")
-
-solid.use_ir(true)
 
 local w, d, h = 40, 40, 8
 local boss_r, boss_h = 12, 10

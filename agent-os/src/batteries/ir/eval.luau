@@ -217,13 +217,16 @@ function eval_mod.eval(doc: any, opts: any?): any
 
 	local caps = limits_mod.merge(opts)
 
-	-- K17: host freeAll + empty env at full eval start (fail closed if free fails)
-	local free_ok, free_err = host.free_all()
-	if not free_ok then
-		return errors.fail("IR_ERR_HOST", {
-			message = "free_all failed at eval start: " .. tostring(free_err),
-			host_op = "free_all",
-		})
+	-- K17: host freeAll + empty env at full eval start (fail closed if free fails).
+	-- skip_free_all: solid.realize mid-session must not wipe unrelated host shapes (route/frames).
+	if not opts.skip_free_all then
+		local free_ok, free_err = host.free_all()
+		if not free_ok then
+			return errors.fail("IR_ERR_HOST", {
+				message = "free_all failed at eval start: " .. tostring(free_err),
+				host_op = "free_all",
+			})
+		end
 	end
 	local env = new_env()
 	seed_frames(d, env)
