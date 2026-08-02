@@ -20,7 +20,8 @@ import { executeCacheKey, MeshResultCache } from "./memo-cache.js";
 // methods — never replace globalThis.crypto (that deleted randomUUID before).
 ensureWebCrypto();
 
-let assetBase = "/agent-os/";
+/** Absolute asset root ending in /. Path-only "/agent-os/" is invalid for URL(). */
+let assetBase = "";
 /** @type {import('./occ-bridge.js').OccBridge | null} */
 let occ = null;
 /** @type {any} */
@@ -170,8 +171,27 @@ async function fetchText(url) {
   return res.text();
 }
 
+/**
+ * Absolute URL base for kernel/loom/wasm fetches.
+ * Coerces path-only values ("/agent-os/") against the worker origin.
+ */
 function base() {
-  return assetBase.endsWith("/") ? assetBase : assetBase + "/";
+  let b = assetBase || "/agent-os/";
+  if (!b.endsWith("/")) b += "/";
+  try {
+    // new URL(rel, base) requires an absolute base — not "/agent-os/".
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(b)) {
+      const origin =
+        (typeof self !== "undefined" &&
+          self.location &&
+          self.location.origin) ||
+        "http://127.0.0.1";
+      b = new URL(b, origin + "/").href;
+    }
+  } catch {
+    /* keep b */
+  }
+  return b.endsWith("/") ? b : `${b}/`;
 }
 
 /** AgentOS VM only (for luau-analyze). Does not load OCCT. */
@@ -868,21 +888,16 @@ self.onmessage = (ev) => {
   void enqueue(async () => {
     try {
       if (msg.kind === "config" && msg.assetBase) {
-        const next = msg.assetBase.endsWith("/")
-          ? msg.assetBase
-          : msg.assetBase + "/";
-        if (next !== base()) {
-          assetBase = msg.assetBase;
-          resetBatteryStaging();
-        } else {
-          assetBase = msg.assetBase;
-        }
+        const prev = base();
+        assetBase = String(msg.assetBase);
+        const next = base();
+        if (next !== prev) resetBatteryStaging();
         self.postMessage({
           id: msg.id ?? 0,
           kind: "config",
           code: 0,
           diagnostics: [],
-          meta: { assetBase },
+          meta: { assetBase: next },
         });
         return;
       }

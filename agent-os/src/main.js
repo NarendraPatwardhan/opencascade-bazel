@@ -40,6 +40,9 @@ const DEFLECTION_COMMIT = 0.18;
  * Production stages main under /agent-os/app/<hash>/ so import.meta parent is
  * not the stage root — prefer <meta name="occ-asset-base"> from index.html.
  * Local dev (…/src/main.js) falls back to parent of src/.
+ *
+ * MUST be an absolute URL (https://host/agent-os/). Path-only "/agent-os/" is
+ * not a valid base for `new URL(rel, base)` → "Invalid base URL".
  */
 function resolveAssetBase() {
   try {
@@ -47,7 +50,15 @@ function resolveAssetBase() {
       typeof document !== "undefined" &&
       document.querySelector('meta[name="occ-asset-base"]');
     const c = el && String(el.getAttribute("content") || "").trim();
-    if (c) return c.endsWith("/") ? c : `${c}/`;
+    if (c) {
+      const path = c.endsWith("/") ? c : `${c}/`;
+      // Resolve path-absolute meta against the page origin.
+      const page =
+        typeof location !== "undefined" && location.href
+          ? location.href
+          : import.meta.url;
+      return new URL(path, page).href;
+    }
   } catch {
     /* non-DOM (tests) */
   }
