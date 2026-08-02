@@ -136,32 +136,45 @@ SKIP_WASM_BUILD=1 ./scripts/pack-demo-stage.sh
 Root file: [`docker-compose.yml`](../docker-compose.yml).
 
 ```bash
-export CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
+export GITHUB_TOKEN=$(tr -d '\n' < ../github.cad.key)
+# no tag needed — entrypoint picks newest demo-v* release with the stage asset
 docker compose up -d --build
 # → http://127.0.0.1:8765/  (health: /healthz)
 ```
 
-Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** downloads `CAD_RELEASE_URL` into `/app/stage` and runs `serve.mjs` on `HOST=0.0.0.0:8765`.
+Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** resolves a GitHub Release
+(via API + token), downloads `cad-demo-stage.tar.gz` into `/app/stage`, serves on `0.0.0.0:8765`.
 
 | Env | Meaning |
 |-----|---------|
 | `GITHUB_TOKEN` / `GH_TOKEN` | **Required** (private repo) — PAT **Contents: Read** |
-| `CAD_RELEASE_TAG` | **Required** — e.g. `demo-v0.1.0` |
+| `CAD_RELEASE_TAG` | default **`latest`** — newest release whose tag starts with `CAD_RELEASE_PREFIX` and has the asset. Pin e.g. `demo-v0.3.1` only to freeze. |
+| `CAD_RELEASE_PREFIX` | default `demo-v` (filter for latest resolution) |
 | `CAD_RELEASE_REPO` | default `NarendraPatwardhan/opencascade-bazel` |
 | `CAD_RELEASE_ASSET` | default `cad-demo-stage.tar.gz` |
+| `CAD_RELEASE_URL` | optional; if set to `…/releases/download/TAG/…`, that TAG is used |
+| `CACHE_MODE` | `release` (default): re-fetch when resolved tag stamp changes. `persist`: never re-fetch. |
 | `PORT` / `HOST` | default `8765` / `0.0.0.0` |
-| `CACHE_MODE=release` | Long-cache for wasm/js |
 
-### Private repo note (this repo)
+### Why not hardcode the tag?
 
-`opencascade-bazel` is **private**. The browser URL
+Cutting a stage is `./scripts/release-demo.sh --tag demo-vX.Y.Z` (GitHub **Release** asset).
+Dokploy should not require a manual env edit every time.
 
-```text
-https://github.com/.../releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
-```
+With **`CAD_RELEASE_TAG=latest`** (default):
 
-returns **HTTP 404** even for many token styles. GitHub only streams private
-release blobs via the **API asset endpoint**:
+1. You publish `demo-v0.3.2` with `release-demo.sh`.
+2. **Restart / redeploy** the cad container (or use Dokploy autodeploy that restarts the service).
+3. Entrypoint lists releases via API, picks the newest `demo-v*` that has `cad-demo-stage.tar.gz`, stamps it, downloads if the stamp changed.
+
+You do **not** need to change Dokploy env on every release.
+
+**Note:** Autodeploy “on git tag” rebuilds the **image** from this repo. The **stage tarball** still lives on the GitHub **Release**. The entrypoint bridges the two by resolving `latest` at container start. Rebuild the image when `deploy/entrypoint.sh` changes; restart alone is enough when only a new stage release appears.
+
+### Private repo note
+
+`opencascade-bazel` is **private**.  
+`https://github.com/.../releases/download/…` returns **HTTP 404** without the API path.
 
 ```text
 GET /repos/{owner}/{repo}/releases/assets/{id}
@@ -169,40 +182,34 @@ Accept: application/octet-stream
 Authorization: Bearer <token>
 ```
 
-entrypoint resolves `CAD_RELEASE_TAG` → asset id, then downloads that way.
-Verified locally: tag `demo-v0.1.0` → asset `499063674` → gzip stage → `/healthz` ok.
+Never put the token in git; Dokploy **secret** only.
 
-Never put the token in git; Dokploy **environment / secret** only (paste contents of `../github.cad.key`).
+### Dokploy checklist (set once)
 
-### Dokploy checklist
-
-1. Redeploy compose from `master` (image must include API-fetch entrypoint).
-2. Env:
+1. **Rebuild image from `master`** (must include entrypoint with `latest` resolution).
+2. Env (stable):
    ```text
    GITHUB_TOKEN=<fine-grained PAT, Contents: Read>
-   CAD_RELEASE_TAG=demo-v0.1.0
+   CAD_RELEASE_TAG=latest
+   CAD_RELEASE_PREFIX=demo-v
    ```
-3. **Domains**: `cad.opyt.cloud` → service **`cad`** → container port **`8765`**.
+   Do **not** hardcode `demo-v0.3.1` unless you want to freeze.
+3. **Domains**: `cad.opyt.cloud` → service **`cad`** → port **`8765`**.
 4. Stack on **`dokploy-network`**.
 5. Healthy logs:
    ```text
-   entrypoint: resolve … @ demo-v0.1.0 asset cad-demo-stage.tar.gz
+   entrypoint: resolve latest release tag … prefix=demo-v
+   entrypoint: latest matching tag: demo-v0.3.1
+   entrypoint: resolve … @ demo-v0.3.1 asset cad-demo-stage.tar.gz
    entrypoint: fetching (auth) https://api.github.com/.../releases/assets/…
-   entrypoint: serving … on 0.0.0.0:8765
+   entrypoint: stage UI: history-trigger present (demo-v0.3+)
+   entrypoint: serving … tag=demo-v0.3.1 on 0.0.0.0:8765
    ```
 6. `curl https://cad.opyt.cloud/healthz` → `ok`.
 
-If logs still show `releases/download/…` 404: old image (rebuild) or missing token.
+**Update flow:** `./scripts/release-demo.sh --tag demo-v…` → restart/redeploy cad (no env edit).
 
-If browser shows plain **`404 page not found`** (Traefik): domain not on `cad:8765`.
-
-| Probe | Healthy | Broken routing |
-|-------|---------|----------------|
-| `https://cad.opyt.cloud/healthz` | `ok` | `404 page not found` |
-| `https://cad.opyt.cloud/` | HTML `occ_c × AgentOS` | plain Traefik 404 |
-
-**Update:** cut `demo-v0.2.0` with `release-demo.sh`, set `CAD_RELEASE_TAG` to the new tag, redeploy.
-
+If logs show old UI / no `history-trigger`: image still has pre-stamp entrypoint, or stamp stuck — rebuild image, redeploy, confirm log line `latest matching tag:`.
 ---
 
 ## Local dev (not Dokploy)
