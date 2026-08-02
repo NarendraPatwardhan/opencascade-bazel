@@ -103,32 +103,67 @@ export function mountParamSheet(host, store, opts = {}) {
           row.appendChild(cb);
           inputs.set(p.name, cb);
         } else if (p.type === "enum" && p.options?.length) {
-          const sel = document.createElement("select");
-          sel.id = `param-${p.name}`;
-          sel.className = "param-select";
-          for (const opt of p.options) {
-            const o = document.createElement("option");
-            if (typeof opt === "object" && opt) {
-              o.value = String(opt.value);
-              o.textContent = opt.label ?? String(opt.value);
-            } else {
-              o.value = String(opt);
-              o.textContent = String(opt);
+          // CADAM pattern: constrained enums as segmented toggles, not <select>.
+          // Native selects look OS-default, drop-down heavy, and hide peers.
+          const group = document.createElement("div");
+          group.className = "param-toggle-group";
+          group.id = `param-${p.name}`;
+          group.setAttribute("role", "group");
+          group.setAttribute(
+            "aria-labelledby",
+            `param-${p.name}-label`,
+          );
+          label.id = `param-${p.name}-label`;
+
+          /** @type {HTMLButtonElement[]} */
+          const buttons = [];
+          const setPressed = (value) => {
+            const v = String(value);
+            for (const btn of buttons) {
+              const on = btn.dataset.value === v;
+              btn.setAttribute("aria-pressed", on ? "true" : "false");
             }
-            if (String(p.value) === o.value) o.selected = true;
-            sel.appendChild(o);
-          }
-          sel.addEventListener("change", () => {
-            const raw = sel.value;
-            const asNum = Number(raw);
-            store.set(
-              p.name,
-              Number.isFinite(asNum) && String(asNum) === raw ? asNum : raw,
-              { phase: "commit" },
+          };
+
+          for (const opt of p.options) {
+            let value;
+            let text;
+            if (typeof opt === "object" && opt) {
+              value = String(opt.value);
+              text = opt.label ?? String(opt.value);
+            } else {
+              value = String(opt);
+              text = String(opt);
+            }
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "param-toggle-item";
+            btn.dataset.value = value;
+            btn.textContent = text;
+            btn.title = text;
+            btn.setAttribute(
+              "aria-pressed",
+              String(p.value) === value ? "true" : "false",
             );
-          });
-          row.appendChild(sel);
-          inputs.set(p.name, sel);
+            btn.addEventListener("click", () => {
+              // CADAM: never clear to empty — only switch among valid options.
+              const asNum = Number(value);
+              const next =
+                Number.isFinite(asNum) && String(asNum) === value ? asNum : value;
+              setPressed(value);
+              store.set(p.name, next, { phase: "commit" });
+            });
+            buttons.push(btn);
+            group.appendChild(btn);
+          }
+          row.appendChild(group);
+          // Synthetic handle so store updates can refresh pressed state
+          inputs.set(p.name, /** @type {any} */ ({
+            _kind: "toggle",
+            setValue(v) {
+              setPressed(v);
+            },
+          }));
         } else {
           const step = autoStep(p);
           const sliderWrap = document.createElement("div");
@@ -219,8 +254,8 @@ export function mountParamSheet(host, store, opts = {}) {
       if (el instanceof HTMLInputElement) {
         if (el.type === "checkbox") el.checked = !!p.value;
         else el.value = String(p.value);
-      } else if (el instanceof HTMLSelectElement) {
-        el.value = String(p.value);
+      } else if (el && el._kind === "toggle" && typeof el.setValue === "function") {
+        el.setValue(p.value);
       }
       const num = inputs.get(meta.name + ":num");
       if (num instanceof HTMLInputElement) num.value = String(p.value);

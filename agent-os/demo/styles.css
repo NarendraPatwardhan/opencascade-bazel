@@ -24,6 +24,11 @@ body {
   font-family: var(--sans);
 }
 
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 .bar {
   display: flex;
   align-items: center;
@@ -75,11 +80,18 @@ button.primary {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
+/* Full remaining viewport under the top bar (no footer). */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.25fr) minmax(200px, 260px);
   gap: 0;
-  height: calc(100% - 96px);
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 1100px) {
@@ -87,7 +99,7 @@ button.primary {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
     height: auto;
-    min-height: calc(100% - 96px);
+    min-height: 0;
   }
   .params-panel {
     grid-column: 1 / -1;
@@ -402,17 +414,55 @@ h2 .hint-inline {
   padding: 0.3rem 0.65rem;
 }
 
-.foot {
-  padding: 0.45rem 1rem;
-  border-top: 1px solid var(--border);
+/* CADAM-style segmented enum (not native <select>) */
+.param-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #0c0e13;
+  border: 1px solid var(--border);
+}
+
+.param-toggle-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0 0.45rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--muted);
-  font-size: 0.75rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.foot code {
-  font-family: var(--mono);
+.param-toggle-item:hover {
+  color: var(--fg);
+  background: transparent;
 }
 
+.param-toggle-item[aria-pressed="true"] {
+  background: #2a3140;
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.param-toggle-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* --- DISPLAY thorough pass --- */
 .viewport-stale {
@@ -463,14 +513,5 @@ h2 .hint-inline {
   margin: 0.25rem 0;
 }
 
-.param-select {
-  width: 100%;
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  background: #0c0e13;
-  border: 1px solid var(--border);
-  color: var(--fg);
-  border-radius: 6px;
-  padding: 0.3rem 0.4rem;
-}
+
 
