@@ -88,6 +88,8 @@ export function mountHistoryPanel(host, handlers = {}) {
 
   const labelInput = document.createElement("input");
   labelInput.type = "text";
+  labelInput.id = "history-version-label";
+  labelInput.name = "history-version-label";
   labelInput.className = "history-label-input";
   labelInput.placeholder = "e.g. Flange with 6 bolts";
   labelInput.maxLength = 128;
