@@ -199,19 +199,38 @@ local width = 40
   expect(m.has("width"), "infer: keeps width");
 }
 
-// --- merge priority: explicit wins over inferred ---
+// --- merge priority: interleaved local wins over legacy block ---
 {
   const src = `--[[params
 width = { value=50, min=10, max=200, unit="mm", group="Size" }
 ]]
-local width = 40
+local width = 40 -- [10:0.5:200] mm
 local extra = 7
 `;
   const resolved = resolveParams(src);
   const m = byName(resolved);
-  expect(m.get("width")?.value === 50, "merge: explicit value wins");
-  expect(m.get("width")?.max === 200, "merge: explicit max wins");
-  expect(m.has("extra"), "merge: inferred fills extra");
+  expect(m.get("width")?.value === 40, "merge: local value wins over block");
+  expect(m.get("width")?.max === 200, "merge: trailing annotation max");
+  expect(m.has("extra"), "merge: bare local extra inferred");
+}
+
+// --- interleaved annotations ---
+{
+  const src = `
+-- [Size]
+local width = 40 -- [16:0.5:120] mm
+local show_grid = true -- view
+local solid = require("solid")
+local base = solid.box({ dx = width })
+`;
+  const resolved = resolveParams(src);
+  const m = byName(resolved);
+  expect(m.get("width")?.min === 16, "interleaved: min");
+  expect(m.get("width")?.step === 0.5, "interleaved: step");
+  expect(m.get("width")?.group === "Size", "interleaved: group marker");
+  expect(m.get("show_grid")?.type === "boolean", "interleaved: bool");
+  expect(m.get("show_grid")?.scrub === "view", "interleaved: view scrub");
+  expect(!m.has("base"), "interleaved: no post-geometry local");
 }
 
 // --- seed fills only missing ---

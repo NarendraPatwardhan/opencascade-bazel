@@ -1,18 +1,22 @@
 /**
- * Single pipeline: schema from Luau source.
+ * resolveParams(source) — schema from Luau for the param sheet.
  *
- * resolveParams(source, { seed? }) → Parameter[]
+ * Priority (first match wins per name; later only fills gaps / fields):
+ *   1. Interleaved locals + trailing annotations (primary — clean for humans)
+ *      local width = 40 -- [16:0.5:120] mm
+ *   2. Legacy explicit: --[[params]] block, -- @param lines, P.number(...)
+ *   3. Bare header locals without annotation (automagic ranges)
+ *   4. seed (optional migration only)
  *
- * Merge priority:
- *   1. Explicit (Tier 0): --[[params]], -- @param, P.number / params.number calls
- *   2. Inferred (Tier 1): bare header locals
- *   3. seed: fills only names not present (migration / host-only view params)
- *
- * Explicit always wins on name overlap. Seed never overwrites extracted values.
+ * End users should almost never need a giant comment block.
  */
 
-import { extractParams, extractRegistrationParams, mergeParams } from "./extract.js";
-import { inferParams } from "./infer.js";
+import {
+  extractParams,
+  extractRegistrationParams,
+  mergeParams,
+} from "./extract.js";
+import { analyzeLuauParams } from "./luau-locals.js";
 import { normalizeParam } from "./types.js";
 
 /**
@@ -23,36 +27,23 @@ import { normalizeParam } from "./types.js";
 export function resolveParams(source, opts = {}) {
   const seed = (opts.seed || []).map((p) => normalizeParam(p));
 
-  const blockAndLines = extractParams(source);
+  // Primary: comment-aware static analysis of header locals
+  const fromLocals = analyzeLuauParams(source);
+
+  // Legacy / advanced explicit forms (fill names not already bound as locals,
+  // or merge extra metadata if same name — local annotation already applied)
+  const legacy = extractParams(source);
   const registrations = extractRegistrationParams(source);
-  // Explicit set: block/lines first, then P.number registrations fill gaps /
-  // merge fields (block still wins on overlap via mergeParams order below).
-  const explicit = mergeExplicit(blockAndLines, registrations);
+  const legacyAll = mergeParams(legacy, registrations);
 
-  const inferred = inferParams(source);
+  // Locals win (they're the readable source of truth). Legacy fills gaps only.
+  let merged = mergeParams(fromLocals, legacyAll);
 
-  // explicit wins over inferred
-  let merged = mergeParams(explicit, inferred);
-  // seed fills only missing names
   if (seed.length) {
     merged = mergeParams(merged, seed);
   }
-
-  // If nothing at all, return seed (or empty)
-  if (!merged.length && seed.length) return seed.map((p) => ({ ...p }));
+  if (!merged.length && seed.length) {
+    return seed.map((p) => ({ ...p }));
+  }
   return merged;
-}
-
-/**
- * Block/line params win over registration-style on field merge;
- * registrations add names not in the block.
- * @param {import('./types.js').Parameter[]} blockAndLines
- * @param {import('./types.js').Parameter[]} registrations
- */
-function mergeExplicit(blockAndLines, registrations) {
-  if (!blockAndLines.length && !registrations.length) return [];
-  if (!blockAndLines.length) return registrations.map((p) => ({ ...p }));
-  if (!registrations.length) return blockAndLines.map((p) => ({ ...p }));
-  // extracted (block) wins
-  return mergeParams(blockAndLines, registrations);
 }

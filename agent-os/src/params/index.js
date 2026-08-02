@@ -7,6 +7,12 @@
 export { normalizeParam, clampParam, autoStep } from "./types.js";
 export { extractParams, extractRegistrationParams, mergeParams } from "./extract.js";
 export { inferParams } from "./infer.js";
+export {
+  analyzeLuauParams,
+  findHeaderLocalBindings,
+  applyParamValuesToSource,
+  parseTrailingAnnotation,
+} from "./luau-locals.js";
 export { resolveParams } from "./resolve.js";
 export {
   injectParamsPrelude,

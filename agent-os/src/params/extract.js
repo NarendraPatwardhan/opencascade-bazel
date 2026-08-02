@@ -1,22 +1,10 @@
 /**
- * Parameter extraction from Luau source (REACTIVITY C2).
+ * Legacy explicit param forms (secondary).
  *
- * Explicit (Tier 0):
- *   1) Metadata block:
- *        --[[params
- *        width = { value=40, min=5, max=120, unit="mm", scrub="rebuild", group="Size" }
- *        ]]
- *   2) Line form: -- @param name value min max unit scrub
- *      (merged with block when both present; block wins on defined fields)
- *   3) Registration style (static parse of battery calls):
- *        P.number("width", { default=40, min=16, max=120, unit="mm", group="Size" })
- *        params.number(...) / params.bool(...)
+ * Preferred authoring is interleaved locals — see luau-locals.js / resolve.js:
+ *   local width = 40 -- [16:0.5:120] mm
  *
- * Limitation: registration option tables are flat only — nested braces such as
- * `options = { "a", "b" }` inside `P.enum(...)` are not parsed (first `}` ends
- * the field scan). Prefer `--[[params]]` for enums with options.
- *
- * No deep magic-number invention here — see infer.js for Tier 1 header locals.
+ * Still supported: --[[params]] blocks, -- @param lines, P.number(...) calls.
  */
 
 import { normalizeParam } from "./types.js";

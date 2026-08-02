@@ -1,17 +1,22 @@
 /**
- * Inject-only execute binding — host pushes param values into the guest
- * without rewriting every number in Luau source.
+ * Host binding of param values into guest Luau.
+ *
+ * Preferred authoring (clean for humans):
+ *   local width = 40 -- [16:120] mm
+ *   solid.box({ dx = width, … })
+ *
+ * On run we:
+ *   1) rewrite header local literals to store values (preserves trailing comments)
+ *   2) inject `_HOST_PARAMS` + `params = require("params")` for advanced/params.* use
  *
  * Staged shape (hot comments preserved at file head):
- *   --!strict          ← peeled from user source (if present)
+ *   --!strict
  *   _HOST_PARAMS = { … }
- *   params = require("params")   ← method-capable battery; params.width via __index
- *   <rest of user source>
- *
- * Dual surface:
- *   params.width              — value read (battery __index → _HOST_PARAMS)
- *   params.number("w", {…})   — registration sugar (same as require("params"))
+ *   params = require("params")
+ *   <user body with local width = <live value> -- …>
  */
+
+import { applyParamValuesToSource } from "./luau-locals.js";
 
 /**
  * Serialize a JS value as a Luau literal (numbers, bools, strings only).
@@ -112,10 +117,15 @@ export function formatInjectBlock(values = {}) {
  */
 export function buildParamsInjectedSource(userSource, values = {}) {
   const { head, body, headLineCount } = peelLeadingDirectives(userSource || "");
+  // Rewrite bare `local name = lit` to live store values (clean authoring path).
+  const rewritten = applyParamValuesToSource(
+    body,
+    values && typeof values === "object" ? values : {},
+  );
   const injectBlock = formatInjectBlock(values);
   const injectLineCount = PARAMS_INJECT_LINE_COUNT;
   return {
-    source: head + injectBlock + body,
+    source: head + injectBlock + rewritten,
     headLineCount,
     injectLineCount,
     /** @deprecated prefer injectLineCount + headLineCount; equals inject lines only */

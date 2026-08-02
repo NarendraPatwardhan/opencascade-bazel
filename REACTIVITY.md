@@ -390,41 +390,47 @@ Agent / human
 
 Host module: [`agent-os/src/params/`](agent-os/src/params/) — public surface `params/index.js`.
 
-### 16.1 Schema from source — `resolveParams(source, { seed? })`
+### 16.1 What end users write (clean)
 
-| Tier | Source | Notes |
-|------|--------|-------|
-| **0 explicit** | `--[[params … ]]` block | Preferred |
-| **0 explicit** | `-- @param name value min max unit scrub` | Line form |
-| **0 explicit** | `P.number("name", { default=… })` / `params.bool(...)` | Static parse of battery registration style |
-| **1 inferred** | Bare header `local name = <number\|bool>` | Before first function / control flow; **no** deep magic numbers |
-| **seed** | Host defaults | Fills **only** names missing from extract/infer (migration) |
-
-**Merge:** explicit wins over inferred; seed never overwrites extracted values.
-
-```js
-import { resolveParams, injectParamsPrelude } from "./params/index.js";
-const schema = resolveParams(luauSource, { seed: optionalHostDefaults });
-```
-
-### 16.2 Inject-only execute (no source rewrite)
-
-On **analyze** and **execute**, the worker wraps the buffer as:
+Params are **ordinary header locals**. Optional **trailing** annotations (CADAM-style), not a giant top block:
 
 ```luau
---!strict                    -- peeled hot comments stay first
-_HOST_PARAMS = { width = 40, … }
-params = require("params")   -- methods + params.width via __index
--- <rest of user source>
+local solid = require("solid")
+
+-- [Size]
+local width = 40 -- [16:0.5:120] mm
+local depth = 40 -- [16:120] mm
+local show_grid = true -- view
+
+local base = solid.box({ dx = width, dy = depth, dz = 8 })
 ```
 
-Dual surface on the same object: `params.width` **and** `params.number("width", {…})` (or `local P = require("params")`). Scrubbing the sheet updates the store and re-runs execute with new inject values — the Luau buffer is **not** rewritten with every slider tick.
+- Bare `local width = 40` still becomes a slider (range inferred from magnitude).
+- `-- [Group]` markers set section titles.
+- Annotation: `[min:max]` or `[min:step:max]`, optional `mm` / `view|xform|rebuild`.
 
-Battery: [`agent-os/src/batteries/params.luau`](agent-os/src/batteries/params.luau).
+**Ugly (legacy only):** a huge `--[[params …]]` table at the top of the file. Still parsed for compat, not recommended.
 
-### 16.3 Demo
+### 16.2 Schema from source — `resolveParams(source, { seed? })`
 
-Flange demo declares params in Luau (`--[[params]]` + `params.*` reads). `BLOCK_HOLE_SEED` is optional migration seed only — not the sole authority.
+| Priority | Source | Notes |
+|----------|--------|-------|
+| **1 primary** | Header `local name = lit` + trailing comments | Static analysis (`luau-locals.js`) |
+| **2 legacy** | `--[[params]]`, `-- @param`, `P.number(...)` | Advanced / migration |
+| **seed** | Host defaults | Demo gaps only |
+
+Static analysis stops at the first geometry call / function so nested magic numbers are not inventing sliders.
+
+Long-term: agent-os-master **syntax** service (tree-sitter Luau grammar) can replace the host line walk with a true AST; the authoring surface stays the same.
+
+### 16.3 Execute binding
+
+On analyze/execute the host:
+
+1. Rewrites header local literals to live store values (comments preserved).
+2. Injects `_HOST_PARAMS` + `params = require("params")` for advanced `params.*` / registration APIs.
+
+The Monaco buffer is not rewritten on every scrub tick; run uses a transformed copy.
 
 ### 16.4 Tests
 
@@ -441,6 +447,7 @@ node agent-os/smoke/params_smoke.mjs
 | 2026-07-31 | Initial REACTIVITY.md: Ao-style reactive scripts, tiered eval, param contract, CADAM + scene gimbals |
 | 2026-07-31 | **Split CADAM steals:** params/eval only here; view cube / ortho / lights / grid moved to DISPLAY |
 | 2026-08-02 | Framework `resolveParams` + inject-only execute; Luau-declared flange demo; params battery |
+| 2026-08-02 | **Primary authoring:** interleaved locals + trailing annotations; demote giant params block |
 
 ---
 

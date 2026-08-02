@@ -124,25 +124,26 @@ Host meshes the finished root and returns positions/normals/indices to the page.
 
 ## Parameters (framework)
 
-Parametric scripts use a **host-owned store** + **inject-only** guest binding (see root [`REACTIVITY.md`](../REACTIVITY.md) §16).
+Params are **normal Luau locals** discovered by static analysis (see root [`REACTIVITY.md`](../REACTIVITY.md) §16). Optional trailing annotations, not a giant top block.
+
+```luau
+local solid = require("solid")
+
+-- [Size]
+local width = 40 -- [16:0.5:120] mm
+local depth = 40 -- [16:120] mm
+
+local base = solid.box({ dx = width, dy = depth, dz = 8 })
+```
 
 | Piece | Path |
 |-------|------|
-| Resolve / extract / infer / inject | [`src/params/`](src/params/) (`resolveParams`, `injectParamsPrelude`) |
-| Sheet + store | `src/params/sheet.js`, `store.js` |
-| Battery | [`src/batteries/params.luau`](src/batteries/params.luau) — `require("params")` |
-| Demo | `src/demos/block-hole-params.js` — Luau `--[[params]]` + `params.width` |
+| Static analysis | [`src/params/luau-locals.js`](src/params/luau-locals.js) |
+| `resolveParams` / inject | [`src/params/`](src/params/) |
+| Sheet + store | `sheet.js`, `store.js` |
+| Demo | `src/demos/block-hole-params.js` — interleaved locals |
 
-```luau
---[[params
-width = { value=40, min=16, max=120, unit="mm", group="Size" }
-]]
-local solid = require("solid")
-local w = params.width                    -- host inject + battery __index
--- or: local w = params.number("width", { default = 40, min = 16, max = 120 })
-```
-
-Schema is resolved from source (explicit block / `@param` / `P.number(...)` / conservative header inference). Values come from the sheet store and are **injected** after any `--!` hot comments — the editor is not rewritten on every scrub. Demo seed is applied only in demo mode, not onto unrelated editor buffers.
+On run, the host rewrites header local literals to live values and injects optional `params` for advanced APIs. The Monaco buffer is not rewritten on every scrub tick.
 
 ## View command focus
 
