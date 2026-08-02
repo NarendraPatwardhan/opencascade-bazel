@@ -11,8 +11,8 @@
 #
 # Token (one of):
 #   export GITHUB_TOKEN=ghp_…          # classic PAT with contents:write (or repo)
-#   --token-file ../github.release.key # file next to the monorepo (gitignored)
-#   default probe: $ROOT/../github.release.key then $ROOT/../github.packages.key
+#   --token-file ../github.cad.key     # file next to the monorepo (gitignored)
+#   default probe: ../github.cad.key, ../github.release.key, ../github.packages.key
 #
 # Prereqs: bb login, node, bun (for mc-core browserify), clean preferred.
 set -euo pipefail
@@ -74,6 +74,7 @@ fi
 # Resolve token file if not provided and no env token
 if [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" && -z "$TOKEN_FILE" ]]; then
   for cand in \
+    "$ROOT/../github.cad.key" \
     "$ROOT/../github.release.key" \
     "$ROOT/../github.packages.key" \
     "${GITHUB_TOKEN_FILE:-}"; do

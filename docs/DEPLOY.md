@@ -52,9 +52,10 @@ Used only by `./scripts/release-demo.sh` / `tools/gh-release/publish.mjs`.
 export GITHUB_TOKEN=github_pat_…   # or ghp_…
 
 # B) token file outside the repo (recommended, same idea as nml's ../github.packages.key)
-printf '%s\n' 'github_pat_…' > ../github.release.key
-chmod 600 ../github.release.key
-# release-demo.sh auto-probes:
+printf '%s\n' 'github_pat_…' > ../github.cad.key
+chmod 600 ../github.cad.key
+# release-demo.sh auto-probes (first hit wins):
+#   ../github.cad.key
 #   ../github.release.key
 #   ../github.packages.key
 # or pass: --token-file /path/to/key
