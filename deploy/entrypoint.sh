@@ -20,14 +20,38 @@ API_VERSION="2022-11-28"
 
 log() { echo "entrypoint: $*" >&2; }
 
-need_fetch=1
-if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  need_fetch=0
-fi
-
 token() {
   printf '%s' "${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 }
+
+# Desired release identity (tag preferred; else full URL). Used so changing
+# CAD_RELEASE_TAG / CAD_RELEASE_URL forces a re-download even if stage exists.
+release_want() {
+  if [ -n "${CAD_RELEASE_TAG:-}" ]; then
+    printf '%s\n' "${REPO}|${CAD_RELEASE_TAG}|${ASSET_NAME}"
+  elif [ -n "${CAD_RELEASE_URL:-}" ]; then
+    printf '%s\n' "${CAD_RELEASE_URL}"
+  else
+    printf '\n'
+  fi
+}
+
+STAMP_FILE="${STAGE_DIR}/.release-stamp"
+WANT="$(release_want | tr -d '\r\n')"
+need_fetch=1
+if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
+  # CACHE_MODE=persist: keep existing stage forever (dev only).
+  # CACHE_MODE=release (default): re-fetch when tag/url stamp differs.
+  if [ "${CACHE_MODE}" = "persist" ]; then
+    need_fetch=0
+    log "CACHE_MODE=persist — reusing existing stage"
+  elif [ -n "$WANT" ] && [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n')" = "$WANT" ]; then
+    need_fetch=0
+    log "stage stamp matches (${WANT}) — skip download"
+  else
+    log "stage missing or stamp mismatch — will fetch (want: ${WANT:-none})"
+  fi
+fi
 
 curl_download() {
   url="$1"

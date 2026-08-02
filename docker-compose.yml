@@ -28,10 +28,11 @@ services:
       HOST: "0.0.0.0"
       CACHE_MODE: release
       CAD_RELEASE_REPO: ${CAD_RELEASE_REPO:-NarendraPatwardhan/opencascade-bazel}
-      CAD_RELEASE_TAG: ${CAD_RELEASE_TAG:-demo-v0.1.0}
+      # Prefer TAG + GITHUB_TOKEN (private repo). Public browser_download_url is 404.
+      CAD_RELEASE_TAG: ${CAD_RELEASE_TAG:-demo-v0.3.0}
       CAD_RELEASE_ASSET: ${CAD_RELEASE_ASSET:-cad-demo-stage.tar.gz}
-      # Optional browser URL; with token, entrypoint rewrites to API asset download.
-      CAD_RELEASE_URL: ${CAD_RELEASE_URL:-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz}
+      # Optional; with token, entrypoint rewrites to API asset download by tag.
+      CAD_RELEASE_URL: ${CAD_RELEASE_URL:-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.3.0/cad-demo-stage.tar.gz}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-${GH_TOKEN:-}}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]
