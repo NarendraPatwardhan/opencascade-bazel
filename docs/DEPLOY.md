@@ -145,56 +145,63 @@ Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** downloads `CA
 
 | Env | Meaning |
 |-----|---------|
-| `CAD_RELEASE_URL` | **Required** — full URL to `cad-demo-stage.tar.gz` |
-| `PORT` | Default `8765` |
-| `HOST` | Default `0.0.0.0` |
+| `GITHUB_TOKEN` / `GH_TOKEN` | **Required** (private repo) — PAT **Contents: Read** |
+| `CAD_RELEASE_TAG` | **Required** — e.g. `demo-v0.1.0` |
+| `CAD_RELEASE_REPO` | default `NarendraPatwardhan/opencascade-bazel` |
+| `CAD_RELEASE_ASSET` | default `cad-demo-stage.tar.gz` |
+| `PORT` / `HOST` | default `8765` / `0.0.0.0` |
 | `CACHE_MODE=release` | Long-cache for wasm/js |
 
 ### Private repo note (this repo)
 
-`opencascade-bazel` is **private**. Unauthenticated
-`https://github.com/.../releases/download/...` URLs return **HTTP 404** (GitHub’s
-privacy behaviour, not a missing asset). The release exists; the container must
-authenticate:
+`opencascade-bazel` is **private**. The browser URL
 
-| Env | Required | Role |
-|-----|----------|------|
-| `CAD_RELEASE_URL` | yes | browser download URL of `cad-demo-stage.tar.gz` |
-| `GITHUB_TOKEN` or `GH_TOKEN` | **yes if private** | PAT with **Contents: Read** (same class as `../github.cad.key`) |
+```text
+https://github.com/.../releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
+```
 
-entrypoint uses `Authorization: Bearer …` on the download. Never put the token in
-git; set it only in Dokploy secrets / compose env.
+returns **HTTP 404** even for many token styles. GitHub only streams private
+release blobs via the **API asset endpoint**:
+
+```text
+GET /repos/{owner}/{repo}/releases/assets/{id}
+Accept: application/octet-stream
+Authorization: Bearer <token>
+```
+
+entrypoint resolves `CAD_RELEASE_TAG` → asset id, then downloads that way.
+Verified locally: tag `demo-v0.1.0` → asset `499063674` → gzip stage → `/healthz` ok.
+
+Never put the token in git; Dokploy **environment / secret** only (paste contents of `../github.cad.key`).
 
 ### Dokploy checklist
 
-1. Create a **Docker Compose** application from this repo (branch `master` or `dev`).
+1. Redeploy compose from `master` (image must include API-fetch entrypoint).
 2. Env:
    ```text
-   CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
    GITHUB_TOKEN=<fine-grained PAT, Contents: Read>
+   CAD_RELEASE_TAG=demo-v0.1.0
    ```
-3. **Domains** (Dokploy UI, not only DNS):
-   - Domain: `cad.opyt.cloud`
-   - Service: **`cad`**
-   - **Container port: `8765`** (not 80, not the host-mapped port)
-4. Ensure the compose stack is on **`dokploy-network`** (compose file declares it as `external: true`).
-5. Deploy and wait until healthcheck passes (`/healthz` → `ok`).
-6. Open `https://cad.opyt.cloud/` — Monaco may load from jsDelivr (browser outbound CDN).
+3. **Domains**: `cad.opyt.cloud` → service **`cad`** → container port **`8765`**.
+4. Stack on **`dokploy-network`**.
+5. Healthy logs:
+   ```text
+   entrypoint: resolve … @ demo-v0.1.0 asset cad-demo-stage.tar.gz
+   entrypoint: fetching (auth) https://api.github.com/.../releases/assets/…
+   entrypoint: serving … on 0.0.0.0:8765
+   ```
+6. `curl https://cad.opyt.cloud/healthz` → `ok`.
 
-If container logs show `curl: (22) ... 404` on the release URL: missing/invalid
-`GITHUB_TOKEN` for a private repo (or wrong URL).
+If logs still show `releases/download/…` 404: old image (rebuild) or missing token.
 
-If you see **`404 page not found`** (plain text, Traefik): the domain is **not** attached to service `cad` / port `8765`, or the container never became healthy.
+If browser shows plain **`404 page not found`** (Traefik): domain not on `cad:8765`.
 
 | Probe | Healthy | Broken routing |
 |-------|---------|----------------|
 | `https://cad.opyt.cloud/healthz` | `ok` | `404 page not found` |
-| `https://cad.opyt.cloud/` | HTML `occ_c × AgentOS` | plain `404 page not found` |
-| `https://cad.opyt.cloud/agent-os/src/main.js` | JS module | same Traefik 404 |
+| `https://cad.opyt.cloud/` | HTML `occ_c × AgentOS` | plain Traefik 404 |
 
-**Rollback:** point `CAD_RELEASE_URL` at an older tag’s asset and redeploy.
-
-**Update:** cut `demo-v0.1.1` with `release-demo.sh`, change the URL, redeploy.
+**Update:** cut `demo-v0.2.0` with `release-demo.sh`, set `CAD_RELEASE_TAG` to the new tag, redeploy.
 
 ---
 
