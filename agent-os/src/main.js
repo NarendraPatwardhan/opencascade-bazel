@@ -713,10 +713,14 @@ function onParamsChanged(params, meta = {}) {
     project.setValues(paramStore.values(), { recordUndo: false, merge: false });
   } else if (meta.tier === "reset") {
     project.setValues(paramStore.values(), { recordUndo: true, merge: false });
+    // Overleaf-style: settled edit → durable auto history point.
+    scheduleAutoVersion("params");
   } else if (meta.phase === "commit" || meta.force) {
     project.setValues(paramStore.values(), { recordUndo: true, merge: false });
+    // End of scrub / Apply — not every slider tick.
+    scheduleAutoVersion("params");
   } else if (meta.phase === "change") {
-    // Track live values without undo noise; checkpoint on commit.
+    // Live scrub: track values only; history commits when scrub ends (commit).
     project.setValues(paramStore.values(), { recordUndo: false, merge: false });
   }
   // Harvest replace should not force geometry rebuild by itself — values
@@ -819,62 +823,100 @@ async function refreshHistoryPanel(opts = {}) {
   updateHistoryTrigger({ dirty: project.dirty, tip: project.tip });
 }
 
+/** Debounce auto history points (Overleaf-style continuous history). */
+/** @type {ReturnType<typeof setTimeout> | null} */
+let autoVersionTimer = null;
+const AUTO_VERSION_MS = 900;
+
+/**
+ * Schedule a durable auto-checkpoint after the user settles (scrub end / idle).
+ * @param {string} [reason]
+ */
+function scheduleAutoVersion(reason = "edit") {
+  if (autoVersionTimer) clearTimeout(autoVersionTimer);
+  autoVersionTimer = setTimeout(() => {
+    autoVersionTimer = null;
+    void flushAutoVersion(reason);
+  }, AUTO_VERSION_MS);
+}
+
+/**
+ * @param {string} [reason]
+ */
+async function flushAutoVersion(reason = "edit") {
+  try {
+    // Keep document in sync with author buffer + store before committing.
+    project.setSource(getSource(), { recordUndo: false });
+    project.setValues(paramStore.values(), {
+      recordUndo: false,
+      merge: false,
+    });
+    const entry = await project.autoCommit({ reason });
+    if (entry) {
+      // Quiet status — history builds like Overleaf without modal noise.
+      if (isHistoryOpen()) await refreshHistoryPanel({ full: true });
+      else updateHistoryTrigger({ dirty: project.dirty, tip: project.tip });
+    }
+  } catch (err) {
+    // Auto history must never break editing; log softly.
+    appendLog(
+      `auto history: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 async function handleUndo() {
   const doc = await project.undo();
   if (!doc) return;
   setStatus("Undo");
+  scheduleAutoVersion("undo");
 }
 
 async function handleRedo() {
   const doc = await project.redo();
   if (!doc) return;
   setStatus("Redo");
+  scheduleAutoVersion("redo");
 }
 
-async function handleSaveVersion() {
-  // Overleaf/Onshape-style: name a checkpoint of the local working copy.
-  const name = window.prompt(
-    "Name this version",
-    `Version ${new Date().toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`,
-  );
-  if (name == null) return; // cancelled
-  const trimmed = name.trim();
+/**
+ * Named label for the current working copy (in-drawer form — never prompt).
+ * @param {string} name
+ */
+async function handleLabelVersion(name) {
+  const trimmed = String(name || "").trim();
   if (!trimmed) {
-    setStatus("Version name required", true);
+    setStatus("Label required", true);
     return;
   }
   try {
-    // Sync author buffer into project before durable (local git) commit.
     project.setSource(getSource(), { recordUndo: false });
-    project.setValues(paramStore.values(), { recordUndo: false, merge: false });
+    project.setValues(paramStore.values(), {
+      recordUndo: false,
+      merge: false,
+    });
     const entry = await project.commitVersion({
       name: trimmed,
       message: trimmed,
     });
-    setStatus(`Version saved · ${entry.shortHash || entry.id.slice(0, 7)}`);
-    await refreshHistoryPanel();
+    setStatus(`Labeled · ${entry.shortHash || entry.id.slice(0, 7)}`);
+    await refreshHistoryPanel({ full: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Save failed";
+    const msg = err instanceof Error ? err.message : "Label failed";
     setStatus(msg, true);
   }
 }
 
+/**
+ * Restore after in-panel confirm (never window.confirm).
+ * @param {string} id
+ */
 async function handleRestore(id) {
   if (!id) return;
-  const ok = window.confirm(
-    "Restore this version to the working copy?\n\n" +
-      "Source and parameters will roll back. You can Undo if you change your mind.",
-  );
-  if (!ok) return;
   try {
     await project.restoreVersion(id);
-    setStatus("Restored version");
-    await refreshHistoryPanel();
+    setStatus("Restored");
+    await refreshHistoryPanel({ full: true });
   } catch {
     setStatus("Unknown version", true);
   }
@@ -884,8 +926,8 @@ if (els.history) {
   historyPanel = mountHistoryPanel(els.history, {
     onUndo: () => void handleUndo(),
     onRedo: () => void handleRedo(),
-    onSaveVersion: () => void handleSaveVersion(),
-    onRestore: (id) => void handleRestore(id),
+    onLabelVersion: (name) => handleLabelVersion(name),
+    onRestore: (id) => handleRestore(id),
     onClose: () => closeHistoryDrawer(),
   });
   // Drawer closed by default — only keep the app-bar chip live.
@@ -977,6 +1019,8 @@ function scheduleEditorCheckpoint(doc) {
   editorCheckpointTimer = setTimeout(() => {
     editorCheckpointTimer = null;
     project.setSource(doc, { recordUndo: true });
+    // Overleaf-style: settled code edit → durable auto history point.
+    scheduleAutoVersion("code");
   }, 600);
 }
 

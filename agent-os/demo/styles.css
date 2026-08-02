@@ -901,7 +901,6 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
 .history-btn-accent {
   border-color: rgba(0, 166, 255, 0.45);
   color: #b8e7ff;
-  margin-left: auto;
 }
 
 .history-btn-small {
@@ -910,13 +909,95 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   flex-shrink: 0;
 }
 
+.history-label-box {
+  flex-shrink: 0;
+  padding: 0.45rem 0.85rem 0.55rem;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .history-hint {
   font-size: 0.65rem;
   color: var(--muted-2);
   line-height: 1.35;
-  padding: 0 0.9rem 0.5rem;
+  padding: 0;
+}
+
+.history-label-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.history-label-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--fg);
+  background: var(--panel-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+
+.history-label-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.history-label-input-error {
+  border-color: rgba(255, 107, 107, 0.7);
+}
+
+.history-confirm {
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border-soft);
+  margin: 0.4rem 0.65rem 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 166, 255, 0.35);
+  background: rgba(0, 166, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.history-confirm-text {
+  font-size: 0.72rem;
+  color: var(--fg);
+  line-height: 1.35;
+}
+
+.history-confirm-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.history-empty {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  padding: 0.75rem 0.35rem;
+  line-height: 1.4;
+}
+
+.history-badge-label {
+  font-size: 0.58rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7ecbff;
+  border: 1px solid rgba(0, 166, 255, 0.35);
+  border-radius: 4px;
+  padding: 0.05rem 0.28rem;
+  vertical-align: middle;
+}
+
+.history-row-auto .history-row-name {
+  font-weight: 450;
+  color: var(--muted);
 }
 
 .history-list {

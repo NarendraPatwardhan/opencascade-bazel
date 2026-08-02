@@ -118,6 +118,19 @@ export function createProjectController(opts = {}) {
     opts.onHistoryChange?.();
   }
 
+  /** Overleaf-style auto checkpoint label (time-based, not a user name). */
+  function autoVersionMessage(reason) {
+    const t = new Date().toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const r = reason ? String(reason) : "edit";
+    return `auto · ${t} · ${r}`;
+  }
+
   function snapshotFromDoc() {
     return {
       source: doc.source,
@@ -358,20 +371,67 @@ export function createProjectController(opts = {}) {
     },
 
     /**
-     * Named durable version (and optional message).
-     * @param {{ name?: string, message?: string }} [o]
+     * Durable version checkpoint (named label and/or auto history point).
+     * @param {{ name?: string, message?: string, auto?: boolean }} [o]
      */
     async commitVersion(o = {}) {
       return runHistoryOp(async () => {
-        const name = validateVersionName(o.name, o.name != null);
+        // Explicit empty name (e.g. "   ") is an error; omit name for auto.
+        let name;
+        if (o.name != null) {
+          const trimmed = String(o.name).trim();
+          if (trimmed === "") {
+            throw new Error("version name must not be empty");
+          }
+          name = validateVersionName(trimmed, true);
+        }
         const message = validateVersionMessage(
-          o.message || name || "Save version",
+          o.message ||
+            name ||
+            (o.auto ? autoVersionMessage() : "checkpoint"),
         );
         undo.push(snapshotFromDoc());
         const entry = await backend.commit(projectId, doc, {
           name,
           message,
         });
+        // Tag auto points for the timeline (backend may only store name/message).
+        if (o.auto && entry && !entry.name) {
+          entry.auto = true;
+        }
+        tipCommit = entry;
+        tipDoc = cloneDoc(doc);
+        dirty = false;
+        emitHistory();
+        return entry;
+      });
+    },
+
+    /**
+     * Overleaf-style automatic history: if the working copy differs from tip,
+     * create a durable checkpoint. No-op when already clean / equal.
+     * Coalesce at the host (debounce) — call after scrub commit / editor idle.
+     * @param {{ reason?: string }} [o]
+     * @returns {Promise<HistoryCommit | null>}
+     */
+    async autoCommit(o = {}) {
+      return runHistoryOp(async () => {
+        recomputeDirty();
+        if (!dirty && tipDoc && docsContentEqual(doc, tipDoc)) {
+          return null;
+        }
+        // First edit with no tip yet, or dirty vs tip.
+        if (tipDoc && docsContentEqual(doc, tipDoc)) {
+          dirty = false;
+          return null;
+        }
+        const reason = o.reason || "edit";
+        const message = autoVersionMessage(reason);
+        undo.push(snapshotFromDoc());
+        const entry = await backend.commit(projectId, doc, {
+          message,
+        });
+        if (entry) entry.auto = true;
         tipCommit = entry;
         tipDoc = cloneDoc(doc);
         dirty = false;

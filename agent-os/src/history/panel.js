@@ -1,9 +1,9 @@
 /**
- * Local version history — Overleaf / Onshape style content.
+ * Local version history — Overleaf-style timeline UI (drawer content).
  *
- * Mounted inside a modal drawer (not a permanent column). Named versions,
- * timeline, restore. Undo/redo for working-copy edits; Save version freezes
- * a local AgentOS git checkpoint.
+ * - Continuous auto checkpoints (host calls autoCommit on edits)
+ * - Optional named labels via in-panel form (never window.prompt)
+ * - Restore with in-panel confirm (never window.confirm)
  */
 
 /**
@@ -11,8 +11,8 @@
  * @param {{
  *   onUndo?: () => void,
  *   onRedo?: () => void,
- *   onSaveVersion?: () => void,
- *   onRestore?: (id: string) => void,
+ *   onLabelVersion?: (name: string) => void | Promise<void>,
+ *   onRestore?: (id: string) => void | Promise<void>,
  *   onClose?: () => void,
  * }} handlers
  */
@@ -32,7 +32,6 @@ export function mountHistoryPanel(host, handlers = {}) {
   const tipEl = document.createElement("span");
   tipEl.className = "history-tip";
   tipEl.textContent = "Working copy";
-  tipEl.title = "Working copy state";
   header.appendChild(tipEl);
 
   const closeBtn = document.createElement("button");
@@ -60,24 +59,113 @@ export function mountHistoryPanel(host, handlers = {}) {
   redoBtn.type = "button";
   redoBtn.className = "history-btn";
   redoBtn.textContent = "Redo";
-  redoBtn.title = "Redo (Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z)";
+  redoBtn.title = "Redo (Ctrl/Cmd+Y)";
   redoBtn.addEventListener("click", () => handlers.onRedo?.());
 
-  const saveBtn = document.createElement("button");
-  saveBtn.type = "button";
-  saveBtn.className = "history-btn history-btn-accent";
-  saveBtn.textContent = "Save version";
-  saveBtn.title = "Name and save a version of the working copy";
-  saveBtn.addEventListener("click", () => handlers.onSaveVersion?.());
-
-  toolbar.append(undoBtn, redoBtn, saveBtn);
+  toolbar.append(undoBtn, redoBtn);
   host.appendChild(toolbar);
 
-  const hint = document.createElement("div");
-  hint.className = "history-hint";
-  hint.textContent =
-    "Local checkpoints of this design (not a remote). Restore rolls back source and params.";
-  host.appendChild(hint);
+  // Label form — in-app, not browser prompt
+  const labelBox = document.createElement("div");
+  labelBox.className = "history-label-box";
+
+  const labelHint = document.createElement("div");
+  labelHint.className = "history-hint";
+  labelHint.textContent =
+    "Edits are saved to local history automatically. Name an important point anytime:";
+  labelBox.appendChild(labelHint);
+
+  const labelRow = document.createElement("div");
+  labelRow.className = "history-label-row";
+
+  const labelInput = document.createElement("input");
+  labelInput.type = "text";
+  labelInput.className = "history-label-input";
+  labelInput.placeholder = "e.g. Flange with 6 bolts";
+  labelInput.maxLength = 128;
+  labelInput.setAttribute("aria-label", "Version label");
+  labelInput.autocomplete = "off";
+
+  const labelBtn = document.createElement("button");
+  labelBtn.type = "button";
+  labelBtn.className = "history-btn history-btn-accent";
+  labelBtn.textContent = "Label";
+  labelBtn.title = "Name the current working copy as a version";
+
+  async function submitLabel() {
+    const name = labelInput.value.trim();
+    if (!name) {
+      labelInput.focus();
+      labelInput.classList.add("history-label-input-error");
+      return;
+    }
+    labelInput.classList.remove("history-label-input-error");
+    labelBtn.disabled = true;
+    try {
+      await handlers.onLabelVersion?.(name);
+      labelInput.value = "";
+    } finally {
+      labelBtn.disabled = false;
+    }
+  }
+
+  labelBtn.addEventListener("click", () => void submitLabel());
+  labelInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      void submitLabel();
+    }
+  });
+
+  labelRow.append(labelInput, labelBtn);
+  labelBox.appendChild(labelRow);
+  host.appendChild(labelBox);
+
+  // Inline restore confirm (no window.confirm)
+  const confirmBar = document.createElement("div");
+  confirmBar.className = "history-confirm";
+  confirmBar.hidden = true;
+  const confirmText = document.createElement("div");
+  confirmText.className = "history-confirm-text";
+  const confirmActions = document.createElement("div");
+  confirmActions.className = "history-confirm-actions";
+  const confirmYes = document.createElement("button");
+  confirmYes.type = "button";
+  confirmYes.className = "history-btn history-btn-accent";
+  confirmYes.textContent = "Restore";
+  const confirmNo = document.createElement("button");
+  confirmNo.type = "button";
+  confirmNo.className = "history-btn";
+  confirmNo.textContent = "Cancel";
+  confirmActions.append(confirmNo, confirmYes);
+  confirmBar.append(confirmText, confirmActions);
+  host.appendChild(confirmBar);
+
+  /** @type {string | null} */
+  let pendingRestoreId = null;
+
+  function hideConfirm() {
+    pendingRestoreId = null;
+    confirmBar.hidden = true;
+  }
+
+  confirmNo.addEventListener("click", () => hideConfirm());
+  confirmYes.addEventListener("click", () => {
+    const id = pendingRestoreId;
+    hideConfirm();
+    if (id) void handlers.onRestore?.(id);
+  });
+
+  /**
+   * @param {string} id
+   * @param {string} displayName
+   */
+  function askRestore(id, displayName) {
+    pendingRestoreId = id;
+    confirmText.textContent = `Restore “${displayName}” to the working copy? You can Undo afterward.`;
+    confirmBar.hidden = false;
+    confirmYes.focus();
+  }
 
   const list = document.createElement("div");
   list.className = "history-list";
@@ -100,6 +188,7 @@ export function mountHistoryPanel(host, handlers = {}) {
    *     message: string,
    *     ts: number,
    *     shortHash?: string,
+   *     auto?: boolean,
    *   }>,
    *   badgeOnly?: boolean,
    * }} state
@@ -112,64 +201,44 @@ export function mountHistoryPanel(host, handlers = {}) {
 
     if (state.dirty !== undefined || state.tip !== undefined) {
       if (state.dirty) {
-        tipEl.textContent = "Unsaved changes";
+        tipEl.textContent = "Unsaved";
         tipEl.dataset.dirty = "1";
-        tipEl.title = "Working copy differs from the latest version";
-      } else if (state.tip?.name || state.tip?.message) {
-        const label = state.tip.name || state.tip.message;
-        tipEl.textContent = label;
+      } else if (state.tip?.name) {
+        tipEl.textContent = state.tip.name;
         tipEl.dataset.dirty = "0";
-        tipEl.title = state.tip.shortHash
-          ? `${label} (${state.tip.shortHash})`
-          : label;
       } else if (state.tip?.shortHash) {
         tipEl.textContent = state.tip.shortHash;
         tipEl.dataset.dirty = "0";
-        tipEl.title = "Latest version";
       } else {
         tipEl.textContent = "Working copy";
         tipEl.dataset.dirty = "0";
-        tipEl.title = "No versions yet";
       }
     }
 
-    // badgeOnly / omitted versions: skip list rebuild (scrub path).
     if (state.badgeOnly || state.versions === undefined) return;
 
     const versions = state.versions || [];
     list.replaceChildren();
 
-    if (state.dirty || !versions.length) {
-      const work = document.createElement("div");
-      work.className = "history-row history-row-working";
-      work.setAttribute("role", "listitem");
-      work.dataset.current = "1";
-
-      const main = document.createElement("div");
-      main.className = "history-row-main";
-
-      const name = document.createElement("div");
-      name.className = "history-row-name";
-      name.textContent = "Working copy";
-
-      const meta = document.createElement("div");
-      meta.className = "history-row-meta";
-      meta.textContent = state.dirty
-        ? "Unsaved · edit freely, then Save version"
-        : "No versions yet · Save version to checkpoint";
-
-      main.append(name, meta);
-      work.appendChild(main);
-      list.appendChild(work);
+    if (!versions.length) {
+      const empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.textContent =
+        "No history yet. Change a parameter or edit the code — checkpoints appear here automatically.";
+      list.appendChild(empty);
+      return;
     }
-
-    if (!versions.length) return;
 
     for (let i = 0; i < versions.length; i++) {
       const v = versions[i];
       const row = document.createElement("div");
       row.className = "history-row";
       row.setAttribute("role", "listitem");
+
+      const isAuto =
+        v.auto === true ||
+        (!v.name && /^auto\s*·/i.test(String(v.message || "")));
+      if (isAuto) row.classList.add("history-row-auto");
 
       const isCurrent =
         !state.dirty &&
@@ -183,8 +252,19 @@ export function mountHistoryPanel(host, handlers = {}) {
 
       const name = document.createElement("div");
       name.className = "history-row-name";
-      const displayName = v.name || v.message || "Untitled version";
+      const displayName = v.name
+        ? v.name
+        : isAuto
+          ? formatAutoTitle(v)
+          : v.message || "Checkpoint";
       name.textContent = displayName;
+      if (v.name) {
+        const badge = document.createElement("span");
+        badge.className = "history-badge-label";
+        badge.textContent = "named";
+        name.appendChild(document.createTextNode(" "));
+        name.appendChild(badge);
+      }
 
       const meta = document.createElement("div");
       meta.className = "history-row-meta";
@@ -194,14 +274,6 @@ export function mountHistoryPanel(host, handlers = {}) {
       if (when) parts.push(when);
       if (hash) parts.push(hash);
       if (isCurrent) parts.push("current");
-      if (
-        v.message &&
-        v.name &&
-        v.message !== v.name &&
-        !v.message.startsWith(v.name)
-      ) {
-        parts.push(v.message);
-      }
       meta.textContent = parts.join(" · ");
 
       main.append(name, meta);
@@ -215,7 +287,7 @@ export function mountHistoryPanel(host, handlers = {}) {
         ? "This is the current version"
         : `Restore “${displayName}”`;
       restore.addEventListener("click", () => {
-        if (!isCurrent) handlers.onRestore?.(v.id);
+        if (!isCurrent) askRestore(v.id, displayName);
       });
 
       row.append(main, restore);
@@ -226,18 +298,30 @@ export function mountHistoryPanel(host, handlers = {}) {
   return {
     update,
     focusClose: () => closeBtn.focus(),
+    focusLabel: () => labelInput.focus(),
     dispose() {
       host.replaceChildren();
     },
   };
 }
 
+/** @param {{ message?: string, ts?: number }} v */
+function formatAutoTitle(v) {
+  // message: "auto · Aug 2, 3:42:01 PM · params"
+  const m = String(v.message || "");
+  const parts = m.split("·").map((s) => s.trim());
+  if (parts[0]?.toLowerCase() === "auto" && parts[1]) {
+    return parts[1] + (parts[2] ? ` · ${parts[2]}` : "");
+  }
+  if (v.ts) return formatTs(v.ts);
+  return "Automatic checkpoint";
+}
+
 /** @param {number} ts */
 function formatTs(ts) {
   if (!ts) return "";
   try {
-    const d = new Date(ts);
-    return d.toLocaleString(undefined, {
+    return new Date(ts).toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "2-digit",

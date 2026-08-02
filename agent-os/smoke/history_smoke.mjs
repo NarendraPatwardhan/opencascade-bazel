@@ -409,6 +409,37 @@ function expect(cond, msg) {
   expect(ver2.id !== ver.id, "ctl: two distinct versions");
 }
 
+
+  // --- autoCommit (Overleaf continuous history) ---
+  {
+    const mem = createMemoryHistoryBackend();
+    const ctl = createProjectController({
+      projectId: "auto1",
+      backend: mem,
+      autosaveMs: 50,
+    });
+    await ctl.open({
+      source: "a",
+      values: { w: 1 },
+      project: { name: "p", schema_version: 1 },
+      meta: {},
+    });
+    // no tip yet, dirty content → auto commit creates first point
+    ctl.setSource("b", { recordUndo: true });
+    const e1 = await ctl.autoCommit({ reason: "code" });
+    expect(!!e1 && !!e1.id, "ctl: autoCommit creates point");
+    expect(ctl.dirty === false, "ctl: clean after autoCommit");
+    // equal content → no-op
+    const e2 = await ctl.autoCommit({ reason: "code" });
+    expect(e2 === null, "ctl: autoCommit no-op when clean");
+    ctl.setValues({ w: 2 }, { recordUndo: true, merge: false });
+    const e3 = await ctl.autoCommit({ reason: "params" });
+    expect(!!e3 && e3.id !== e1.id, "ctl: autoCommit on value change");
+    const list = await ctl.listVersions();
+    expect(list.length >= 2, "ctl: auto history length");
+    ctl.dispose?.();
+  }
+
 // --- git adapter without engine throws / tryCreate returns null ---
 {
   let threw = false;
