@@ -26,7 +26,6 @@ import {
 import { createProjectController } from "./history/project-controller.js";
 import { mountHistoryPanel } from "./history/panel.js";
 import { createDefaultHistoryBackend } from "./history/opfs-backend.js";
-import { remoteTokenStorage } from "./history/git-backend.js";
 import { paramsHeaderFingerprint } from "./params/header-fingerprint.js";
 import { schemaSignature } from "./params/schema-signature.js";
 
@@ -737,96 +736,13 @@ async function refreshHistoryPanel() {
   } catch {
     versions = [];
   }
-  /** @type {string | null} */
-  let remoteUrl = null;
-  try {
-    const b = /** @type {any} */ (project.backend);
-    if (typeof b.getRemote === "function") {
-      remoteUrl = await b.getRemote();
-    }
-  } catch {
-    remoteUrl = null;
-  }
   historyPanel.update({
     canUndo: project.canUndo,
     canRedo: project.canRedo,
     dirty: project.dirty,
     tip: project.tip,
     versions,
-    backendKind: project.backendKind,
-    remoteUrl,
   });
-}
-
-/**
- * @param {"clone"|"pull"|"push"} op
- * @param {string} url
- * @param {string} token
- */
-async function handleRemoteOp(op, url, token) {
-  const b = /** @type {any} */ (project.backend);
-  // Persist token in session only — never appendLog / console the value.
-  if (token) remoteTokenStorage.set(token);
-  else if (token === "") remoteTokenStorage.clear();
-
-  if (typeof b[op] !== "function" && op !== "clone") {
-    const msg = `Remote ${op} unavailable (backend: ${project.backendKind})`;
-    historyPanel?.setRemoteStatus?.(msg, true);
-    setStatus(msg, true);
-    return;
-  }
-
-  try {
-    if (url && typeof b.setRemote === "function" && op !== "clone") {
-      await b.setRemote(url, { token });
-    }
-    let result;
-    if (op === "clone") {
-      if (typeof b.clone !== "function") {
-        throw new Error(
-          `Clone unavailable (backend: ${project.backendKind}). GitEngine + git-engine.tar required.`,
-        );
-      }
-      result = await b.clone(url, { token });
-    } else if (op === "pull") {
-      result = await b.pull({ token });
-    } else {
-      result = await b.push({ token });
-    }
-    if (!result || result.ok === false) {
-      const msg = result?.message || `${op} failed`;
-      historyPanel?.setRemoteStatus?.(msg, true);
-      setStatus(msg, true);
-      return;
-    }
-    const msg = result.message || `${op} ok`;
-    historyPanel?.setRemoteStatus?.(msg, false);
-    setStatus(msg);
-    // After clone/pull, re-open document from worktree.
-    if (op === "clone" || op === "pull") {
-      try {
-        const doc = await b.open?.(project.projectId);
-        if (doc) {
-          await project.applyEdit(
-            {
-              source: doc.source,
-              values: doc.values,
-              project: doc.project,
-              meta: doc.meta,
-            },
-            { recordUndo: true, reason: "restore" },
-          );
-        }
-      } catch {
-        /* non-fatal */
-      }
-      await refreshHistoryPanel();
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    historyPanel?.setRemoteStatus?.(msg, true);
-    setStatus(msg, true);
-  }
 }
 
 async function handleUndo() {
@@ -842,7 +758,16 @@ async function handleRedo() {
 }
 
 async function handleSaveVersion() {
-  const name = window.prompt("Version name", "");
+  // Overleaf/Onshape-style: name a checkpoint of the local working copy.
+  const name = window.prompt(
+    "Name this version",
+    `Version ${new Date().toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`,
+  );
   if (name == null) return; // cancelled
   const trimmed = name.trim();
   if (!trimmed) {
@@ -850,14 +775,14 @@ async function handleSaveVersion() {
     return;
   }
   try {
-    // Sync author buffer into project before durable commit.
+    // Sync author buffer into project before durable (local git) commit.
     project.setSource(getSource(), { recordUndo: false });
     project.setValues(paramStore.values(), { recordUndo: false, merge: false });
     const entry = await project.commitVersion({
       name: trimmed,
       message: trimmed,
     });
-    setStatus(`Saved · ${entry.shortHash || entry.id.slice(0, 7)}`);
+    setStatus(`Version saved · ${entry.shortHash || entry.id.slice(0, 7)}`);
     await refreshHistoryPanel();
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Save failed";
@@ -868,7 +793,8 @@ async function handleSaveVersion() {
 async function handleRestore(id) {
   if (!id) return;
   const ok = window.confirm(
-    "Restore this version? Current edits stay on the undo stack (Ctrl+Z).",
+    "Restore this version to the working copy?\n\n" +
+      "Source and parameters will roll back. You can Undo if you change your mind.",
   );
   if (!ok) return;
   try {
@@ -886,9 +812,6 @@ if (els.history) {
     onRedo: () => void handleRedo(),
     onSaveVersion: () => void handleSaveVersion(),
     onRestore: (id) => void handleRestore(id),
-    onRemoteClone: (url, token) => handleRemoteOp("clone", url, token),
-    onRemotePull: (url, token) => handleRemoteOp("pull", url, token),
-    onRemotePush: (url, token) => handleRemoteOp("push", url, token),
   });
   void refreshHistoryPanel();
 }

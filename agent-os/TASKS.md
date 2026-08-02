@@ -105,7 +105,7 @@ Scratch items with `[x]` as they land. Goal: **browser demo** where Luau runs in
 - [x] Schema harvest short-circuit (signature + header fingerprint)
 - [x] Scrub LOD deflection (coarser while scrubbing, finer on commit)
 - [x] ProjectController + undo stack + OPFS/IDB backend (+ real GitEngine backend)
-- [x] History panel UI (Undo/Redo/Save version/Restore + Remote Clone/Pull/Push)
+- [x] History panel UI — local Overleaf/Onshape versions (Undo/Redo/Save version/timeline/Restore; no remotes chrome)
 - [x] `node agent-os/smoke/history_smoke.mjs` (+ optional `MC_GIT_ENGINE_TAR=…`)
 - [x] Wire AgentOS git-engine (GitHistoryBackend + stage `git-engine.tar` + default prefer git)
 

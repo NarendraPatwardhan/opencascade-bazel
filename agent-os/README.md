@@ -165,9 +165,9 @@ Versions prefer **AgentOS GitEngine** when `git-engine.tar` is staged and loads:
 | Worktree files | `main.luau`, `project.json` (`project` / `meta` / `values`) |
 | Identity | product-local `occ_c` / `cad@local` (never host gitconfig) |
 | Backend order | GitEngine → IndexedDB → memory |
-| Remotes | History panel URL + optional token (**sessionStorage only**) → Clone / Pull / Push via `GitRemoteOrchestrator` |
+| Product UI | **Local versions only** (Overleaf/Onshape-style): named checkpoints, timeline, restore. No Clone/Push/Pull in the demo chrome. |
 
-Connection-ref pattern (credentials stay host-side; never in guest or logs): set a public `https://…` remote URL; optional bearer token is stored only in `sessionStorage` and passed into the orchestrator `connections` catalog (`auth: { kind: "bearer", token }`, `origins: [origin]`). See upstream [git.md](https://github.com/NarendraPatwardhan/agent-os/blob/main/docs/git.md).
+Remotes are **not** a product surface for the CAD demo. Optional host APIs may still exist for agents; the UI is local-repo history only.
 
 ```bash
 # Node smoke with real engine (Memory/HostDir durable — no browser OPFS)
