@@ -59,10 +59,32 @@ export async function mountLuauEditor(opts) {
   parent.replaceChildren();
   parent.classList.add("monaco-host");
 
+  monaco.editor.defineTheme("occ-cad-dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#1a1b1b",
+      "editor.foreground": "#e5e5e5",
+      "editorLineNumber.foreground": "#5a5a5a",
+      "editorLineNumber.activeForeground": "#949494",
+      "editor.selectionBackground": "#00a6ff33",
+      "editor.lineHighlightBackground": "#ffffff08",
+      "editorCursor.foreground": "#00a6ff",
+      "editorWidget.background": "#212121",
+      "editorWidget.border": "#3b3b3b",
+      "editorSuggestWidget.background": "#212121",
+      "editorSuggestWidget.border": "#3b3b3b",
+      "scrollbarSlider.background": "#3b3b3b66",
+      "scrollbarSlider.hoverBackground": "#5a5a5a99",
+    },
+  });
+  monaco.editor.setTheme("occ-cad-dark");
+
   const editor = monaco.editor.create(parent, {
     value: opts.doc ?? "",
     language: "luau",
-    theme: "vs-dark",
+    theme: "occ-cad-dark",
     automaticLayout: true,
     minimap: { enabled: false },
     fontSize: 13,
@@ -72,7 +94,14 @@ export async function mountLuauEditor(opts) {
     wordWrap: "on",
     tabSize: 2,
     renderLineHighlight: "line",
-    padding: { top: 10, bottom: 10 },
+    padding: { top: 12, bottom: 12 },
+    overviewRulerLanes: 0,
+    hideCursorInOverviewRuler: true,
+    overviewRulerBorder: false,
+    scrollbar: {
+      verticalScrollbarSize: 8,
+      horizontalScrollbarSize: 8,
+    },
     quickSuggestions: {
       other: true,
       comments: false,

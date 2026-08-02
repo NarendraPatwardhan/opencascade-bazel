@@ -9,17 +9,20 @@
   <body>
     <header class="bar">
       <div class="brand">
-        <strong>occ_c</strong>
-        <span class="muted">× AgentOS</span>
+        <span class="brand-mark">occ_c</span>
+        <span class="brand-sep" aria-hidden="true">×</span>
+        <span class="brand-sub">AgentOS</span>
       </div>
       <div class="actions">
-        <button type="button" id="run" class="primary">Run</button>
+        <button type="button" id="run" class="btn btn-run">Run</button>
       </div>
     </header>
 
     <main class="layout">
       <section class="panel editor-panel">
-        <h2>Luau</h2>
+        <div class="panel-head">
+          <h2 class="panel-title">Code</h2>
+        </div>
         <div
           id="editor"
           class="editor-host"
@@ -27,12 +30,14 @@
           aria-label="Luau source"
           aria-multiline="true"
         ></div>
-        <pre id="log" class="log" aria-live="polite"></pre>
+        <pre id="log" class="log" aria-live="polite" hidden></pre>
       </section>
 
       <section class="panel view-panel">
-        <h2>View</h2>
-        <div id="status" class="status">Starting…</div>
+        <div class="panel-head">
+          <h2 class="panel-title">View</h2>
+          <div id="status" class="status" data-empty="1"></div>
+        </div>
         <div
           id="viewport"
           class="viewport"

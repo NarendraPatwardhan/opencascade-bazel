@@ -74,8 +74,11 @@ const scheduler = createScheduler({
 });
 
 function setStatus(text, isError = false) {
-  els.status.textContent = text;
+  const t = String(text || "").trim();
+  els.status.textContent = t;
   els.status.dataset.error = isError ? "1" : "0";
+  if (t) els.status.removeAttribute("data-empty");
+  else els.status.setAttribute("data-empty", "1");
 }
 
 /** User-facing log: drop host result markers and empty noise. */
@@ -86,6 +89,7 @@ function appendLog(line) {
     .join("\n")
     .trim();
   if (!cleaned) return;
+  els.log.hidden = false;
   els.log.textContent += cleaned + "\n";
   els.log.scrollTop = els.log.scrollHeight;
 }
@@ -316,7 +320,10 @@ async function runSource(opts = {}) {
 
   if (els.run) els.run.disabled = true;
   setStatus(fromParams ? "Updating…" : "Running…");
-  if (!fromParams) els.log.textContent = "";
+  if (!fromParams) {
+    els.log.textContent = "";
+    els.log.hidden = true;
+  }
 
   try {
     await ensureConfigured();
