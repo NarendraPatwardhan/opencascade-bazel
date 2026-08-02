@@ -1,16 +1,17 @@
 # CAD browser demo for Dokploy / local Docker — no OCCT build on the host.
 #
-# Env:
-#   CAD_RELEASE_URL  (default: demo-v0.1.0 GitHub Release asset)
+# Private GitHub repo: release assets must be fetched via the API with a token.
+# Dokploy env (required):
+#   GITHUB_TOKEN   — fine-grained PAT, Contents: Read (e.g. contents of ../github.cad.key)
+#   CAD_RELEASE_TAG=demo-v0.1.0
 #
 # Local:
+#   export GITHUB_TOKEN=$(tr -d '\n' < ../github.cad.key)
+#   export CAD_RELEASE_TAG=demo-v0.1.0
 #   docker network create dokploy-network 2>/dev/null || true
 #   docker compose up -d --build
-#   open http://127.0.0.1:8765/
 #
-# Dokploy:
-#   Domains → cad.opyt.cloud → service "cad" → container port 8765
-#   Env CAD_RELEASE_URL as below (or use the default).
+# Dokploy Domains: cad.opyt.cloud → service cad → port 8765
 # Docs: docs/DEPLOY.md
 
 services:
@@ -20,29 +21,28 @@ services:
       dockerfile: deploy/Dockerfile
     image: cad-demo:local
     restart: unless-stopped
-    # Expose container port 8765. Traefik/Dokploy use this internal port.
-    # Host bind is optional for local debugging (CAD_HOST_PORT=8765).
     ports:
       - "${CAD_HOST_PORT:-8765}:8765"
     environment:
       PORT: "8765"
       HOST: "0.0.0.0"
       CACHE_MODE: release
-      # Public-looking URL; repo is private → set GITHUB_TOKEN (or GH_TOKEN) too.
+      CAD_RELEASE_REPO: ${CAD_RELEASE_REPO:-NarendraPatwardhan/opencascade-bazel}
+      CAD_RELEASE_TAG: ${CAD_RELEASE_TAG:-demo-v0.1.0}
+      CAD_RELEASE_ASSET: ${CAD_RELEASE_ASSET:-cad-demo-stage.tar.gz}
+      # Optional browser URL; with token, entrypoint rewrites to API asset download.
       CAD_RELEASE_URL: ${CAD_RELEASE_URL:-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz}
-      # Fine-grained PAT: Contents Read on this repo (same family as ../github.cad.key).
       GITHUB_TOKEN: ${GITHUB_TOKEN:-${GH_TOKEN:-}}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 90s
     networks:
       - default
       - dokploy-network
 
 networks:
-  # Present on Dokploy hosts. Local: docker network create dokploy-network
   dokploy-network:
     external: true
