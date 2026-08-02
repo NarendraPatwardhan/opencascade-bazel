@@ -40,10 +40,21 @@ const TYPES = {
   ".map": "application/json",
 };
 
-function cacheControl(ext) {
+function cacheControl(ext, reqPath = "") {
   if (process.env.CACHE_CONTROL) return process.env.CACHE_CONTROL;
-  if (process.env.CACHE_MODE === "release" && (ext === ".wasm" || ext === ".js" || ext === ".mjs" || ext === ".tar")) {
-    return "public, max-age=31536000, immutable";
+  // Only long-cache heavy binaries. App JS/CSS must not be immutable — a new
+  // stage + old cached main.js crashes the UI (null addEventListener, etc.).
+  if (process.env.CACHE_MODE === "release") {
+    if (ext === ".wasm" || ext === ".tar") {
+      return "public, max-age=31536000, immutable";
+    }
+    // Glue for emcc is versioned with the wasm build; safe to cache briefly.
+    if (
+      ext === ".js" &&
+      (reqPath.endsWith("libocc_c.js") || reqPath.endsWith("mc-core.mjs") || reqPath.endsWith("mc-core.browser.mjs"))
+    ) {
+      return "public, max-age=86400";
+    }
   }
   return "no-cache";
 }
@@ -56,10 +67,10 @@ function safeJoin(root, reqPath) {
   return full;
 }
 
-function send(res, code, body, type, ext) {
+function send(res, code, body, type, ext, reqPath = "") {
   res.writeHead(code, {
     "content-type": type || "text/plain; charset=utf-8",
-    "cache-control": cacheControl(ext || ""),
+    "cache-control": cacheControl(ext || "", reqPath),
     "cross-origin-opener-policy": "same-origin",
   });
   res.end(body);
@@ -100,7 +111,14 @@ const server = createServer((req, res) => {
         return send(res, 404, `not found: ${path}`);
       }
       const ext = extname(file);
-      return send(res, 200, readFileSync(file), TYPES[ext] || "application/octet-stream", ext);
+      return send(
+        res,
+        200,
+        readFileSync(file),
+        TYPES[ext] || "application/octet-stream",
+        ext,
+        path,
+      );
     }
 
     // allow /demo/* from demoRoot
@@ -108,7 +126,14 @@ const server = createServer((req, res) => {
       const file = safeJoin(demoRoot, path.slice("/demo/".length));
       if (file && existsSync(file) && statSync(file).isFile()) {
         const ext = extname(file);
-        return send(res, 200, readFileSync(file), TYPES[ext] || "application/octet-stream", ext);
+        return send(
+          res,
+          200,
+          readFileSync(file),
+          TYPES[ext] || "application/octet-stream",
+          ext,
+          path,
+        );
       }
     }
 

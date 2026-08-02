@@ -1,5 +1,7 @@
-/* Tiny distribution SW — cache static AgentOS/OCCT assets only. No compute. */
-const CACHE = "occ-cad-static-v1";
+/* Tiny distribution SW — cache heavy AgentOS/OCCT binaries only.
+ * Never cache app JS/CSS/HTML (would pin stale main.js across deploys).
+ */
+const CACHE = "occ-cad-static-v3";
 const PRECACHE = [
   "./kernel.wasm",
   "./loom.tar",
@@ -10,15 +12,36 @@ const PRECACHE = [
   "./libocc_c.wasm",
 ];
 
+/** Paths that may be long-cached (binaries). Everything else is network-first. */
+function isBinaryAsset(pathname) {
+  return (
+    pathname.endsWith(".wasm") ||
+    pathname.endsWith(".tar") ||
+    /\/(kernel\.wasm|loom\.tar|mc-core\.mjs|mc-core\.browser\.mjs|catalog-compiler\.wasm|libocc_c\.js|libocc_c\.wasm|git-engine\.tar)$/.test(
+      pathname,
+    )
+  );
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) => cache.addAll(PRECACHE).catch(() => undefined)),
   );
-  // Do not skipWaiting — keep coherent generation (search-experience pattern).
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((k) => k.startsWith("occ-cad-static-") && k !== CACHE)
+          .map((k) => caches.delete(k)),
+      );
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -26,6 +49,19 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   // Only same-origin agent-os assets
   if (!url.pathname.includes("/agent-os/")) return;
+
+  // App code: always network (no stale main.js after deploy).
+  if (!isBinaryAsset(url.pathname)) {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cache = await caches.open(CACHE);
+        return cache.match(event.request);
+      }),
+    );
+    return;
+  }
+
+  // Binaries: cache-first
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const hit = await cache.match(event.request);

@@ -230,6 +230,7 @@ const scheduler = createScheduler({
 
 function setStatus(text, isError = false) {
   const t = String(text || "").trim();
+  if (!els.status) return;
   els.status.textContent = t;
   els.status.dataset.error = isError ? "1" : "0";
   if (t) els.status.removeAttribute("data-empty");
@@ -238,6 +239,7 @@ function setStatus(text, isError = false) {
 
 /** User-facing log: drop host result markers and empty noise. */
 function appendLog(line) {
+  if (!els.log) return;
   const cleaned = String(line)
     .split(/\r?\n/)
     .filter((l) => l && !l.includes("__OCC_CAD_RESULT__"))
@@ -622,7 +624,7 @@ async function runSource(opts = {}) {
 
   if (els.run) els.run.disabled = true;
   setStatus(fromParams ? "Updating…" : "Running…");
-  if (!fromParams) {
+  if (!fromParams && els.log) {
     els.log.textContent = "";
     els.log.hidden = true;
   }
