@@ -1,16 +1,17 @@
--- Flange plate via clean Luau → IR tape (same as main browser demo).
+-- Flange plate via clean Luau → IR tape (same scale as main browser demo).
+-- Param numbers are model units (same as the original box+hole demo: ~40 units wide).
 package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path
 local solid = require("solid")
 
 solid.use_ir(true)
 
-local w, d, h = 0.040, 0.040, 0.008
-local boss_r, boss_h = 0.012, 0.010
-local hole_r = 0.005
-local bolt_r, pcd, bolt_n = 0.002, 0.028, 4
+local w, d, h = 40, 40, 8
+local boss_r, boss_h = 12, 10
+local hole_r = 5
+local bolt_r, pcd, bolt_n = 2, 28, 4
 local step = (2 * math.pi) / bolt_n
-local through_h = h + boss_h + 0.004
-local z_tool = -0.002
+local through_h = h + boss_h + 4
+local z_tool = -2
 
 local base = solid.box({
 	dx = w,

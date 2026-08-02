@@ -141,29 +141,30 @@ export const BLOCK_HOLE_PARAMS = [
   },
 ];
 
-/** @param {number} mm */
-function m(mm) {
-  return (Number(mm) || 0) / 1000;
-}
-
 /**
  * Clean Luau for the editor / worker.
  * solid.use_ir(true) → solid.* records IR → solid.finish evaluates IR.
+ *
+ * Model numbers match the param sheet (same scale as the original box+hole
+ * demo: width=40 fills the view). Do **not** convert UI "mm" labels to SI
+ * meters here — that made the part ~1000× too small next to the gizmo.
+ * (IR schema still says store=SI; this demo uses consistent model units.)
+ *
  * @param {Record<string, any>} values
  */
 export function blockHoleSource(values) {
-  const w = m(Number(values.width) || 40);
-  const d = m(Number(values.depth) || 40);
-  const h = m(Number(values.height) || 8);
-  const bossH = m(Number(values.boss_h) || 10);
-  const bossR = m(Number(values.boss_r) || 12);
-  const holeR = m(Number(values.hole_r) || 5);
+  const w = Number(values.width) || 40;
+  const d = Number(values.depth) || 40;
+  const h = Number(values.height) || 8;
+  const bossH = Number(values.boss_h) || 10;
+  const bossR = Number(values.boss_r) || 12;
+  const holeR = Number(values.hole_r) || 5;
   const boltN = Math.max(2, Math.min(12, Math.round(Number(values.bolt_n) || 4)));
-  const boltR = m(Number(values.bolt_r) || 2);
-  const pcd = m(Number(values.pcd) || 28);
+  const boltR = Number(values.bolt_r) || 2;
+  const pcd = Number(values.pcd) || 28;
   const step = (2 * Math.PI) / boltN;
-  const throughH = h + bossH + m(4);
-  const zTool = -m(2);
+  const throughH = h + bossH + 4;
+  const zTool = -2;
 
   return `-- Flange plate: clean Luau → IR tape → eval → mesh
 -- (solid.use_ir records cad.ir ops; finish evaluates them)
