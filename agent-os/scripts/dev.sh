@@ -6,6 +6,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 AGENT_OS="$ROOT/agent-os"
 STAGE="${STAGE_OUT:-$AGENT_OS/_stage}"
 PORT="${PORT:-8765}"
+# Prefer loopback so the browser is a secure origin (crypto.subtle for AgentOS).
+# Docker/Dokploy sets HOST=0.0.0.0; local demo should use 127.0.0.1 unless overridden.
+HOST="${HOST:-127.0.0.1}"
 
 # Prefer Bazel-provided env; else vendor/ after scripts/fetch-release.sh
 : "${AGENT_OS_KERNEL:=$AGENT_OS/vendor/kernel.wasm}"
@@ -41,5 +44,8 @@ node "$AGENT_OS/scripts/stage.mjs"
 
 export DEMO_ROOT="$STAGE/demo"
 export AGENT_OS_ROOT="$STAGE"
-export PORT
+export PORT HOST
+if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" && "$HOST" != "::1" ]]; then
+  echo "note: open via http://127.0.0.1:${PORT}/ if the page errors on crypto.subtle / digest" >&2
+fi
 exec node "$AGENT_OS/demo/serve.mjs"

@@ -3,6 +3,7 @@
  * Kinds: config | warm | analyze | execute
  */
 
+import { ensureCryptoSubtleDigest } from "./sha256-polyfill.js";
 import { PROTOCOL } from "./protocol.js";
 import { OccBridge } from "./occ-bridge.js";
 import {
@@ -10,6 +11,10 @@ import {
   adjustPreludeLines,
   filterDiagnosticsByPath,
 } from "./analyze-parse.js";
+
+// mc-core calls crypto.subtle.digest while loading kernel/loom. Non-secure
+// pages (http://<LAN-IP>) have no subtle → TypeError on .digest.
+ensureCryptoSubtleDigest();
 
 let assetBase = "/agent-os/";
 /** @type {import('./occ-bridge.js').OccBridge | null} */
