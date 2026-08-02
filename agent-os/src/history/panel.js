@@ -13,6 +13,7 @@
  *   onRedo?: () => void,
  *   onLabelVersion?: (name: string) => void | Promise<void>,
  *   onRestore?: (id: string) => void | Promise<void>,
+ *   onClear?: () => void | Promise<void>,
  *   onClose?: () => void,
  * }} handlers
  */
@@ -62,7 +63,14 @@ export function mountHistoryPanel(host, handlers = {}) {
   redoBtn.title = "Redo (Ctrl/Cmd+Y)";
   redoBtn.addEventListener("click", () => handlers.onRedo?.());
 
-  toolbar.append(undoBtn, redoBtn);
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.className = "history-btn history-btn-danger";
+  clearBtn.textContent = "Clear…";
+  clearBtn.title = "Delete all history and reset the working copy";
+  clearBtn.addEventListener("click", () => askClear());
+
+  toolbar.append(undoBtn, redoBtn, clearBtn);
   host.appendChild(toolbar);
 
   // Label form — in-app, not browser prompt
@@ -121,10 +129,11 @@ export function mountHistoryPanel(host, handlers = {}) {
   labelBox.appendChild(labelRow);
   host.appendChild(labelBox);
 
-  // Inline restore confirm (no window.confirm)
+  // Inline confirm (restore or clear) — never window.confirm / prompt
   const confirmBar = document.createElement("div");
   confirmBar.className = "history-confirm";
   confirmBar.hidden = true;
+  confirmBar.setAttribute("hidden", "");
   const confirmText = document.createElement("div");
   confirmText.className = "history-confirm-text";
   const confirmActions = document.createElement("div");
@@ -132,7 +141,7 @@ export function mountHistoryPanel(host, handlers = {}) {
   const confirmYes = document.createElement("button");
   confirmYes.type = "button";
   confirmYes.className = "history-btn history-btn-accent";
-  confirmYes.textContent = "Restore";
+  confirmYes.textContent = "Confirm";
   const confirmNo = document.createElement("button");
   confirmNo.type = "button";
   confirmNo.className = "history-btn";
@@ -141,21 +150,25 @@ export function mountHistoryPanel(host, handlers = {}) {
   confirmBar.append(confirmText, confirmActions);
   host.appendChild(confirmBar);
 
-  /** @type {string | null} */
-  let pendingRestoreId = null;
+  /** @type {null | { kind: "restore", id: string } | { kind: "clear" }} */
+  let pendingConfirm = null;
 
   function hideConfirm() {
-    pendingRestoreId = null;
+    pendingConfirm = null;
     confirmBar.hidden = true;
     confirmBar.setAttribute("hidden", "");
     confirmText.textContent = "";
+    confirmYes.classList.remove("history-btn-danger");
+    confirmYes.classList.add("history-btn-accent");
   }
 
   confirmNo.addEventListener("click", () => hideConfirm());
   confirmYes.addEventListener("click", () => {
-    const id = pendingRestoreId;
+    const p = pendingConfirm;
     hideConfirm();
-    if (id) void handlers.onRestore?.(id);
+    if (!p) return;
+    if (p.kind === "restore") void handlers.onRestore?.(p.id);
+    else if (p.kind === "clear") void handlers.onClear?.();
   });
 
   /**
@@ -163,8 +176,23 @@ export function mountHistoryPanel(host, handlers = {}) {
    * @param {string} displayName
    */
   function askRestore(id, displayName) {
-    pendingRestoreId = id;
+    pendingConfirm = { kind: "restore", id };
     confirmText.textContent = `Restore “${displayName}” to the working copy? You can Undo afterward.`;
+    confirmYes.textContent = "Restore";
+    confirmYes.classList.remove("history-btn-danger");
+    confirmYes.classList.add("history-btn-accent");
+    confirmBar.hidden = false;
+    confirmBar.removeAttribute("hidden");
+    confirmYes.focus();
+  }
+
+  function askClear() {
+    pendingConfirm = { kind: "clear" };
+    confirmText.textContent =
+      "Clear all version history and reset the design to the demo flange? This cannot be undone.";
+    confirmYes.textContent = "Clear everything";
+    confirmYes.classList.remove("history-btn-accent");
+    confirmYes.classList.add("history-btn-danger");
     confirmBar.hidden = false;
     confirmBar.removeAttribute("hidden");
     confirmYes.focus();

@@ -901,6 +901,18 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
 .history-btn-accent {
   border-color: rgba(0, 166, 255, 0.45);
   color: #b8e7ff;
+  margin-left: auto;
+}
+
+.history-btn-danger {
+  border-color: rgba(255, 107, 107, 0.45);
+  color: #ffc9c9;
+}
+
+.history-btn-danger:hover:not(:disabled) {
+  border-color: #ff6b6b;
+  color: #fff;
+  background: rgba(255, 107, 107, 0.15);
 }
 
 .history-btn-small {
@@ -1036,19 +1048,6 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   background: rgba(0, 166, 255, 0.08);
   border-color: rgba(0, 166, 255, 0.22);
   border-left-color: var(--accent);
-}
-
-.history-row-working {
-  border-left-color: var(--muted-2);
-  border-style: dashed;
-  border-width: 1px;
-  border-left-width: 2px;
-}
-
-.history-row-working[data-current="1"] {
-  border-left-color: #ff8e8e;
-  background: rgba(255, 107, 107, 0.06);
-  border-color: rgba(255, 107, 107, 0.2);
 }
 
 .history-row-main {

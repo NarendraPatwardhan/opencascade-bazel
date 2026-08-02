@@ -306,6 +306,15 @@ export function createMemoryHistoryBackend() {
         /* ignore */
       }
     },
+
+    /** Wipe commits + worktree for a project (fresh start). */
+    async clear(projectId) {
+      try {
+        projects.delete(sanitizeProjectId(projectId));
+      } catch {
+        /* ignore */
+      }
+    },
   };
 }
 

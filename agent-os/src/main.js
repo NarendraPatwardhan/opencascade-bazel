@@ -105,7 +105,7 @@ let paramSheet = null;
 /** @type {ReturnType<typeof mountHistoryPanel> | null} */
 let historyPanel = null;
 
-// Prefer GitEngine when git-engine.tar + mc-core load; else IDB/memory.
+// Local timeline: IDB primary + optional GitEngine dual-write (see opfs-backend).
 const historyBackend = createDefaultHistoryBackend({
   projectId: "demo-flange",
   assetBase: ASSET_BASE,
@@ -169,8 +169,11 @@ const project = createProjectController({
       if (
         meta.reason === "undo" ||
         meta.reason === "redo" ||
-        meta.reason === "restore"
+        meta.reason === "restore" ||
+        meta.reason === "clear"
       ) {
+        // clear: handleClearDocument runs execute after harvest; skip double run here
+        if (meta.reason === "clear") return;
         await runSource({
           fromParams: true,
           fit: meta.reason === "restore",
@@ -747,8 +750,9 @@ function updateHistoryTrigger(state = {}) {
   const tip = state.tip !== undefined ? state.tip : project.tip;
   btn.dataset.dirty = dirty ? "1" : "0";
   if (dirty) {
-    tipEl.textContent = "Unsaved";
-    tipEl.title = "Working copy has unsaved changes — open History to save a version";
+    tipEl.textContent = "Edited";
+    tipEl.title =
+      "Working copy differs from last checkpoint (auto-history will catch up after you settle)";
   } else if (tip?.name || tip?.message) {
     const label = tip.name || tip.message;
     tipEl.textContent = label;
@@ -869,14 +873,13 @@ async function handleUndo() {
   const doc = await project.undo();
   if (!doc) return;
   setStatus("Undo");
-  scheduleAutoVersion("undo");
+  // Do not auto-commit undos — that pollutes Overleaf-style history.
 }
 
 async function handleRedo() {
   const doc = await project.redo();
   if (!doc) return;
   setStatus("Redo");
-  scheduleAutoVersion("redo");
 }
 
 /**
@@ -922,17 +925,68 @@ async function handleRestore(id) {
   }
 }
 
+/** Wipe history + reset to demo flange seed (in-panel confirm). */
+async function handleClearDocument() {
+  try {
+    const seed = {
+      source: blockHoleSource(),
+      project: { name: "flange_plate", schema_version: 1 },
+      values: {},
+      meta: {},
+    };
+    await project.clearDocument(seed);
+    // Re-harvest params from demo source after wipe.
+    try {
+      if (runtimeWarm) {
+        await syncParamsFromSourceGuest(seed.source, {
+          preserveValues: false,
+          force: true,
+        });
+      } else {
+        syncParamsFromSourceFallback(seed.source, {
+          preserveValues: false,
+          force: true,
+        });
+      }
+    } catch {
+      syncParamsFromSourceFallback(seed.source, {
+        preserveValues: false,
+        force: true,
+      });
+    }
+    // Apply defaults from harvest into project + execute.
+    project.setValues(paramStore.values(), {
+      recordUndo: false,
+      merge: false,
+    });
+    await runSource({ fromParams: true, fit: true, fine: true });
+    setStatus("History cleared · demo reset");
+    await refreshHistoryPanel({ full: true });
+  } catch (err) {
+    setStatus(err instanceof Error ? err.message : "Clear failed", true);
+  }
+}
+
 if (els.history) {
   historyPanel = mountHistoryPanel(els.history, {
     onUndo: () => void handleUndo(),
     onRedo: () => void handleRedo(),
     onLabelVersion: (name) => handleLabelVersion(name),
     onRestore: (id) => handleRestore(id),
+    onClear: () => handleClearDocument(),
     onClose: () => closeHistoryDrawer(),
   });
   // Drawer closed by default — only keep the app-bar chip live.
   void refreshHistoryPanel({ full: false });
 }
+
+// Persist worktree on leave (autosave window).
+window.addEventListener("pagehide", () => {
+  void project.flush?.();
+});
+window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void project.flush?.();
+});
 
 els.historyTrigger?.addEventListener("click", () => {
   toggleHistoryDrawer();

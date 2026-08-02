@@ -440,6 +440,38 @@ function expect(cond, msg) {
     ctl.dispose?.();
   }
 
+
+  // --- clearDocument ---
+  {
+    const mem = createMemoryHistoryBackend();
+    const ctl = createProjectController({
+      projectId: "clear1",
+      backend: mem,
+    });
+    await ctl.open({
+      source: "v1",
+      values: { a: 1 },
+      project: { name: "p", schema_version: 1 },
+      meta: {},
+    });
+    await ctl.autoCommit({ reason: "params" });
+    ctl.setValues({ a: 2 }, { recordUndo: true, merge: false });
+    await ctl.autoCommit({ reason: "params" });
+    let n = (await ctl.listVersions()).length;
+    expect(n >= 1, "clear: has versions before wipe");
+    await ctl.clearDocument({
+      source: "fresh",
+      values: {},
+      project: { name: "untitled", schema_version: 1 },
+      meta: {},
+    });
+    const after = await ctl.listVersions();
+    expect(after.length === 1, "clear: single seed version after wipe");
+    expect(ctl.document.source === "fresh", "clear: source reset");
+    expect((await ctl.listVersions())[0]?.message?.includes("open"), "clear: seed is open auto");
+    ctl.dispose?.();
+  }
+
 // --- git adapter without engine throws / tryCreate returns null ---
 {
   let threw = false;

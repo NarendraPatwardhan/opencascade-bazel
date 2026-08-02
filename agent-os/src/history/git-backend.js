@@ -302,28 +302,28 @@ export async function createGitHistoryBackend(opts = {}) {
   let engine = opts.engine || null;
   let GitRemoteOrchestrator = opts.GitRemoteOrchestrator || null;
   const mcMod = opts.mcModule || null;
+  const GitEngineCls =
+    opts.GitEngine || mcMod?.GitEngine || null;
+  /** @type {Record<string, any> | null} */
+  let engineLoadOpts = null;
 
   if (!engine) {
-    const GitEngine =
-      opts.GitEngine ||
-      mcMod?.GitEngine ||
-      null;
-    if (!GitEngine || typeof GitEngine.load !== "function") {
+    if (!GitEngineCls || typeof GitEngineCls.load !== "function") {
       throw new Error("GitEngine not available");
     }
     if (!opts.engineBytes || !(opts.engineBytes instanceof Uint8Array)) {
       throw new Error("git-engine.tar bytes required");
     }
-    const loadOpts = {
+    engineLoadOpts = {
       engine: opts.engineBytes,
       identity,
     };
     if (opts.durableDir) {
-      /** @type {any} */ (loadOpts).durableDir = opts.durableDir;
+      engineLoadOpts.durableDir = opts.durableDir;
     } else if (opts.durable) {
-      /** @type {any} */ (loadOpts).durable = opts.durable;
+      engineLoadOpts.durable = opts.durable;
     }
-    engine = await GitEngine.load(loadOpts);
+    engine = await GitEngineCls.load(engineLoadOpts);
   }
 
   if (!GitRemoteOrchestrator && mcMod?.GitRemoteOrchestrator) {
@@ -687,7 +687,60 @@ export async function createGitHistoryBackend(opts = {}) {
       });
     },
 
-    // ── RemoteHistoryBackend ──────────────────────────────────────────────
+    /**
+     * Wipe worktree + re-init empty repo (local fresh start).
+     * Reloads GitEngine when possible so history ODB is empty.
+     */
+    async clear(_projectId) {
+      return serial(async () => {
+        remoteUrl = null;
+        try {
+          if (opts.durable && typeof opts.durable.clear === "function") {
+            await opts.durable.clear();
+          }
+        } catch {
+          /* */
+        }
+        try {
+          if (typeof engine.close === "function") await engine.close();
+        } catch {
+          /* */
+        }
+        // Fresh engine = empty repo (new MEMFS / cleared durable).
+        if (GitEngineCls && engineLoadOpts) {
+          engine = await GitEngineCls.load({ ...engineLoadOpts });
+          inited = false;
+          await ensureRepo();
+          await maybeCheckpoint();
+          return;
+        }
+        // Fallback: empty files on existing engine.
+        inited = false;
+        try {
+          await ensureRepo();
+          await engine.run({
+            op: "write",
+            args: { path: SOURCE_PATH, content: "" },
+          });
+          await engine.run({
+            op: "write",
+            args: {
+              path: PROJECT_PATH,
+              content: JSON.stringify({
+                project: { name: "untitled", schema_version: 1 },
+                meta: {},
+                values: {},
+              }),
+            },
+          });
+        } catch {
+          /* */
+        }
+        await maybeCheckpoint();
+      });
+    },
+
+    // ── RemoteHistoryBackend (optional host API; not demo UI) ────────────
 
     /**
      * Internal remote list (must only run under serial).

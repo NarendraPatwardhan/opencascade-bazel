@@ -333,12 +333,24 @@ export function createIdbHistoryBackend() {
       if (!rec?.commits?.length) return null;
       return { ...rec.commits[rec.commits.length - 1] };
     },
-  };
-}
 
-/** @deprecated use createIdbHistoryBackend */
-export function createOpfsHistoryBackend() {
-  return createIdbHistoryBackend();
+    async clear(projectId) {
+      const id = sanitizeProjectId(projectId);
+      projectRecords.delete(id);
+      await memory.clear(id);
+      try {
+        const d = await openDb();
+        await new Promise((resolve, reject) => {
+          const tx = d.transaction(STORE, "readwrite");
+          const req = tx.objectStore(STORE).delete(id);
+          req.onsuccess = () => resolve(undefined);
+          req.onerror = () => reject(req.error);
+        });
+      } catch {
+        /* private mode / no idb */
+      }
+    },
+  };
 }
 
 /**
@@ -551,42 +563,31 @@ export function createDefaultHistoryBackend(opts = {}) {
       if (typeof primary.close === "function") await primary.close(projectId);
       if (git && typeof git.close === "function") await git.close(projectId);
     },
-  };
 
-  Object.defineProperty(facade, "available", {
-    get() {
-      return !!git;
-    },
-    enumerable: true,
-  });
-
-  /**
-   * @param {string} name
-   */
-  function forwardRemote(name) {
-    return async (...args) => {
-      await warmGit();
-      if (git && typeof /** @type {any} */ (git)[name] === "function") {
-        return /** @type {any} */ (git)[name](...args);
+    async clear(projectId) {
+      if (typeof primary.clear === "function") {
+        await primary.clear(projectId);
       }
-      return {
-        ok: false,
-        message: `Remote ${name} unavailable (local history only)`,
-      };
-    };
-  }
-
-  /** @type {any} */ (facade).setRemote = forwardRemote("setRemote");
-  /** @type {any} */ (facade).getRemote = async () => {
-    await warmGit();
-    if (git && typeof /** @type {any} */ (git).getRemote === "function") {
-      return /** @type {any} */ (git).getRemote();
-    }
-    return null;
+      if (git && typeof /** @type {any} */ (git).clear === "function") {
+        try {
+          await /** @type {any} */ (git).clear(projectId);
+        } catch {
+          /* best-effort */
+        }
+      }
+      // Drop git instance so next warm is a clean engine/repo.
+      if (git) {
+        try {
+          if (typeof git.close === "function") await git.close(projectId);
+        } catch {
+          /* */
+        }
+      }
+      git = null;
+      gitWarm = null;
+      void warmGit();
+    },
   };
-  /** @type {any} */ (facade).push = forwardRemote("push");
-  /** @type {any} */ (facade).pull = forwardRemote("pull");
-  /** @type {any} */ (facade).clone = forwardRemote("clone");
 
   return facade;
 }

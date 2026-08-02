@@ -164,7 +164,7 @@ Versions prefer **AgentOS GitEngine** when `git-engine.tar` is staged and loads:
 |-------|------|
 | Worktree files | `main.luau`, `project.json` (`project` / `meta` / `values`) |
 | Identity | product-local `occ_c` / `cad@local` (never host gitconfig) |
-| Backend order | GitEngine → IndexedDB → memory |
+| Backend | **IndexedDB/memory** is the version timeline (always). Optional **GitEngine dual-write** when `git-engine.tar` loads. |
 | Product UI | **Local versions only** (Overleaf/Onshape-style): named checkpoints, timeline, restore. No Clone/Push/Pull in the demo chrome. |
 
 Remotes are **not** a product surface for the CAD demo. Optional host APIs may still exist for agents; the UI is local-repo history only.

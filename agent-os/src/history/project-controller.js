@@ -2,20 +2,20 @@
  * ProjectController — document + undo + durable versions.
  *
  * Layers:
- *   A. RAM undo stack (frequent; commit/debounce end of scrub + editor)
- *   B. HistoryBackend (GitEngine when available, else IDB, else memory)
+ *   A. RAM undo stack (working-copy edits)
+ *   B. HistoryBackend — product: IDB/memory timeline; optional GitEngine dual-write
  *
  * Does not run OCC / worker. Host wires onApply → editor + store + execute.
  *
  * Undo rules:
  *   - Live scrub / keystrokes update `doc` only (no stack mutation).
- *   - recordUndo / checkpoint push the *new* snapshot; previous present → past.
+ *   - recordUndo push = settled edit; autoCommit writes durable timeline points.
  *
  * Callbacks:
- *   onDirtyChange(dirty, tip) — lightweight (badge / canUndo); scrub + undo stack
- *   onHistoryChange() — full version list; only open / commitVersion / restoreVersion
+ *   onDirtyChange(dirty, tip) — app-bar chip / undo enablement
+ *   onHistoryChange() — refresh version list when drawer open / timeline changes
  *
- * Async history ops (open/undo/redo/restore/commit) are single-flight serialized.
+ * Async history ops are single-flight serialized.
  */
 
 import { createUndoStack } from "./undo-stack.js";
@@ -519,6 +519,60 @@ export function createProjectController(opts = {}) {
         autosaveTimer = null;
       }
       await flushAutosave();
+    },
+
+    /**
+     * Clear all durable history and reset the working copy to `seed`
+     * (or an empty doc). Re-inits local git/IDB project state.
+     * @param {WorktreeDoc} [seed]
+     */
+    async clearDocument(seed) {
+      return runHistoryOp(async () => {
+        if (autosaveTimer) {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+        }
+        if (typeof backend.clear === "function") {
+          await backend.clear(projectId);
+        } else if (typeof backend.close === "function") {
+          await backend.close(projectId);
+        }
+
+        const empty = {
+          source: "",
+          project: { name: "untitled", schema_version: 1 },
+          meta: {},
+          values: {},
+        };
+        doc = cloneDoc(seed || empty);
+        tipCommit = null;
+        tipDoc = null;
+        dirty = true;
+        undo.reset(snapshotFromDoc());
+
+        // First auto checkpoint of the fresh project (if there is content).
+        if (doc.source || Object.keys(doc.values || {}).length) {
+          try {
+            const message = autoVersionMessage("open");
+            const entry = await backend.commit(projectId, doc, { message });
+            if (entry) {
+              entry.auto = true;
+              tipCommit = entry;
+              tipDoc = cloneDoc(doc);
+              dirty = false;
+            }
+          } catch {
+            /* leave dirty empty project */
+          }
+        } else {
+          dirty = false;
+          tipDoc = cloneDoc(doc);
+        }
+
+        await opts.onApply?.(cloneDoc(doc), { reason: "clear" });
+        emitHistory();
+        return cloneDoc(doc);
+      });
     },
 
     dispose() {

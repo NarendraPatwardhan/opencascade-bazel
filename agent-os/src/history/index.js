@@ -1,10 +1,8 @@
 /**
- * Document history: undo stack + durable versions (GitEngine / IDB / memory).
+ * Document history (local Overleaf-style versions).
  *
- * Document fields: main.luau source + project.json + optional meta.
- * `values` is also stored so scrub SoT (inject-only execute) survives reload.
- *
- * Preference: GitEngine (git-engine.tar) → IndexedDB → memory.
+ * Product path: createDefaultHistoryBackend (IDB primary + optional git dual-write)
+ * + createProjectController + mountHistoryPanel.
  */
 
 export { createUndoStack } from "./undo-stack.js";
@@ -20,18 +18,13 @@ export {
 } from "./backend.js";
 export {
   createIdbHistoryBackend,
-  createOpfsHistoryBackend,
   createDefaultHistoryBackend,
 } from "./opfs-backend.js";
 export {
   createGitHistoryBackend,
   tryCreateGitHistoryBackend,
   resolveGitEngineBytes,
-  loadMcCore,
   parseGitLog,
-  remoteTokenStorage,
-  remoteOriginOf,
-  createMemoryDurable,
-  createOpfsBlobDurable,
 } from "./git-backend.js";
 export { createProjectController } from "./project-controller.js";
+export { mountHistoryPanel } from "./panel.js";
