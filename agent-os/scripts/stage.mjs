@@ -67,4 +67,10 @@ if (existsSync(browserMc)) {
   console.warn("warning: no mc-core.browser.mjs — browser import may fail; run scripts/browserify-mc-core.sh");
 }
 
+// Self-contained deploy: serve.mjs at stage root (Docker / release tarball entry).
+const serveSrc = join(demoDir, "serve.mjs");
+if (existsSync(serveSrc)) {
+  copyFileSync(serveSrc, join(out, "serve.mjs"));
+}
+
 console.log(`staged → ${out}`);

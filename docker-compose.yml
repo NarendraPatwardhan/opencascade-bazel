@@ -1,0 +1,33 @@
+# CAD browser demo for Dokploy / local Docker — no OCCT build on the host.
+#
+# 1) Cut a release with bb (once per version):
+#      ./scripts/release-demo.sh --tag demo-v0.1.0 --notes-file notes.md
+# 2) Export the asset URL (or put it in Dokploy env):
+#      export CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
+# 3) Deploy:
+#      docker compose up -d --build
+#
+# Dokploy: Docker Compose app, domain https://cad.opyt.cloud → service cad port 8765
+# Full walkthrough: docs/DEPLOY.md
+
+services:
+  cad:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: cad-demo:local
+    restart: unless-stopped
+    ports:
+      - "${CAD_PORT:-8765}:8765"
+    environment:
+      PORT: "8765"
+      HOST: "0.0.0.0"
+      CACHE_MODE: release
+      # Required: GitHub Release asset built by ./scripts/release-demo.sh (bb + pack).
+      CAD_RELEASE_URL: ${CAD_RELEASE_URL:?Set CAD_RELEASE_URL to .../releases/download/<tag>/cad-demo-stage.tar.gz}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s

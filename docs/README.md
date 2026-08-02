@@ -9,6 +9,7 @@ Canonical docs for this repository. Prefer **one home per topic**.
 | [`../REACTIVITY.md`](../REACTIVITY.md) | **Params / gimbals** — reactive scripts, tiered re-eval |
 | [`../AGENTS.md`](../AGENTS.md) | How to code here (C ABI, Bazel/bb, license boundary) |
 | [`../README.md`](../README.md) | User-facing product overview |
+| [`DEPLOY.md`](DEPLOY.md) | **Dokploy / compose** — bb → GitHub Release → `docker-compose.yml` (no OCCT on VPS) |
 | [`cleanroom-featurescript-std-report.md`](cleanroom-featurescript-std-report.md) | Clean-room capability matrix + IR sketches (solids / host façade) |
 | [`cleanroom-solvespace-sketch-solve-report.md`](cleanroom-solvespace-sketch-solve-report.md) | Clean-room **Sketch2D / SolveSketch** — parametric 2D + constraint solve design |
 | [`sketch-solve-constitution.md`](sketch-solve-constitution.md) | **Binding** sketch/solve process — depth-first Active Slice, exceptional Seal bar, MAS rules |

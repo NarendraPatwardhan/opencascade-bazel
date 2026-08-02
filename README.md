@@ -60,7 +60,7 @@ The image above is the working vertical slice: **Luau in AgentOS → host CAD to
 ```bash
 # After AgentOS release assets + libocc_c Wasm are staged (see agent-os/README.md):
 ./agent-os/scripts/dev.sh
-# → http://127.0.0.1:8765/
+# → http://127.0.0.1:8765/  (or any interface; HOST=127.0.0.1 to lock local)
 ```
 
 | Piece | Role |
@@ -69,6 +69,8 @@ The image above is the working vertical slice: **Luau in AgentOS → host CAD to
 | Runtime worker | AgentOS `loom` + `createOccModule` |
 | `solid.*` batteries | Thin Luau over host `cad.call` → `occ_*` |
 | Mesh panel | Expert-visible geometry + kernel version metadata |
+
+**Production (Dokploy / compose):** build Wasm with **`bb`**, publish `cad-demo-stage.tar.gz` to a GitHub Release, point compose at that URL — **no OCCT on the VPS**. Walkthrough: **[`docs/DEPLOY.md`](docs/DEPLOY.md)**. Compose: [`docker-compose.yml`](docker-compose.yml).
 
 Architecture and decisions live in **[`SYSTEM.md`](SYSTEM.md)**. Viewport / camera / grid: **[`DISPLAY.md`](DISPLAY.md)**. Live params / gimbals: **[`REACTIVITY.md`](REACTIVITY.md)**. Doc index: **[`docs/README.md`](docs/README.md)**. Screenshot: [`docs/browser-demo.png`](docs/browser-demo.png).
 

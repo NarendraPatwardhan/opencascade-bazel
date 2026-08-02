@@ -2,10 +2,12 @@
 /**
  * Static file server for the AgentOS CAD browser demo.
  *
- * Env (from Bazel runfiles or local vendor/):
- *   DEMO_ROOT   — directory with index.html + styles.css
+ * Env:
+ *   DEMO_ROOT     — directory with index.html + styles.css
  *   AGENT_OS_ROOT — staged tree: kernel, loom, mc-core, batteries, src, libocc_c.*
- *   PORT        — default 8765
+ *   PORT          — default 8765
+ *   HOST          — default 0.0.0.0 (containers / Dokploy); use 127.0.0.1 for local-only
+ *   CACHE_CONTROL — optional override (default: no-cache; wasm/js long-cache if "release")
  */
 
 import { createServer } from "node:http";
@@ -14,12 +16,17 @@ import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const port = Number(process.env.PORT || 8765);
-const demoRoot = resolve(
-  process.env.DEMO_ROOT || join(fileURLToPath(new URL(".", import.meta.url))),
-);
-const agentOsRoot = resolve(
-  process.env.AGENT_OS_ROOT || join(demoRoot, "..", "vendor-stage"),
-);
+const host = process.env.HOST || "0.0.0.0";
+const here = fileURLToPath(new URL(".", import.meta.url));
+
+// When serve.mjs lives at stage root (release tarball), default roots are stage/demo + stage.
+const stageSibling = resolve(here, "demo");
+const defaultDemo = existsSync(join(stageSibling, "index.html")) ? stageSibling : here;
+const defaultAgent =
+  existsSync(join(here, "libocc_c.wasm")) ? here : join(here, "..", "vendor-stage");
+
+const demoRoot = resolve(process.env.DEMO_ROOT || defaultDemo);
+const agentOsRoot = resolve(process.env.AGENT_OS_ROOT || defaultAgent);
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -33,6 +40,14 @@ const TYPES = {
   ".map": "application/json",
 };
 
+function cacheControl(ext) {
+  if (process.env.CACHE_CONTROL) return process.env.CACHE_CONTROL;
+  if (process.env.CACHE_MODE === "release" && (ext === ".wasm" || ext === ".js" || ext === ".mjs" || ext === ".tar")) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "no-cache";
+}
+
 function safeJoin(root, reqPath) {
   const decoded = decodeURIComponent(reqPath.split("?")[0]);
   const rel = decoded.replace(/^\/+/, "");
@@ -41,27 +56,30 @@ function safeJoin(root, reqPath) {
   return full;
 }
 
-function send(res, code, body, type) {
+function send(res, code, body, type, ext) {
   res.writeHead(code, {
     "content-type": type || "text/plain; charset=utf-8",
-    "cache-control": "no-cache",
+    "cache-control": cacheControl(ext || ""),
     "cross-origin-opener-policy": "same-origin",
-    // COOP/COEP not required for basic wasm; keep simple for demo.
   });
   res.end(body);
 }
 
 const server = createServer((req, res) => {
   try {
-    const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+    const url = new URL(req.url || "/", `http://${host}:${port}`);
     let path = url.pathname;
+
+    if (path === "/healthz" || path === "/health") {
+      return send(res, 200, "ok\n", "text/plain; charset=utf-8");
+    }
 
     if (path === "/" || path === "/index.html") {
       const html = readFileSync(join(demoRoot, "index.html"));
-      return send(res, 200, html, TYPES[".html"]);
+      return send(res, 200, html, TYPES[".html"], ".html");
     }
     if (path === "/styles.css" || path === "/demo/styles.css") {
-      return send(res, 200, readFileSync(join(demoRoot, "styles.css")), TYPES[".css"]);
+      return send(res, 200, readFileSync(join(demoRoot, "styles.css")), TYPES[".css"], ".css");
     }
 
     // /agent-os/* → staged product tree
@@ -72,14 +90,15 @@ const server = createServer((req, res) => {
         return send(res, 404, `not found: ${path}`);
       }
       const ext = extname(file);
-      return send(res, 200, readFileSync(file), TYPES[ext] || "application/octet-stream");
+      return send(res, 200, readFileSync(file), TYPES[ext] || "application/octet-stream", ext);
     }
 
     // allow /demo/* from demoRoot
     if (path.startsWith("/demo/")) {
       const file = safeJoin(demoRoot, path.slice("/demo/".length));
       if (file && existsSync(file) && statSync(file).isFile()) {
-        return send(res, 200, readFileSync(file), TYPES[extname(file)] || "application/octet-stream");
+        const ext = extname(file);
+        return send(res, 200, readFileSync(file), TYPES[ext] || "application/octet-stream", ext);
       }
     }
 
@@ -89,9 +108,9 @@ const server = createServer((req, res) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
+server.listen(port, host, () => {
   console.log(`AgentOS CAD demo`);
   console.log(`  demo root:     ${demoRoot}`);
   console.log(`  agent-os root: ${agentOsRoot}`);
-  console.log(`  open http://127.0.0.1:${port}/`);
+  console.log(`  listen:        http://${host}:${port}/`);
 });

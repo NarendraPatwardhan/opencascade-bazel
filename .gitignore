@@ -10,3 +10,6 @@ scripting/
 # Local AgentOS release + staged demo trees (downloaded / generated).
 agent-os/vendor/
 agent-os/_stage/
+
+# Packed release artifacts (produced by scripts/pack-demo-stage.sh).
+dist/

@@ -61,6 +61,11 @@ node agent-os/smoke/solid_api_smoke.mjs
 # 4) Browser demo (stages + serves)
 ./agent-os/scripts/dev.sh
 # open http://127.0.0.1:8765/  → Warm (optional) → Run Luau
+
+# 5) Production pack + GitHub Release (bb builds Wasm; Dokploy only downloads tarball)
+#    See ../docs/DEPLOY.md
+# ./scripts/pack-demo-stage.sh
+# ./scripts/release-demo.sh --tag demo-v0.1.0 --notes "…"
 ```
 
 ### Portable IR (`cad.ir/v0`)
