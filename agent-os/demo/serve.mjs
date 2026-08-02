@@ -7,10 +7,12 @@
  *   AGENT_OS_ROOT — staged tree: kernel, loom, mc-core, batteries, src, libocc_c.*
  *   PORT          — default 8765
  *   HOST          — default 0.0.0.0 (containers / Dokploy); use 127.0.0.1 for local-only
- *   CACHE_CONTROL — optional override (default: no-cache; wasm/js long-cache if "release")
+ *   CACHE_CONTROL — optional override (default: no-store for app; wasm long-cache if release)
+ *   CAD_RESOLVED_TAG / STAGE_STAMP — optional stage id stamped into HTML for debugging
  */
 
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFileSync, statSync, existsSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,23 +42,103 @@ const TYPES = {
   ".map": "application/json",
 };
 
-function cacheControl(ext, reqPath = "") {
-  if (process.env.CACHE_CONTROL) return process.env.CACHE_CONTROL;
-  // Only long-cache heavy binaries. App JS/CSS must not be immutable — a new
-  // stage + old cached main.js crashes the UI (null addEventListener, etc.).
-  if (process.env.CACHE_MODE === "release") {
-    if (ext === ".wasm" || ext === ".tar") {
-      return "public, max-age=31536000, immutable";
-    }
-    // Glue for emcc is versioned with the wasm build; safe to cache briefly.
-    if (
-      ext === ".js" &&
-      (reqPath.endsWith("libocc_c.js") || reqPath.endsWith("mc-core.mjs") || reqPath.endsWith("mc-core.browser.mjs"))
-    ) {
-      return "public, max-age=86400";
-    }
+/** Long-cache only heavy binaries (and emcc/mc-core glue). Everything else is no-store. */
+function isLongCacheAsset(ext, reqPath = "") {
+  if (ext === ".wasm" || ext === ".tar") return true;
+  if (ext !== ".js" && ext !== ".mjs") return false;
+  return (
+    reqPath.endsWith("libocc_c.js") ||
+    reqPath.endsWith("mc-core.mjs") ||
+    reqPath.endsWith("mc-core.browser.mjs")
+  );
+}
+
+/**
+ * Cache headers. Cloudflare "Browser Cache TTL" / edge cache can ignore bare
+ * `no-cache` and re-serve stale main.js for hours or (with immutable) a year.
+ * App code must use no-store + CDN-Cache-Control so edges never pin deploys.
+ */
+function cacheHeaders(ext, reqPath = "") {
+  const headers = {
+    "cross-origin-opener-policy": "same-origin",
+  };
+  if (process.env.CACHE_CONTROL) {
+    headers["cache-control"] = process.env.CACHE_CONTROL;
+    return headers;
   }
-  return "no-cache";
+  if (process.env.CACHE_MODE === "release" && isLongCacheAsset(ext, reqPath)) {
+    headers["cache-control"] =
+      ext === ".js" || ext === ".mjs"
+        ? "public, max-age=86400"
+        : "public, max-age=31536000, immutable";
+    return headers;
+  }
+  // App HTML/JS/CSS: never cache at browser or CDN edge.
+  headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0";
+  headers["cdn-cache-control"] = "no-store";
+  headers["cloudflare-cdn-cache-control"] = "no-store";
+  headers["pragma"] = "no-cache";
+  headers["expires"] = "0";
+  return headers;
+}
+
+function shortHash(filePath) {
+  if (!existsSync(filePath)) return "0";
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex").slice(0, 12);
+}
+
+/**
+ * Inject content-hash query on main.js / styles so a new stage cannot share a
+ * Cloudflare/SW cache key with a previous deploy. Also kill stale SW caches
+ * that once cache-firsted all of /agent-os/* (including main.js).
+ */
+function decorateIndexHtml(raw) {
+  let html = String(raw);
+  const mainV = shortHash(join(agentOsRoot, "src", "main.js"));
+  const cssV = shortHash(join(demoRoot, "styles.css"));
+  const stageV =
+    process.env.CAD_RESOLVED_TAG ||
+    process.env.STAGE_STAMP ||
+    mainV;
+
+  // One-shot boot: unregister SW + drop occ-cad-static-* caches (old v1 pinned main.js).
+  if (!html.includes("data-occ-cache-bust")) {
+    const boot = `<script data-occ-cache-bust>
+(function () {
+  try {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (rs) {
+        rs.forEach(function (r) { r.unregister(); });
+      });
+    }
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (keys) {
+        keys
+          .filter(function (k) { return k.indexOf("occ-cad-static-") === 0; })
+          .forEach(function (k) { caches.delete(k); });
+      });
+    }
+  } catch (_) {}
+})();
+</script>`;
+    html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${boot}`);
+  }
+
+  html = html.replace(
+    /src="\/agent-os\/src\/main\.js[^"]*"/g,
+    `src="/agent-os/src/main.js?v=${mainV}"`,
+  );
+  html = html.replace(
+    /href="\.\/styles\.css[^"]*"/g,
+    `href="./styles.css?v=${cssV}"`,
+  );
+  if (!html.includes('name="occ-stage"')) {
+    html = html.replace(
+      /<\/head>/i,
+      `    <meta name="occ-stage" content="${stageV}" />\n  </head>`,
+    );
+  }
+  return html;
 }
 
 function safeJoin(root, reqPath) {
@@ -70,8 +152,7 @@ function safeJoin(root, reqPath) {
 function send(res, code, body, type, ext, reqPath = "") {
   res.writeHead(code, {
     "content-type": type || "text/plain; charset=utf-8",
-    "cache-control": cacheControl(ext || "", reqPath),
-    "cross-origin-opener-policy": "same-origin",
+    ...cacheHeaders(ext || "", reqPath),
   });
   res.end(body);
 }
@@ -96,11 +177,18 @@ const server = createServer((req, res) => {
     }
 
     if (path === "/" || path === "/index.html") {
-      const html = readFileSync(join(demoRoot, "index.html"));
-      return send(res, 200, html, TYPES[".html"], ".html");
+      const html = decorateIndexHtml(readFileSync(join(demoRoot, "index.html"), "utf8"));
+      return send(res, 200, html, TYPES[".html"], ".html", path);
     }
     if (path === "/styles.css" || path === "/demo/styles.css") {
-      return send(res, 200, readFileSync(join(demoRoot, "styles.css")), TYPES[".css"], ".css");
+      return send(
+        res,
+        200,
+        readFileSync(join(demoRoot, "styles.css")),
+        TYPES[".css"],
+        ".css",
+        path,
+      );
     }
 
     // /agent-os/* → staged product tree

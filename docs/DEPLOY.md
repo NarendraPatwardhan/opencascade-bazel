@@ -243,3 +243,6 @@ Public demo at `cad.opyt.cloud` ships both; keep the product split clear in docs
 | Container exits “set CAD_RELEASE_URL” | Compose/Dokploy env not set |
 | Page loads, mesh never appears | Browser console; confirm `/agent-os/libocc_c.wasm` 200 |
 | Monaco fails | CDN blocked; network to jsDelivr |
+| Plain `404 page not found` on `/` + `/healthz` | Dokploy Domains: service **cad**, port **8765**; `dokploy-network` |
+| `main.js:… addEventListener` null after deploy | Stale CF/SW cache. Purge Cloudflare for host; browser Clear site data. HTML should load `main.js?v=<hash>`; headers must not be `immutable` for app JS |
+| HTML new, main.js still immutable HIT | CF edge pinned old file. Purge Everything; 0.3.3+ sends `CDN-Cache-Control: no-store` |
