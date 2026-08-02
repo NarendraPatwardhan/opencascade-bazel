@@ -28,7 +28,10 @@ services:
       PORT: "8765"
       HOST: "0.0.0.0"
       CACHE_MODE: release
+      # Public-looking URL; repo is private → set GITHUB_TOKEN (or GH_TOKEN) too.
       CAD_RELEASE_URL: ${CAD_RELEASE_URL:-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz}
+      # Fine-grained PAT: Contents Read on this repo (same family as ../github.cad.key).
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-${GH_TOKEN:-}}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]
       interval: 30s

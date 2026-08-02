@@ -150,12 +150,28 @@ Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** downloads `CA
 | `HOST` | Default `0.0.0.0` |
 | `CACHE_MODE=release` | Long-cache for wasm/js |
 
+### Private repo note (this repo)
+
+`opencascade-bazel` is **private**. Unauthenticated
+`https://github.com/.../releases/download/...` URLs return **HTTP 404** (GitHub’s
+privacy behaviour, not a missing asset). The release exists; the container must
+authenticate:
+
+| Env | Required | Role |
+|-----|----------|------|
+| `CAD_RELEASE_URL` | yes | browser download URL of `cad-demo-stage.tar.gz` |
+| `GITHUB_TOKEN` or `GH_TOKEN` | **yes if private** | PAT with **Contents: Read** (same class as `../github.cad.key`) |
+
+entrypoint uses `Authorization: Bearer …` on the download. Never put the token in
+git; set it only in Dokploy secrets / compose env.
+
 ### Dokploy checklist
 
 1. Create a **Docker Compose** application from this repo (branch `master` or `dev`).
-2. Env (required for first start unless baked):
+2. Env:
    ```text
    CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
+   GITHUB_TOKEN=<fine-grained PAT, Contents: Read>
    ```
 3. **Domains** (Dokploy UI, not only DNS):
    - Domain: `cad.opyt.cloud`
@@ -165,7 +181,10 @@ Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** downloads `CA
 5. Deploy and wait until healthcheck passes (`/healthz` → `ok`).
 6. Open `https://cad.opyt.cloud/` — Monaco may load from jsDelivr (browser outbound CDN).
 
-If you see **`404 page not found`** (plain text, Traefik): the domain is **not** attached to service `cad` / port `8765`, or the container never became healthy. It is not a missing `main.js` path inside the app.
+If container logs show `curl: (22) ... 404` on the release URL: missing/invalid
+`GITHUB_TOKEN` for a private repo (or wrong URL).
+
+If you see **`404 page not found`** (plain text, Traefik): the domain is **not** attached to service `cad` / port `8765`, or the container never became healthy.
 
 | Probe | Healthy | Broken routing |
 |-------|---------|----------------|
