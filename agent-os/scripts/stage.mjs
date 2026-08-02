@@ -11,7 +11,16 @@
  * Env paths (absolute or cwd-relative); Bazel passes runfile paths.
  */
 
-import { cpSync, mkdirSync, copyFileSync, existsSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  copyFileSync,
+  existsSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // dirname used for browser mc-core sibling lookup
@@ -86,6 +95,74 @@ if (existsSync(browserMc)) {
 const serveSrc = join(demoDir, "serve.mjs");
 if (existsSync(serveSrc)) {
   copyFileSync(serveSrc, join(out, "serve.mjs"));
+}
+
+// Break Cloudflare immutable cache of bare /agent-os/src/main.js:
+// 1) Copy entry module to a content-addressed filename (new URL every stage).
+// 2) Point index.html at that file + hashed CSS.
+// Relative imports from main stay same-dir (./foo.js) so the copy works.
+const mainPath = join(out, "src", "main.js");
+const cssPath = join(out, "demo", "styles.css");
+const indexPath = join(out, "demo", "index.html");
+if (existsSync(mainPath) && existsSync(indexPath)) {
+  const short = (p) =>
+    existsSync(p)
+      ? createHash("sha256").update(readFileSync(p)).digest("hex").slice(0, 12)
+      : "0";
+  const mainV = short(mainPath);
+  const cssV = short(cssPath);
+  const entryName = `main.${mainV}.js`;
+  copyFileSync(mainPath, join(out, "src", entryName));
+  let html = readFileSync(indexPath, "utf8");
+  if (!html.includes("data-occ-cache-bust")) {
+    const boot = `<script data-occ-cache-bust>
+(function () {
+  try {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (rs) {
+        rs.forEach(function (r) { r.unregister(); });
+      });
+    }
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (keys) {
+        keys
+          .filter(function (k) { return k.indexOf("occ-cad-static-") === 0; })
+          .forEach(function (k) { caches.delete(k); });
+      });
+    }
+  } catch (_) {}
+})();
+</script>`;
+    html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${boot}`);
+  }
+  // Prefer content-addressed entry (never collides with CF immutable main.js).
+  html = html.replace(
+    /src="\/agent-os\/src\/main(?:\.[a-f0-9]+)?\.js[^"]*"/g,
+    `src="/agent-os/src/${entryName}"`,
+  );
+  // Fallback if template still uses plain main.js without prior rewrite match
+  if (!html.includes(entryName)) {
+    html = html.replace(
+      /src="\/agent-os\/src\/main\.js[^"]*"/g,
+      `src="/agent-os/src/${entryName}"`,
+    );
+  }
+  html = html.replace(
+    /href="\.\/styles\.css[^"]*"/g,
+    `href="./styles.css?v=${cssV}"`,
+  );
+  if (!html.includes('name="occ-stage"')) {
+    const stamp =
+      process.env.CAD_RESOLVED_TAG ||
+      process.env.STAGE_STAMP ||
+      mainV;
+    html = html.replace(
+      /<\/head>/i,
+      `    <meta name="occ-stage" content="${stamp}" />\n  </head>`,
+    );
+  }
+  writeFileSync(indexPath, html);
+  console.log(`staged index.html entry=/agent-os/src/${entryName} styles?v=${cssV}`);
 }
 
 console.log(`staged → ${out}`);

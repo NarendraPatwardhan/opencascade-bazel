@@ -233,6 +233,21 @@ export DEMO_ROOT="${DEMO_ROOT:-${STAGE_DIR}/demo}"
 export AGENT_OS_ROOT="${AGENT_OS_ROOT:-${STAGE_DIR}}"
 export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
 
+# Fingerprint for GET /version (and operators grepping logs).
+{
+  echo "tag=${CONCRETE_TAG}"
+  echo "resolved_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [ -f "${STAGE_DIR}/STAGE_INFO.txt" ]; then
+    cat "${STAGE_DIR}/STAGE_INFO.txt"
+  fi
+  if [ -f "${STAGE_DIR}/demo/index.html" ]; then
+    entry="$(grep -oE '/agent-os/src/main[^"]+\.js' "${STAGE_DIR}/demo/index.html" | head -1 || true)"
+    echo "html_entry=${entry:-unknown}"
+  fi
+} > "${STAGE_DIR}/VERSION"
+log "VERSION file:"
+cat "${STAGE_DIR}/VERSION" >&2 || true
+
 SERVE="${STAGE_DIR}/serve.mjs"
 if [ ! -f "$SERVE" ]; then
   SERVE="${STAGE_DIR}/demo/serve.mjs"
@@ -242,5 +257,15 @@ if [ ! -f "$SERVE" ]; then
   exit 1
 fi
 
+# Guard: old stages still long-cache bare main.js — refuse silently shipping them
+# without a content-addressed entry when CAD_REQUIRE_HASHED_ENTRY=1 (optional).
+if [ "${CAD_REQUIRE_HASHED_ENTRY:-0}" = "1" ]; then
+  if ! grep -qE 'main\.[a-f0-9]{8,}\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+    log "ERROR: index.html has no content-addressed main.<hash>.js entry (stage too old)"
+    exit 1
+  fi
+fi
+
 log "serving ${STAGE_DIR} tag=${CONCRETE_TAG} on ${HOST}:${PORT}"
+log "probe after deploy: curl -sS https://<host>/version"
 exec node "$SERVE"

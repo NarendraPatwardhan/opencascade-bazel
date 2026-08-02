@@ -17,6 +17,7 @@ import {
   resolveParams,
   resolveParamsFromPods,
 } from "./params/resolve.js";
+import { applyParamValuesToSource } from "./params/luau-locals.js";
 import { createScheduler } from "./eval/scheduler.js";
 import {
   BLOCK_HOLE_SEED,
@@ -118,61 +119,117 @@ const project = createProjectController({
   autosaveMs: 2000,
   async onApply(doc, meta) {
     historyApplying = true;
+    // Drop pending scrub rebuilds / auto-checkpoints so they cannot re-apply
+    // pre-restore values after this apply completes.
     try {
+      scheduler.cancel?.();
+    } catch {
+      /* scheduler may not exist yet during early open */
+    }
+    if (autoVersionTimer) {
+      clearTimeout(autoVersionTimer);
+      autoVersionTimer = null;
+    }
+    if (resolveTimer) {
+      clearTimeout(resolveTimer);
+      resolveTimer = null;
+    }
+    try {
+      const isHistoryMove =
+        meta.reason === "undo" ||
+        meta.reason === "redo" ||
+        meta.reason === "restore" ||
+        meta.reason === "clear";
+
+      // Replay checkpoint values into the author buffer so Monaco matches the
+      // store (scrub path otherwise leaves old literals in the editor).
+      let bufferSource =
+        doc.source != null ? String(doc.source) : getSource();
+      if (isHistoryMove && doc.values && typeof doc.values === "object") {
+        bufferSource = applyParamValuesToSource(bufferSource, doc.values);
+      }
+
       const prevSource = editor ? editor.getValue() : getSource();
-      const sourceChanged =
-        doc.source != null && String(doc.source) !== String(prevSource);
-      if (editor && doc.source != null && editor.getValue() !== doc.source) {
-        editor.setValue(doc.source);
+      const sourceChanged = String(bufferSource) !== String(prevSource);
+      if (editor && sourceChanged) {
+        editor.setValue(bufferSource, { silent: true });
+      }
+      // Keep project doc.source in sync with rewritten buffer without clearing
+      // alignedVersionId (restore just set it).
+      if (isHistoryMove && sourceChanged) {
+        project.setSource(bufferSource, {
+          recordUndo: false,
+          keepAligned: true,
+        });
       }
       sourceMode = "editor";
 
-      // When source changed (undo/restore), harvest schema before execute so
-      // inject map matches the restored buffer (avoid wrong-window inject).
-      if (
-        (meta.reason === "undo" ||
-          meta.reason === "redo" ||
-          meta.reason === "restore") &&
-        sourceChanged
-      ) {
+      // When source structure changed, re-harvest schema then overlay values.
+      if (isHistoryMove && sourceChanged && meta.reason !== "clear") {
         try {
           if (runtimeWarm) {
-            await syncParamsFromSourceGuest(doc.source, {
+            await syncParamsFromSourceGuest(bufferSource, {
               preserveValues: false,
               force: true,
             });
           } else {
-            syncParamsFromSourceFallback(doc.source, {
+            syncParamsFromSourceFallback(bufferSource, {
               preserveValues: false,
               force: true,
             });
           }
         } catch {
-          syncParamsFromSourceFallback(doc.source, {
+          syncParamsFromSourceFallback(bufferSource, {
             preserveValues: false,
             force: true,
           });
         }
       }
 
-      // Apply values into store without treating as a new user scrub.
-      const list = paramStore.list().map((p) =>
-        doc.values && doc.values[p.name] !== undefined
-          ? { ...p, value: doc.values[p.name] }
-          : p,
-      );
-      if (list.length) {
-        // Keep schema sig so sheet can value-patch when structure unchanged.
-        paramStore.replace(list);
-        lastSchemaSig = schemaSignature(list);
+      // Apply checkpoint values into the store (param-only restore needs this
+      // even when source text is unchanged).
+      const vals = doc.values || {};
+      const hasCheckpointValues = Object.keys(vals).length > 0;
+      if (isHistoryMove && !hasCheckpointValues) {
+        // Old checkpoints may lack a values map — re-harvest from source so
+        // we never keep pre-restore scrub numbers.
+        syncParamsFromSourceFallback(bufferSource, {
+          preserveValues: false,
+          force: true,
+        });
+      } else {
+        const list = paramStore.list().map((p) =>
+          Object.prototype.hasOwnProperty.call(vals, p.name)
+            ? { ...p, value: vals[p.name] }
+            : // Missing key in a sparse checkpoint: fall back to defaultValue
+              // (not the pre-restore live value).
+              isHistoryMove
+              ? { ...p, value: p.defaultValue }
+              : p,
+        );
+        if (list.length) {
+          paramStore.replace(list);
+          lastSchemaSig = schemaSignature(list);
+        }
       }
-      if (
-        meta.reason === "undo" ||
-        meta.reason === "redo" ||
-        meta.reason === "restore" ||
-        meta.reason === "clear"
-      ) {
-        // clear: handleClearDocument runs execute after harvest; skip double run here
+      // Force sheet controls to the restored numbers (full remount is cheap here).
+      try {
+        paramSheet?.render?.();
+      } catch {
+        /* sheet may not expose render */
+      }
+
+      // Keep project.values aligned with the store (restore blob + sheet).
+      if (isHistoryMove) {
+        project.setValues(paramStore.values(), {
+          recordUndo: false,
+          merge: false,
+          keepAligned: true,
+        });
+      }
+
+      if (isHistoryMove) {
+        // clear: handleClearDocument runs execute after harvest; skip double run
         if (meta.reason === "clear") return;
         await runSource({
           fromParams: true,
@@ -193,6 +250,7 @@ const project = createProjectController({
       canRedo: project.canRedo,
       dirty,
       tip,
+      alignedVersionId: project.alignedVersionId,
       versions: undefined,
       badgeOnly: true,
     });
@@ -809,6 +867,7 @@ async function refreshHistoryPanel(opts = {}) {
       canRedo: project.canRedo,
       dirty: project.dirty,
       tip: project.tip,
+      alignedVersionId: project.alignedVersionId,
       badgeOnly: true,
     });
     return;
@@ -824,6 +883,7 @@ async function refreshHistoryPanel(opts = {}) {
     canRedo: project.canRedo,
     dirty: project.dirty,
     tip: project.tip,
+    alignedVersionId: project.alignedVersionId,
     versions,
   });
   updateHistoryTrigger({ dirty: project.dirty, tip: project.tip });

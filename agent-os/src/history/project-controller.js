@@ -77,6 +77,13 @@ export function createProjectController(opts = {}) {
   /** @type {WorktreeDoc | null} */
   let tipDoc = null;
   let dirty = false;
+  /**
+   * Version id the working copy is aligned with (last commit, or last restore).
+   * Used by the history panel "Current" marker — not the same as tip when the
+   * user restored an older checkpoint (worktree matches that row; tip is newer).
+   * @type {string | null}
+   */
+  let alignedVersionId = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let autosaveTimer = null;
 
@@ -201,6 +208,10 @@ export function createProjectController(opts = {}) {
     get tip() {
       return tipCommit;
     },
+    /** Version id matching the working copy (tip when clean; restored id after restore). */
+    get alignedVersionId() {
+      return alignedVersionId;
+    },
     get historyBusy() {
       return historyBusy;
     },
@@ -237,9 +248,13 @@ export function createProjectController(opts = {}) {
         tipDoc = await loadTipDoc(tipCommit);
         if (tipDoc) {
           dirty = !docsContentEqual(doc, tipDoc);
+          // Align to tip only when worktree matches tip blob.
+          alignedVersionId =
+            !dirty && tipCommit?.id ? tipCommit.id : null;
         } else {
           // No tip version yet: clean if we loaded a saved worktree, else dirty seed.
           dirty = !loaded;
+          alignedVersionId = null;
         }
         await opts.onApply?.(cloneDoc(doc), { reason: "open" });
 
@@ -261,6 +276,7 @@ export function createProjectController(opts = {}) {
               tipCommit = entry;
               tipDoc = cloneDoc(doc);
               dirty = false;
+              alignedVersionId = entry.id;
             }
           } catch (err) {
             if (typeof console !== "undefined" && console.warn) {
@@ -282,6 +298,10 @@ export function createProjectController(opts = {}) {
      * @param {string} source
      * @param {{ recordUndo?: boolean }} [o]
      */
+    /**
+     * @param {string} source
+     * @param {{ recordUndo?: boolean, keepAligned?: boolean }} [o]
+     */
     setSource(source, o = {}) {
       const next = String(source ?? "");
       if (next === doc.source) {
@@ -292,6 +312,9 @@ export function createProjectController(opts = {}) {
         return;
       }
       doc = cloneDoc({ ...doc, source: next });
+      // Live edit diverges from any checkpoint alignment (unless host is
+      // replaying history and wants to keep the restored alignment).
+      if (!o.keepAligned) alignedVersionId = null;
       recomputeDirty();
       if (o.recordUndo) {
         undo.push(snapshotFromDoc());
@@ -304,14 +327,20 @@ export function createProjectController(opts = {}) {
     /**
      * Param values map (store is source of truth while scrubbing).
      * @param {Record<string, any>} values
-     * @param {{ recordUndo?: boolean, merge?: boolean }} [o]
+     * @param {{ recordUndo?: boolean, merge?: boolean, keepAligned?: boolean }} [o]
      */
     setValues(values, o = {}) {
       const next =
         o.merge === false
           ? { ...(values || {}) }
           : { ...(doc.values || {}), ...(values || {}) };
+      const prev = doc.values || {};
+      const changed =
+        Object.keys(next).length !== Object.keys(prev).length ||
+        Object.keys(next).some((k) => next[k] !== prev[k]) ||
+        Object.keys(prev).some((k) => !(k in next));
       doc = cloneDoc({ ...doc, values: next });
+      if (changed && !o.keepAligned) alignedVersionId = null;
       recomputeDirty();
       if (o.recordUndo) {
         undo.push(snapshotFromDoc());
@@ -375,7 +404,13 @@ export function createProjectController(opts = {}) {
           source: snap.source,
           values: snap.values || {},
         });
+        alignedVersionId = null;
         recomputeDirty();
+        // Re-align if we landed exactly on tip.
+        if (tipDoc && tipCommit?.id && docsContentEqual(doc, tipDoc)) {
+          alignedVersionId = tipCommit.id;
+          dirty = false;
+        }
         await opts.onApply?.(cloneDoc(doc), { reason: "undo" });
         scheduleAutosave();
         emitDirtyOnly();
@@ -392,7 +427,12 @@ export function createProjectController(opts = {}) {
           source: snap.source,
           values: snap.values || {},
         });
+        alignedVersionId = null;
         recomputeDirty();
+        if (tipDoc && tipCommit?.id && docsContentEqual(doc, tipDoc)) {
+          alignedVersionId = tipCommit.id;
+          dirty = false;
+        }
         await opts.onApply?.(cloneDoc(doc), { reason: "redo" });
         scheduleAutosave();
         emitDirtyOnly();
@@ -432,6 +472,7 @@ export function createProjectController(opts = {}) {
         tipCommit = entry;
         tipDoc = cloneDoc(doc);
         dirty = false;
+        alignedVersionId = entry.id;
         emitHistory();
         return entry;
       });
@@ -448,11 +489,13 @@ export function createProjectController(opts = {}) {
       return runHistoryOp(async () => {
         recomputeDirty();
         if (!dirty && tipDoc && docsContentEqual(doc, tipDoc)) {
+          if (tipCommit?.id) alignedVersionId = tipCommit.id;
           return null;
         }
         // First edit with no tip yet, or dirty vs tip.
         if (tipDoc && docsContentEqual(doc, tipDoc)) {
           dirty = false;
+          if (tipCommit?.id) alignedVersionId = tipCommit.id;
           return null;
         }
         const reason = o.reason || "edit";
@@ -465,6 +508,7 @@ export function createProjectController(opts = {}) {
         tipCommit = entry;
         tipDoc = cloneDoc(doc);
         dirty = false;
+        alignedVersionId = entry?.id || null;
         emitHistory();
         return entry;
       });
@@ -489,6 +533,8 @@ export function createProjectController(opts = {}) {
         undo.push(preRestore);
         doc = cloneDoc(restored);
         undo.push(snapshotFromDoc());
+        // Working copy matches this version (even if tip is a newer checkpoint).
+        alignedVersionId = refId;
 
         try {
           tipCommit = await backend.tip(projectId);
@@ -548,6 +594,7 @@ export function createProjectController(opts = {}) {
         tipCommit = null;
         tipDoc = null;
         dirty = true;
+        alignedVersionId = null;
         undo.reset(snapshotFromDoc());
 
         // First auto checkpoint of the fresh project (if there is content).
@@ -560,6 +607,7 @@ export function createProjectController(opts = {}) {
               tipCommit = entry;
               tipDoc = cloneDoc(doc);
               dirty = false;
+              alignedVersionId = entry.id;
             }
           } catch {
             /* leave dirty empty project */
@@ -567,6 +615,7 @@ export function createProjectController(opts = {}) {
         } else {
           dirty = false;
           tipDoc = cloneDoc(doc);
+          alignedVersionId = null;
         }
 
         await opts.onApply?.(cloneDoc(doc), { reason: "clear" });

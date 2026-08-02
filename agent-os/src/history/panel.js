@@ -213,6 +213,7 @@ export function mountHistoryPanel(host, handlers = {}) {
    *   canRedo?: boolean,
    *   dirty?: boolean,
    *   tip?: { id?: string, shortHash?: string, name?: string, message?: string } | null,
+   *   alignedVersionId?: string | null,
    *   versions?: Array<{
    *     id: string,
    *     name?: string,
@@ -229,6 +230,8 @@ export function mountHistoryPanel(host, handlers = {}) {
     if (state.canRedo !== undefined) redoBtn.disabled = !state.canRedo;
 
     if (state.tip?.id) currentTipId = state.tip.id;
+    // Prefer explicit alignment (restored older checkpoint, or clean tip).
+    if (state.alignedVersionId) currentTipId = state.alignedVersionId;
 
     if (state.dirty !== undefined || state.tip !== undefined) {
       if (state.dirty) {
@@ -260,6 +263,11 @@ export function mountHistoryPanel(host, handlers = {}) {
       return;
     }
 
+    const alignedId =
+      state.alignedVersionId != null && state.alignedVersionId !== ""
+        ? state.alignedVersionId
+        : currentTipId;
+
     for (let i = 0; i < versions.length; i++) {
       const v = versions[i];
       const row = document.createElement("div");
@@ -271,11 +279,10 @@ export function mountHistoryPanel(host, handlers = {}) {
         (!v.name && /^auto\s*·/i.test(String(v.message || "")));
       if (isAuto) row.classList.add("history-row-auto");
 
-      const isCurrent =
-        !state.dirty &&
-        (v.id === currentTipId ||
-          (state.tip?.id && v.id === state.tip.id) ||
-          (i === 0 && !state.dirty && !currentTipId));
+      // Working copy matches this checkpoint — not "tip && !dirty". After
+      // restoring an older point, tip is still newer (dirty) but this row is
+      // still Current.
+      const isCurrent = !!alignedId && v.id === alignedId;
       if (isCurrent) row.dataset.current = "1";
 
       const main = document.createElement("div");

@@ -305,6 +305,7 @@ function expect(cond, msg) {
   await ctl.restoreVersion(ver.id);
   expect(ctl.source === "final", "ctl: restore tip content");
   expect(!ctl.dirty, "ctl: restore tip is clean");
+  expect(ctl.alignedVersionId === ver.id, "ctl: aligned to restored tip");
   expect(ctl.canUndo, "ctl: restore keeps undo of pre-restore");
   expect(historyTicks > histBeforeRestore, "ctl: restoreVersion emitsHistory");
   const pre = await ctl.undo();
@@ -313,8 +314,23 @@ function expect(cond, msg) {
   // Restore again then check older vs tip dirty when two versions
   ctl.setSource("v2body", { recordUndo: true });
   const ver2 = await ctl.commitVersion({ name: "Second" });
+  expect(ctl.alignedVersionId === ver2.id, "ctl: aligned after commit");
+  // Param-only style: values change, source same — restore must bring values back
+  ctl.setValues({ w: 99 }, { recordUndo: true, merge: false });
+  const verParams = await ctl.autoCommit({ reason: "params" });
+  expect(!!verParams, "ctl: autoCommit params version");
+  expect(ctl.values.w === 99, "ctl: values after params edit");
+  await ctl.restoreVersion(ver2.id);
+  expect(ctl.values.w !== 99 || ctl.source === "v2body", "ctl: restore older not stuck at 99");
+  // ver2 was committed with whatever values were present at that commit
+  const blob2 = await backend.readVersion("ctl-test", ver2.id);
+  expect(ctl.values.w === blob2?.values?.w, "ctl: restore applies blob values");
+  expect(ctl.alignedVersionId === ver2.id, "ctl: aligned to restored older");
+  expect(ctl.dirty, "ctl: restore older is dirty vs tip");
+  // Newer tip still listed; alignment is older — panel would show Current on older
   await ctl.restoreVersion(ver.id);
   expect(ctl.source === "final", "ctl: restore older content");
+  expect(ctl.alignedVersionId === ver.id, "ctl: aligned after second restore");
   expect(ctl.dirty, "ctl: restore older is dirty vs tip");
 
   // Failed restore must not pollute undo stack

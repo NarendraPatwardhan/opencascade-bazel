@@ -88,14 +88,20 @@ function shortHash(filePath) {
 }
 
 /**
- * Inject content-hash query on main.js / styles so a new stage cannot share a
- * Cloudflare/SW cache key with a previous deploy. Also kill stale SW caches
- * that once cache-firsted all of /agent-os/* (including main.js).
+ * Ensure HTML points at a content-addressed entry module and hashed CSS so a
+ * new stage cannot share a Cloudflare immutable cache key with bare main.js.
+ * Also kill stale SW caches that once cache-firsted all of /agent-os/*.
  */
 function decorateIndexHtml(raw) {
   let html = String(raw);
   const mainV = shortHash(join(agentOsRoot, "src", "main.js"));
   const cssV = shortHash(join(demoRoot, "styles.css"));
+  const entryName = `main.${mainV}.js`;
+  const entryPath = join(agentOsRoot, "src", entryName);
+  // Prefer hashed filename (staged copy); fall back to ?v= on bare main.js.
+  const entrySrc = existsSync(entryPath)
+    ? `/agent-os/src/${entryName}`
+    : `/agent-os/src/main.js?v=${mainV}`;
   const stageV =
     process.env.CAD_RESOLVED_TAG ||
     process.env.STAGE_STAMP ||
@@ -125,8 +131,8 @@ function decorateIndexHtml(raw) {
   }
 
   html = html.replace(
-    /src="\/agent-os\/src\/main\.js[^"]*"/g,
-    `src="/agent-os/src/main.js?v=${mainV}"`,
+    /src="\/agent-os\/src\/main(?:\.[a-f0-9]+)?\.js[^"]*"/g,
+    `src="${entrySrc}"`,
   );
   html = html.replace(
     /href="\.\/styles\.css[^"]*"/g,
@@ -164,6 +170,25 @@ const server = createServer((req, res) => {
 
     if (path === "/healthz" || path === "/health") {
       return send(res, 200, "ok\n", "text/plain; charset=utf-8");
+    }
+
+    // Deploy fingerprint (no-store) — operators: curl /version after redeploy.
+    if (path === "/version" || path === "/STAGE_INFO" || path === "/STAGE_INFO.txt") {
+      const candidates = [
+        join(agentOsRoot, "VERSION"),
+        join(agentOsRoot, "STAGE_INFO.txt"),
+        join(agentOsRoot, "STAGE_INFO"),
+      ];
+      for (const f of candidates) {
+        if (existsSync(f) && statSync(f).isFile()) {
+          return send(res, 200, readFileSync(f), "text/plain; charset=utf-8", ".txt", path);
+        }
+      }
+      const fallback =
+        `tag=${process.env.CAD_RESOLVED_TAG || "unknown"}\n` +
+        `agent_os_root=${agentOsRoot}\n` +
+        `demo_root=${demoRoot}\n`;
+      return send(res, 200, fallback, "text/plain; charset=utf-8", ".txt", path);
     }
 
     // Browsers always request /favicon.ico; avoid a noisy console 404.

@@ -109,14 +109,27 @@ export function createScheduler(opts = {}) {
     await flush();
   }
 
+  /**
+   * Drop pending rebuilds (e.g. before history restore/undo applies a new
+   * generation). In-flight work still finishes but is stamped stale by gen.
+   */
+  function cancel() {
+    clearTimer();
+    pendingParams = null;
+    pendingMeta = {};
+    pendingGen = -1;
+  }
+
   function dispose() {
     disposed = true;
     clearTimer();
+    pendingParams = null;
   }
 
   return {
     dispatch,
     flush: flushNow,
+    cancel,
     dispose,
     get busy() {
       return !!inflight || !!timer;

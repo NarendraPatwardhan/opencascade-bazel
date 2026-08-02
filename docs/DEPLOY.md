@@ -206,8 +206,11 @@ Never put the token in git; Dokploy **secret** only.
    entrypoint: serving … tag=demo-v0.3.1 on 0.0.0.0:8765
    ```
 6. `curl https://cad.opyt.cloud/healthz` → `ok`.
+7. `curl https://cad.opyt.cloud/version` → shows `tag=demo-v…` and `html_entry=/agent-os/src/main.<hash>.js`.
 
-**Update flow:** `./scripts/release-demo.sh --tag demo-v…` → restart/redeploy cad (no env edit).
+**Update flow:** `./scripts/release-demo.sh --tag demo-v…` → **restart/redeploy** cad (no env edit if `CAD_RELEASE_TAG=latest`).
+
+**If the site stays on an old stage after a new release:** set env once to the concrete tag (e.g. `CAD_RELEASE_TAG=demo-v0.3.4`), redeploy, confirm `/version`, then set back to `latest`. Do not leave a stale pin like `demo-v0.3.2`.
 
 If logs show old UI / no `history-trigger`: image still has pre-stamp entrypoint, or stamp stuck — rebuild image, redeploy, confirm log line `latest matching tag:`.
 ---
@@ -244,5 +247,6 @@ Public demo at `cad.opyt.cloud` ships both; keep the product split clear in docs
 | Page loads, mesh never appears | Browser console; confirm `/agent-os/libocc_c.wasm` 200 |
 | Monaco fails | CDN blocked; network to jsDelivr |
 | Plain `404 page not found` on `/` + `/healthz` | Dokploy Domains: service **cad**, port **8765**; `dokploy-network` |
-| `main.js:… addEventListener` null after deploy | Stale CF/SW cache. Purge Cloudflare for host; browser Clear site data. HTML should load `main.js?v=<hash>`; headers must not be `immutable` for app JS |
-| HTML new, main.js still immutable HIT | CF edge pinned old file. Purge Everything; 0.3.3+ sends `CDN-Cache-Control: no-store` |
+| `main.js:… addEventListener` null after deploy / even in incognito | **Stage not updated** or CF still serving bare `/agent-os/src/main.js` immutable. Check `curl -sS https://cad.opyt.cloud/version` — must show newest `demo-v*`. HTML must load `/agent-os/src/main.<hash>.js` (not bare `main.js`). Force: `CAD_RELEASE_TAG=demo-v0.3.4` + restart; then purge CF if needed. |
+| HTML has bare `main.js`, no `main.abc123.js` | Container still on pre-0.3.4 stage (`demo-v0.3.2` was common). 0.3.3+ download_count may be 0 if Dokploy never re-fetched — pin tag once, restart, confirm `/version`. |
+| `/version` missing or old `pack_utc` | Entrypoint did not pull new release; check `GITHUB_TOKEN`, logs `latest matching tag:`. |

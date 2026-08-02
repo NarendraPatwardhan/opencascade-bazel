@@ -118,7 +118,11 @@ export async function mountLuauEditor(opts) {
     opts.onRun?.(editor.getValue());
   });
 
+  /** When >0, model content changes do not call onChange (history apply). */
+  let suppressChange = 0;
+
   editor.onDidChangeModelContent(() => {
+    if (suppressChange > 0) return;
     opts.onChange?.(editor.getValue());
   });
 
@@ -133,8 +137,18 @@ export async function mountLuauEditor(opts) {
   return {
     monaco,
     getValue: () => editor.getValue(),
-    setValue: (doc) => {
-      if (editor.getValue() !== doc) editor.setValue(doc);
+    /**
+     * @param {string} doc
+     * @param {{ silent?: boolean }} [o] silent: no onChange (undo/restore)
+     */
+    setValue: (doc, o = {}) => {
+      if (editor.getValue() === doc) return;
+      if (o.silent) suppressChange++;
+      try {
+        editor.setValue(doc);
+      } finally {
+        if (o.silent) suppressChange--;
+      }
     },
     focus: () => editor.focus(),
     /** True when Monaco's text surface owns keyboard input (not just widget chrome). */
