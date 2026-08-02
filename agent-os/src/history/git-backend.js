@@ -974,11 +974,16 @@ export async function resolveGitEngineBytes(opts = {}) {
 
   // Browser / fetch
   const base = opts.assetBase || "";
-  const url =
-    opts.engineUrl ||
-    (base
-      ? new URL("git-engine.tar", base.endsWith("/") ? base : base + "/").href
-      : "");
+  let url = opts.engineUrl || "";
+  if (!url && base) {
+    try {
+      const { joinAssetUrl } = await import("../asset-url.js");
+      url = joinAssetUrl(base, "git-engine.tar");
+    } catch {
+      const b = base.endsWith("/") ? base : base + "/";
+      url = b.startsWith("http") ? new URL("git-engine.tar", b).href : b + "git-engine.tar";
+    }
+  }
   if (url && typeof fetch === "function") {
     try {
       const res = await fetch(url);
@@ -1002,8 +1007,17 @@ export async function loadMcCore(opts = {}) {
   const candidates = [];
   if (opts.mcUrl) candidates.push(opts.mcUrl);
   if (opts.assetBase) {
-    const b = opts.assetBase.endsWith("/") ? opts.assetBase : opts.assetBase + "/";
-    candidates.push(new URL("mc-core.mjs", b).href);
+    try {
+      const { joinAssetUrl } = await import("../asset-url.js");
+      candidates.push(joinAssetUrl(opts.assetBase, "mc-core.mjs"));
+    } catch {
+      const b = opts.assetBase.endsWith("/")
+        ? opts.assetBase
+        : opts.assetBase + "/";
+      candidates.push(
+        b.startsWith("http") ? new URL("mc-core.mjs", b).href : b + "mc-core.mjs",
+      );
+    }
   }
   // Node vendor relative to this package
   if (typeof process !== "undefined" && process.versions?.node) {

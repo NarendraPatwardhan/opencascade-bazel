@@ -15,12 +15,13 @@ import {
   adjustInjectedDiagnostics,
 } from "./params/inject.js";
 import { executeCacheKey, MeshResultCache } from "./memo-cache.js";
+import { joinAssetUrl, normalizeAssetBase } from "./asset-url.js";
 
 // mc-core needs crypto.subtle.digest + crypto.randomUUID. Patch only missing
 // methods — never replace globalThis.crypto (that deleted randomUUID before).
 ensureWebCrypto();
 
-/** Absolute asset root ending in /. Path-only "/agent-os/" is invalid for URL(). */
+/** Asset root (absolute or path). Always normalized via base(). */
 let assetBase = "";
 /** @type {import('./occ-bridge.js').OccBridge | null} */
 let occ = null;
@@ -171,27 +172,14 @@ async function fetchText(url) {
   return res.text();
 }
 
-/**
- * Absolute URL base for kernel/loom/wasm fetches.
- * Coerces path-only values ("/agent-os/") against the worker origin.
- */
+/** Normalized asset root (never throws on path-only bases). */
 function base() {
-  let b = assetBase || "/agent-os/";
-  if (!b.endsWith("/")) b += "/";
-  try {
-    // new URL(rel, base) requires an absolute base — not "/agent-os/".
-    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(b)) {
-      const origin =
-        (typeof self !== "undefined" &&
-          self.location &&
-          self.location.origin) ||
-        "http://127.0.0.1";
-      b = new URL(b, origin + "/").href;
-    }
-  } catch {
-    /* keep b */
-  }
-  return b.endsWith("/") ? b : `${b}/`;
+  return normalizeAssetBase(assetBase, import.meta.url);
+}
+
+/** @param {string} rel */
+function asset(rel) {
+  return joinAssetUrl(base(), rel);
 }
 
 /** AgentOS VM only (for luau-analyze). Does not load OCCT. */
@@ -202,10 +190,10 @@ async function ensureVm() {
     const b = base();
     log("warming AgentOS…", b);
     const [{ mc, tool, z }, kernel, image, catalogCompiler] = await Promise.all([
-      import(/* webpackIgnore: true */ new URL("mc-core.mjs", b).href),
-      fetchBytes(new URL("kernel.wasm", b).href),
-      fetchBytes(new URL("loom.tar", b).href),
-      fetchBytes(new URL("catalog-compiler.wasm", b).href),
+      import(/* webpackIgnore: true */ asset("mc-core.mjs")),
+      fetchBytes(asset("kernel.wasm")),
+      fetchBytes(asset("loom.tar")),
+      fetchBytes(asset("catalog-compiler.wasm")),
     ]);
     mcApi = { mc, tool, z };
 
@@ -320,7 +308,7 @@ async function stageBatteries() {
   await Promise.all(
     TOP_BATTERY_LUAU.map(async (name) => {
       try {
-        const text = await fetchText(new URL(`batteries/${name}`, b).href);
+        const text = await fetchText(asset(`batteries/${name}`));
         await vm.fs.write(`/opt/cad/${name}`, text);
         if (name === "solid.luau") solidOk = true;
         if (name === "params_resolve.luau") paramsResolveStaged = true;
@@ -337,7 +325,7 @@ async function stageBatteries() {
   await Promise.all(
     IR_LUAU_FILES.map(async (rel) => {
       try {
-        const text = await fetchText(new URL(`batteries/ir/${rel}`, b).href);
+        const text = await fetchText(asset(`batteries/ir/${rel}`));
         await vm.fs.write(`/opt/cad/ir/${rel}`, text);
         if (rel === "init.luau") initOk = true;
       } catch (e) {
@@ -368,7 +356,7 @@ async function stageParamsResolveBattery() {
   await mkdirp("/opt/cad");
   try {
     const text = await fetchText(
-      new URL("batteries/params_resolve.luau", b).href,
+      asset("batteries/params_resolve.luau"),
     );
     await vm.fs.write("/opt/cad/params_resolve.luau", text);
     paramsResolveStaged = true;
@@ -389,11 +377,11 @@ async function stageParamsResolveBattery() {
 async function stageAnalyzeWorkspace(userSource) {
   const b = base();
   const [toolsStub, jsonStub, ...batterySrcs] = await Promise.all([
-    fetchText(new URL("batteries/analyze/tools.luau", b).href),
-    fetchText(new URL("batteries/analyze/json.luau", b).href),
+    fetchText(asset("batteries/analyze/tools.luau")),
+    fetchText(asset("batteries/analyze/json.luau")),
     ...TOP_BATTERY_LUAU.map(async (name) => {
       try {
-        return { name, text: await fetchText(new URL(`batteries/${name}`, b).href) };
+        return { name, text: await fetchText(asset(`batteries/${name}`)) };
       } catch {
         return { name, text: null };
       }
@@ -423,7 +411,7 @@ async function stageAnalyzeWorkspace(userSource) {
   await Promise.all(
     IR_LUAU_FILES.map(async (rel) => {
       try {
-        let text = await fetchText(new URL(`batteries/ir/${rel}`, b).href);
+        let text = await fetchText(asset(`batteries/ir/${rel}`));
         // From /tmp/cad/ir/*.luau → ../tools; from ops/*.luau → ../../tools
         if (rel.startsWith("ops/")) {
           text = text

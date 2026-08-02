@@ -143,33 +143,16 @@ fi
 # Stamp includes asset id + update time so new tags and re-uploads re-fetch.
 WANT="${REPO}|${CONCRETE_TAG}|${ASSET_NAME}|${ASSET_ID}|${ASSET_TS}"
 STAMP_FILE="${STAGE_DIR}/.release-stamp"
+POLL_SECONDS="${CAD_POLL_SECONDS:-90}"
 
-need_fetch=1
-if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  if [ "${CACHE_MODE}" = "persist" ]; then
-    need_fetch=0
-    log "CACHE_MODE=persist — reusing existing stage"
-  elif [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n')" = "$WANT" ]; then
-    need_fetch=0
-    log "stage stamp matches (${CONCRETE_TAG} asset ${ASSET_ID}) — skip download"
-  else
-    old="$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n' || true)"
-    log "stage missing or stamp mismatch — will fetch"
-    log "  have: ${old:-<none>}"
-    log "  want: ${WANT}"
-  fi
-else
-  log "stage incomplete — will fetch (want: ${CONCRETE_TAG})"
-fi
-
-if [ "$need_fetch" = "1" ]; then
+fetch_stage() {
   tmp="/tmp/cad-demo-stage.tar.gz"
   mkdir -p "${STAGE_DIR}"
   download_url="${API}/repos/${REPO}/releases/assets/${ASSET_ID}"
   tok="$(token)"
   if [ -z "$tok" ]; then
     log "GITHUB_TOKEN required for private release download"
-    exit 1
+    return 1
   fi
   log "fetching (auth) ${download_url}"
   curl -fsSL --retry 3 --retry-delay 2 \
@@ -182,7 +165,7 @@ if [ "$need_fetch" = "1" ]; then
     log "downloaded file is not gzip (first bytes:)"
     head -c 200 "$tmp" >&2 || true
     echo >&2
-    exit 1
+    return 1
   fi
 
   rm -rf "${STAGE_DIR:?}/"*
@@ -190,56 +173,130 @@ if [ "$need_fetch" = "1" ]; then
   rm -f "$tmp"
   printf '%s\n' "$WANT" > "${STAMP_FILE}"
   log "wrote stamp ${WANT}"
-fi
+}
 
-if [ ! -f "${STAGE_DIR}/libocc_c.wasm" ]; then
-  log "stage missing libocc_c.wasm under ${STAGE_DIR}"
-  exit 1
-fi
-
-if [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  if grep -qE '/agent-os/app/[a-f0-9]+/main\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "stage UI: versioned app tree /agent-os/app/<hash>/ (CDN-safe ESM graph)"
-  elif grep -qE 'main\.[a-f0-9]+\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "stage UI: main.<hash>.js only (pre-0.3.6 — sibling modules still skew-prone)"
-  elif grep -q 'history-trigger' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "stage UI: history-trigger, bare main.js (pre-0.3.4)"
+ensure_stage() {
+  need_fetch=1
+  if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
+    if [ "${CACHE_MODE}" = "persist" ]; then
+      need_fetch=0
+      log "CACHE_MODE=persist — reusing existing stage"
+    elif [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n')" = "$WANT" ]; then
+      need_fetch=0
+      log "stage stamp matches (${CONCRETE_TAG} asset ${ASSET_ID}) — skip download"
+    else
+      old="$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n' || true)"
+      log "stage missing or stamp mismatch — will fetch"
+      log "  have: ${old:-<none>}"
+      log "  want: ${WANT}"
+    fi
   else
-    log "stage UI: OLD stage (pre-history)"
+    log "stage incomplete — will fetch (want: ${CONCRETE_TAG})"
   fi
-fi
 
-export DEMO_ROOT="${DEMO_ROOT:-${STAGE_DIR}/demo}"
-export AGENT_OS_ROOT="${AGENT_OS_ROOT:-${STAGE_DIR}}"
-export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
+  if [ "$need_fetch" = "1" ]; then
+    fetch_stage || return 1
+  fi
 
-{
-  echo "tag=${CONCRETE_TAG}"
-  echo "asset_id=${ASSET_ID}"
-  echo "mode=$(is_floating_tag "$TAG_RAW" && echo floating || echo pinned)"
-  echo "resolved_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  if [ -f "${STAGE_DIR}/STAGE_INFO.txt" ]; then
-    cat "${STAGE_DIR}/STAGE_INFO.txt"
+  if [ ! -f "${STAGE_DIR}/libocc_c.wasm" ]; then
+    log "stage missing libocc_c.wasm under ${STAGE_DIR}"
+    return 1
   fi
-  if [ -f "${STAGE_DIR}/APP_HASH" ]; then
-    cat "${STAGE_DIR}/APP_HASH"
-  fi
+
   if [ -f "${STAGE_DIR}/demo/index.html" ]; then
-    entry="$(grep -oE '/agent-os/app/[a-f0-9]+/main\.js|/agent-os/src/main[^"]+\.js' "${STAGE_DIR}/demo/index.html" | head -1 || true)"
-    echo "html_entry=${entry:-unknown}"
+    if grep -qE '/agent-os/app/[a-f0-9]+/main\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+      log "stage UI: versioned app tree /agent-os/app/<hash>/"
+    elif grep -qE 'main\.[a-f0-9]+\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+      log "stage UI: main.<hash>.js only (pre-0.3.6)"
+    elif grep -q 'history-trigger' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+      log "stage UI: history-trigger, bare main.js"
+    else
+      log "stage UI: OLD stage"
+    fi
   fi
-} > "${STAGE_DIR}/VERSION"
-log "VERSION:"
-cat "${STAGE_DIR}/VERSION" >&2 || true
+}
 
-SERVE="${STAGE_DIR}/serve.mjs"
-if [ ! -f "$SERVE" ]; then
-  SERVE="${STAGE_DIR}/demo/serve.mjs"
-fi
-if [ ! -f "$SERVE" ]; then
-  log "serve.mjs not found in stage"
-  exit 1
-fi
+write_version() {
+  export DEMO_ROOT="${STAGE_DIR}/demo"
+  export AGENT_OS_ROOT="${STAGE_DIR}"
+  export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
+  {
+    echo "tag=${CONCRETE_TAG}"
+    echo "asset_id=${ASSET_ID}"
+    echo "mode=$(is_floating_tag "$TAG_RAW" && echo floating || echo pinned)"
+    echo "resolved_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [ -f "${STAGE_DIR}/STAGE_INFO.txt" ]; then
+      cat "${STAGE_DIR}/STAGE_INFO.txt"
+    fi
+    if [ -f "${STAGE_DIR}/APP_HASH" ]; then
+      cat "${STAGE_DIR}/APP_HASH"
+    fi
+    if [ -f "${STAGE_DIR}/demo/index.html" ]; then
+      entry="$(grep -oE '/agent-os/app/[a-f0-9]+/main\.js|/agent-os/src/main[^"]+\.js' "${STAGE_DIR}/demo/index.html" | head -1 || true)"
+      echo "html_entry=${entry:-unknown}"
+    fi
+  } > "${STAGE_DIR}/VERSION"
+  log "VERSION:"
+  cat "${STAGE_DIR}/VERSION" >&2 || true
+}
 
-log "serving ${STAGE_DIR} tag=${CONCRETE_TAG} on ${HOST}:${PORT}"
-exec node "$SERVE"
+ensure_stage || exit 1
+
+# Serve loop: when CAD_RELEASE_TAG=latest, poll GitHub and hot-swap stage
+# without requiring a manual Dokploy restart.
+while true; do
+  write_version
+
+  SERVE="${STAGE_DIR}/serve.mjs"
+  if [ ! -f "$SERVE" ]; then
+    SERVE="${STAGE_DIR}/demo/serve.mjs"
+  fi
+  if [ ! -f "$SERVE" ]; then
+    log "serve.mjs not found in stage"
+    exit 1
+  fi
+
+  log "serving ${STAGE_DIR} tag=${CONCRETE_TAG} on ${HOST}:${PORT}"
+  node "$SERVE" &
+  SERVE_PID=$!
+
+  recycled=0
+  while kill -0 "$SERVE_PID" 2>/dev/null; do
+    sleep "$POLL_SECONDS" || true
+    if ! is_floating_tag "$TAG_RAW"; then
+      continue
+    fi
+    if [ "${CACHE_MODE}" = "persist" ]; then
+      continue
+    fi
+    new_resolved="$(resolve_latest_release 2>/dev/null | tr -d '\r' || true)"
+    if [ -z "$new_resolved" ]; then
+      continue
+    fi
+    nt="$(printf '%s' "$new_resolved" | cut -f1)"
+    ni="$(printf '%s' "$new_resolved" | cut -f2)"
+    ns="$(printf '%s' "$new_resolved" | cut -f3)"
+    nw="${REPO}|${nt}|${ASSET_NAME}|${ni}|${ns}"
+    if [ "$nw" != "$WANT" ]; then
+      log "new release detected: ${nt} (was ${CONCRETE_TAG}) — recycling server"
+      CONCRETE_TAG="$nt"
+      ASSET_ID="$ni"
+      ASSET_TS="$ns"
+      WANT="$nw"
+      kill "$SERVE_PID" 2>/dev/null || true
+      wait "$SERVE_PID" 2>/dev/null || true
+      ensure_stage || log "fetch after recycle failed; will retry"
+      recycled=1
+      break
+    fi
+  done
+
+  if [ "$recycled" = "1" ]; then
+    continue
+  fi
+
+  # Serve exited unexpectedly
+  wait "$SERVE_PID" || true
+  log "serve exited — restarting in 3s"
+  sleep 3
+done

@@ -29,6 +29,7 @@ import { mountHistoryPanel } from "./history/panel.js";
 import { createDefaultHistoryBackend } from "./history/opfs-backend.js";
 import { paramsHeaderFingerprint } from "./params/header-fingerprint.js";
 import { schemaSignature } from "./params/schema-signature.js";
+import { normalizeAssetBase } from "./asset-url.js";
 
 const ANALYZE_DEBOUNCE_MS = 550;
 /** Coarser mesh while scrubbing; finer on commit / explicit run. */
@@ -37,32 +38,20 @@ const DEFLECTION_COMMIT = 0.18;
 
 /**
  * Asset base for kernel / loom / mc-core / git-engine / wasm.
- * Production stages main under /agent-os/app/<hash>/ so import.meta parent is
- * not the stage root — prefer <meta name="occ-asset-base"> from index.html.
- * Local dev (…/src/main.js) falls back to parent of src/.
- *
- * MUST be an absolute URL (https://host/agent-os/). Path-only "/agent-os/" is
- * not a valid base for `new URL(rel, base)` → "Invalid base URL".
+ * Production: main under /agent-os/app/<hash>/ — derive root via import.meta
+ * or meta occ-asset-base. Path-only bases are normalized to absolute when possible.
  */
 function resolveAssetBase() {
+  let configured = "";
   try {
     const el =
       typeof document !== "undefined" &&
       document.querySelector('meta[name="occ-asset-base"]');
-    const c = el && String(el.getAttribute("content") || "").trim();
-    if (c) {
-      const path = c.endsWith("/") ? c : `${c}/`;
-      // Resolve path-absolute meta against the page origin.
-      const page =
-        typeof location !== "undefined" && location.href
-          ? location.href
-          : import.meta.url;
-      return new URL(path, page).href;
-    }
+    configured = (el && String(el.getAttribute("content") || "").trim()) || "";
   } catch {
-    /* non-DOM (tests) */
+    /* non-DOM */
   }
-  return new URL("../", import.meta.url).href;
+  return normalizeAssetBase(configured, import.meta.url);
 }
 const ASSET_BASE = resolveAssetBase();
 
