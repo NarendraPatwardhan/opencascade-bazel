@@ -1,14 +1,17 @@
 # CAD browser demo for Dokploy / local Docker — no OCCT build on the host.
 #
-# 1) Cut a release with bb (once per version):
-#      ./scripts/release-demo.sh --tag demo-v0.1.0 --notes-file notes.md
-# 2) Export the asset URL (or put it in Dokploy env):
-#      export CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
-# 3) Deploy:
-#      docker compose up -d --build
+# Env:
+#   CAD_RELEASE_URL  (default: demo-v0.1.0 GitHub Release asset)
 #
-# Dokploy: Docker Compose app, domain https://cad.opyt.cloud → service cad port 8765
-# Full walkthrough: docs/DEPLOY.md
+# Local:
+#   docker network create dokploy-network 2>/dev/null || true
+#   docker compose up -d --build
+#   open http://127.0.0.1:8765/
+#
+# Dokploy:
+#   Domains → cad.opyt.cloud → service "cad" → container port 8765
+#   Env CAD_RELEASE_URL as below (or use the default).
+# Docs: docs/DEPLOY.md
 
 services:
   cad:
@@ -17,17 +20,26 @@ services:
       dockerfile: deploy/Dockerfile
     image: cad-demo:local
     restart: unless-stopped
+    # Expose container port 8765. Traefik/Dokploy use this internal port.
+    # Host bind is optional for local debugging (CAD_HOST_PORT=8765).
     ports:
-      - "${CAD_PORT:-8765}:8765"
+      - "${CAD_HOST_PORT:-8765}:8765"
     environment:
       PORT: "8765"
       HOST: "0.0.0.0"
       CACHE_MODE: release
-      # Required: GitHub Release asset built by ./scripts/release-demo.sh (bb + pack).
-      CAD_RELEASE_URL: ${CAD_RELEASE_URL:?Set CAD_RELEASE_URL to .../releases/download/<tag>/cad-demo-stage.tar.gz}
+      CAD_RELEASE_URL: ${CAD_RELEASE_URL:-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 60s
+    networks:
+      - default
+      - dokploy-network
+
+networks:
+  # Present on Dokploy hosts. Local: docker network create dokploy-network
+  dokploy-network:
+    external: true

@@ -74,6 +74,16 @@ const server = createServer((req, res) => {
       return send(res, 200, "ok\n", "text/plain; charset=utf-8");
     }
 
+    // Browsers always request /favicon.ico; avoid a noisy console 404.
+    if (path === "/favicon.ico") {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#1a1a1a"/><text x="16" y="22" text-anchor="middle" font-size="14" font-family="system-ui,sans-serif" fill="#8cf">C</text></svg>`;
+      res.writeHead(200, {
+        "content-type": "image/svg+xml",
+        "cache-control": "public, max-age=86400",
+      });
+      return res.end(svg);
+    }
+
     if (path === "/" || path === "/index.html") {
       const html = readFileSync(join(demoRoot, "index.html"));
       return send(res, 200, html, TYPES[".html"], ".html");

@@ -152,11 +152,26 @@ Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** downloads `CA
 
 ### Dokploy checklist
 
-1. Create **Docker Compose** application from this repo (or paste compose).
-2. Set env `CAD_RELEASE_URL` to the release asset (pin a tag; avoid floating “latest” without a real latest release).
-3. Domain: `cad.opyt.cloud` → service `cad`, port **8765** (TLS terminates at Dokploy/Traefik).
-4. Deploy. First start downloads ~tens of MiB (wasm dominates).
-5. Open `https://cad.opyt.cloud/` — Monaco may load from jsDelivr (browser outbound CDN).
+1. Create a **Docker Compose** application from this repo (branch `master` or `dev`).
+2. Env (required for first start unless baked):
+   ```text
+   CAD_RELEASE_URL=https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
+   ```
+3. **Domains** (Dokploy UI, not only DNS):
+   - Domain: `cad.opyt.cloud`
+   - Service: **`cad`**
+   - **Container port: `8765`** (not 80, not the host-mapped port)
+4. Ensure the compose stack is on **`dokploy-network`** (compose file declares it as `external: true`).
+5. Deploy and wait until healthcheck passes (`/healthz` → `ok`).
+6. Open `https://cad.opyt.cloud/` — Monaco may load from jsDelivr (browser outbound CDN).
+
+If you see **`404 page not found`** (plain text, Traefik): the domain is **not** attached to service `cad` / port `8765`, or the container never became healthy. It is not a missing `main.js` path inside the app.
+
+| Probe | Healthy | Broken routing |
+|-------|---------|----------------|
+| `https://cad.opyt.cloud/healthz` | `ok` | `404 page not found` |
+| `https://cad.opyt.cloud/` | HTML `occ_c × AgentOS` | plain `404 page not found` |
+| `https://cad.opyt.cloud/agent-os/src/main.js` | JS module | same Traefik 404 |
 
 **Rollback:** point `CAD_RELEASE_URL` at an older tag’s asset and redeploy.
 
