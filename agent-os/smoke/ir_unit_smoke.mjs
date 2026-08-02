@@ -152,6 +152,43 @@ local h1 = ir.hash_body(bound)
 local h2 = ir.hash_body(bound)
 expect(h1 == h2 and type(h1) == "string" and #h1 > 8, "hash stable")
 
+-- 8b) op fingerprint stable key order + param sensitivity + ref recursion
+local opA = {
+  id = "housing",
+  op = "PrimBox",
+  params = { dx = 0.1, dy = 0.2, dz = 0.3 },
+}
+local opB = {
+  id = "housing",
+  op = "PrimBox",
+  params = { dz = 0.3, dy = 0.2, dx = 0.1 }, -- different key order
+}
+local fpA = ir.op_fingerprint(opA)
+local fpB = ir.op_fingerprint(opB)
+expect(fpA == fpB, "fingerprint: param key order stable: " .. tostring(fpA))
+local opC = {
+  id = "housing",
+  op = "PrimBox",
+  params = { dx = 0.11, dy = 0.2, dz = 0.3 },
+}
+expect(ir.op_fingerprint(opC) ~= fpA, "fingerprint: param change differs")
+local cut = {
+  id = "cut1",
+  op = "BoolCombine",
+  params = { mode = "subtract" },
+  refs = {
+    target = { body = "housing" },
+    tools = { { body = "housing" } },
+  },
+}
+local fps1 = ir.fingerprint_ops({ opA, cut })
+local fps2 = ir.fingerprint_ops({ opB, cut })
+expect(fps1.housing == fps2.housing, "fingerprint_ops: housing stable")
+expect(fps1.cut1 == fps2.cut1, "fingerprint_ops: cut stable across parent key order")
+local fps3 = ir.fingerprint_ops({ opC, cut })
+expect(fps3.cut1 ~= fps1.cut1, "fingerprint_ops: cut tracks parent param change")
+expect(type(fps1.housing) == "string" and string.sub(fps1.housing, 1, 3) == "op:", "fingerprint prefix")
+
 -- 9) IR_ERR_HOST_UNAVAILABLE
 local routeDoc = base_doc({
   {

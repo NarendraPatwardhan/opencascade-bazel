@@ -1,4 +1,5 @@
 -- cad.ir.eval + eval_pose (K17 lifetime, K19 pose path)
+-- Op-level memo: fingerprint {op,params,refs} → host cache_get/put (param scrub).
 
 local errors = require("ir.errors")
 local bind_mod = require("ir.bind")
@@ -6,6 +7,7 @@ local validate_mod = require("ir.validate")
 local limits_mod = require("ir.limits")
 local host = require("ir.host")
 local registry = require("ir.registry")
+local canonical = require("ir.canonical")
 local prims = require("ir.ops.prims")
 local boolean = require("ir.ops.boolean")
 local xform = require("ir.ops.xform")
@@ -16,6 +18,138 @@ local chain = require("ir.ops.chain")
 local features = require("ir.ops.features")
 
 local eval_mod = {}
+
+local function is_array(t: any): boolean
+	if type(t) ~= "table" then
+		return false
+	end
+	local n = #t
+	if n == 0 then
+		return false
+	end
+	for k in pairs(t) do
+		if type(k) ~= "number" then
+			return false
+		end
+	end
+	return true
+end
+
+--- Stable ref encoding: shape op-ids recurse to their fingerprints; other fields constant.
+local function fingerprint_ref(sel: any, fp_by_id: { [string]: string }): any
+	if sel == nil then
+		return nil
+	end
+	if type(sel) ~= "table" then
+		return sel
+	end
+	if is_array(sel) then
+		local out = {}
+		for i, s in ipairs(sel) do
+			out[i] = fingerprint_ref(s, fp_by_id)
+		end
+		return out
+	end
+	local out: { [string]: any } = {}
+	if type(sel.body) == "string" then
+		out.body_fp = fp_by_id[sel.body] or ("?:" .. sel.body)
+	end
+	if type(sel.created_by) == "string" then
+		out.created_by_fp = fp_by_id[sel.created_by] or ("?:" .. sel.created_by)
+		if sel.entity ~= nil then
+			out.entity = sel.entity
+		end
+	end
+	if type(sel.op) == "string" then
+		out.op_fp = fp_by_id[sel.op] or ("?:" .. sel.op)
+	end
+	if type(sel.frame) == "string" then
+		out.frame = sel.frame
+	end
+	if type(sel.chain) == "string" then
+		out.chain_fp = fp_by_id[sel.chain] or ("?:" .. sel.chain)
+	end
+	if type(sel.chain_op) == "string" then
+		out.chain_fp = fp_by_id[sel.chain_op] or ("?:" .. sel.chain_op)
+	end
+	if type(sel.nth) == "table" then
+		out.nth = {
+			i = sel.nth.i,
+			of = fingerprint_ref(sel.nth.of, fp_by_id),
+		}
+	end
+	for k, v in pairs(sel) do
+		if
+			out[k] == nil
+			and k ~= "body"
+			and k ~= "created_by"
+			and k ~= "op"
+			and k ~= "frame"
+			and k ~= "chain"
+			and k ~= "chain_op"
+			and k ~= "nth"
+			and k ~= "entity"
+		then
+			if type(v) == "table" then
+				out[k] = fingerprint_ref(v, fp_by_id)
+			else
+				out[k] = v
+			end
+		end
+	end
+	return out
+end
+
+local function fnv1a32_hex(s: string): string
+	local h = 2166136261
+	for i = 1, #s do
+		h = bit32.bxor(h, string.byte(s, i))
+		h = bit32.band(h * 16777619, 0xffffffff)
+	end
+	return string.format("%08x", h)
+end
+
+--- Canonical fingerprint for one IR op (after bind). refs recurse via fp_by_id.
+function eval_mod.op_fingerprint(op: any, fp_by_id: { [string]: string }?): string
+	local map = fp_by_id or {}
+	local payload = {
+		op = op.op,
+		params = op.params or {},
+		refs = fingerprint_ref(op.refs, map),
+	}
+	local s = canonical.encode(payload)
+	return "op:" .. tostring(op.op) .. ":" .. fnv1a32_hex(s)
+end
+
+--- Fingerprint every op in order; returns map op_id → fingerprint string.
+function eval_mod.fingerprint_ops(ops: any): { [string]: string }
+	local fp_by_id: { [string]: string } = {}
+	if type(ops) ~= "table" then
+		return fp_by_id
+	end
+	for _, op in ipairs(ops) do
+		if type(op) == "table" and type(op.id) == "string" then
+			local fp = eval_mod.op_fingerprint(op, fp_by_id)
+			fp_by_id[op.id] = fp
+		end
+	end
+	return fp_by_id
+end
+
+local function want_memo(opts: any): boolean
+	if type(opts) ~= "table" then
+		return false
+	end
+	if opts.memo == true or opts.reuse_memo == true then
+		return true
+	end
+	if opts.memo == false or opts.reuse_memo == false then
+		return false
+	end
+	-- Worker sets OccBridge.sessionOpts.memo for scrub executes.
+	local so = host.session_opts()
+	return so.memo == true
+end
 
 -- One handler per registry op. Feature-tier solid ops live in features.luau;
 -- measures in measure.luau; prims/boolean/xform/route/frames/chain cover the rest.
@@ -106,7 +240,15 @@ local function prepare(doc: any, opts: any): any
 	return d
 end
 
-local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number): any
+local function run_op(
+	op: any,
+	env: any,
+	opts: any,
+	caps: any,
+	wall_t0: number,
+	fp_by_id: { [string]: string }?,
+	memo: boolean?
+): any
 	local handler = DISPATCH[op.op]
 	if not handler then
 		return errors.fail("IR_ERR_UNKNOWN_OP", { op = op.op, op_id = op.id })
@@ -122,6 +264,31 @@ local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number):
 			})
 		end
 	end
+
+	local fp: string? = nil
+	if type(fp_by_id) == "table" and type(op.id) == "string" then
+		fp = eval_mod.op_fingerprint(op, fp_by_id)
+		fp_by_id[op.id] = fp
+	end
+
+	-- Op-level shape memo: identical (op+params+refs) reuses host shape.
+	if memo and type(fp) == "string" then
+		local hit = host.cache_get(fp)
+		if type(hit) == "table" and hit.hit == true and type(hit.shapeId) == "number" then
+			env.shapes[op.id] = hit.shapeId
+			if opts and opts.trace then
+				table.insert(env.trace, {
+					op_id = op.id,
+					op = op.op,
+					t_ms = 0,
+					status = "ok",
+					memo = "hit",
+				})
+			end
+			return { shapeId = hit.shapeId, _memo = true }
+		end
+	end
+
 	local t0 = os.clock()
 	local ok, result = pcall(function()
 		return handler(op, env)
@@ -133,6 +300,7 @@ local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number):
 			op = op.op,
 			t_ms = dt,
 			status = if ok and not errors.is_fail(result) then "ok" else "fail",
+			memo = if memo then "miss" else nil,
 		})
 	end
 	if caps and caps.per_op_ms and dt > caps.per_op_ms then
@@ -157,10 +325,16 @@ local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number):
 		local msg = result
 		local code = "IR_ERR_HOST"
 		local host_op = nil
+		local aborted = nil
 		if type(result) == "table" then
 			msg = result.message or tostring(result)
 			code = result.code or code
 			host_op = result.host_op
+			-- Preserve cooperative abort so worker can soft-cancel (not user error).
+			if result.aborted == true or code == "IR_ERR_ABORTED" then
+				aborted = true
+				code = "IR_ERR_ABORTED"
+			end
 		else
 			msg = tostring(result)
 		end
@@ -169,6 +343,7 @@ local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number):
 			op_id = op.id,
 			op = op.op,
 			host_op = host_op,
+			aborted = aborted,
 		})
 	end
 	if errors.is_fail(result) then
@@ -177,6 +352,10 @@ local function run_op(op: any, env: any, opts: any, caps: any, wall_t0: number):
 			result.error.op = op.op
 		end
 		return result
+	end
+	-- Store successful shape creates under fingerprint for the next scrub.
+	if memo and type(fp) == "string" and type(env.shapes[op.id]) == "number" then
+		host.cache_put(fp, env.shapes[op.id])
 	end
 	return result
 end
@@ -232,9 +411,11 @@ function eval_mod.eval(doc: any, opts: any?): any
 	end
 
 	local caps = limits_mod.merge(opts)
+	local memo = want_memo(opts)
 
 	-- K17: host freeAll + empty env at full eval start (fail closed if free fails).
 	-- skip_free_all: solid.realize mid-session must not wipe unrelated host shapes (route/frames).
+	-- memo: free_all under session memo becomes memo_begin (keeps cached shapes).
 	if not opts.skip_free_all then
 		local free_ok, free_err = host.free_all()
 		if not free_ok then
@@ -243,13 +424,17 @@ function eval_mod.eval(doc: any, opts: any?): any
 				host_op = "free_all",
 			})
 		end
+	elseif memo then
+		-- Mid-session eval with memo: still bump generation so keepIds works.
+		host.memo_begin()
 	end
 	local env = new_env()
 	seed_frames(d, env)
 
+	local fp_by_id: { [string]: string } = {}
 	local wall_t0 = os.clock()
 	for _, op in ipairs(d.ops) do
-		local r = run_op(op, env, opts, caps, wall_t0)
+		local r = run_op(op, env, opts, caps, wall_t0, fp_by_id, memo)
 		if errors.is_fail(r) then
 			r.env_partial = true
 			r.shapes = env.shapes
@@ -261,7 +446,12 @@ function eval_mod.eval(doc: any, opts: any?): any
 	end
 
 	local root = pick_root(d, env, opts)
-	return success_result(env, root)
+	local res = success_result(env, root)
+	if memo then
+		res.memo = true
+		res.fingerprints = fp_by_id
+	end
+	return res
 end
 
 -- Pose-only re-eval (K19 / §6.8)

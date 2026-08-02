@@ -1,10 +1,11 @@
 /**
- * Host loop: editor + param sheet + scheduler + worker + viewport.
+ * Host loop: editor + param sheet + scheduler + worker + viewport + history.
  * sourceMode: 'demo' | 'editor'
  *
  * Params (product): worker params_resolve → guest syntax POD → store.
  * Cold UI only: sync resolveParams() fallback until VM is warm.
  * Execute injects values from POD map (no host language analysis as schema truth).
+ * While scrubbing: store is source of truth — do not rewrite Monaco.
  * View keys: viewport command-router consults editor.hasTextFocus().
  */
 
@@ -22,8 +23,20 @@ import {
   blockHoleSource,
   FLANGE_SOURCE,
 } from "./demos/block-hole-params.js";
+import { createProjectController } from "./history/project-controller.js";
+import { mountHistoryPanel } from "./history/panel.js";
+import { createDefaultHistoryBackend } from "./history/opfs-backend.js";
+import { remoteTokenStorage } from "./history/git-backend.js";
+import { paramsHeaderFingerprint } from "./params/header-fingerprint.js";
+import { schemaSignature } from "./params/schema-signature.js";
 
 const ANALYZE_DEBOUNCE_MS = 550;
+/** Coarser mesh while scrubbing; finer on commit / explicit run. */
+const DEFLECTION_SCRUB = 0.35;
+const DEFLECTION_COMMIT = 0.18;
+
+/** Asset base for kernel / loom / mc-core / git-engine.tar (sibling of src/). */
+const ASSET_BASE = new URL("../", import.meta.url).href;
 
 const els = {
   editorHost: document.querySelector("#editor"),
@@ -33,6 +46,7 @@ const els = {
   viewport: document.querySelector("#viewport"),
   meta: document.querySelector("#meta"),
   params: document.querySelector("#params"),
+  history: document.querySelector("#history"),
 };
 
 /** @type {Awaited<ReturnType<typeof mountLuauEditor>> | null} */
@@ -51,11 +65,15 @@ let configReady = null;
 let analyzeTimer = null;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let resolveTimer = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let editorCheckpointTimer = null;
 let analyzeGen = 0;
 let lastAnalyzeErrors = 0;
 let isRunning = false;
 /** Last schema signature applied to the store (avoid thrash rebuilds). */
 let lastSchemaSig = "";
+/** Fingerprint of free-param header region — skip guest harvest when unchanged. */
+let lastParamsHeaderFp = "";
 
 /** @type {'demo'|'editor'} */
 let sourceMode = "demo";
@@ -64,6 +82,11 @@ let sourceMode = "demo";
 let runtimeWarm = false;
 /** Generation token so stale async resolves are dropped. */
 let paramsResolveGen = 0;
+
+/**
+ * Applying history (undo/restore) — suppress history re-entrancy from store.
+ */
+let historyApplying = false;
 
 /**
  * Initial store: cold fallback (JS line walk) until AgentOS VM is warm, then
@@ -77,6 +100,103 @@ paramStore.setLiveRebuild(true);
 
 /** @type {ReturnType<typeof mountParamSheet> | null} */
 let paramSheet = null;
+/** @type {ReturnType<typeof mountHistoryPanel> | null} */
+let historyPanel = null;
+
+// Prefer GitEngine when git-engine.tar + mc-core load; else IDB/memory.
+const historyBackend = createDefaultHistoryBackend({
+  projectId: "demo-flange",
+  assetBase: ASSET_BASE,
+  preferGit: true,
+});
+
+const project = createProjectController({
+  projectId: "demo-flange",
+  backend: historyBackend,
+  autosaveMs: 2000,
+  async onApply(doc, meta) {
+    historyApplying = true;
+    try {
+      const prevSource = editor ? editor.getValue() : getSource();
+      const sourceChanged =
+        doc.source != null && String(doc.source) !== String(prevSource);
+      if (editor && doc.source != null && editor.getValue() !== doc.source) {
+        editor.setValue(doc.source);
+      }
+      sourceMode = "editor";
+
+      // When source changed (undo/restore), harvest schema before execute so
+      // inject map matches the restored buffer (avoid wrong-window inject).
+      if (
+        (meta.reason === "undo" ||
+          meta.reason === "redo" ||
+          meta.reason === "restore") &&
+        sourceChanged
+      ) {
+        try {
+          if (runtimeWarm) {
+            await syncParamsFromSourceGuest(doc.source, {
+              preserveValues: false,
+              force: true,
+            });
+          } else {
+            syncParamsFromSourceFallback(doc.source, {
+              preserveValues: false,
+              force: true,
+            });
+          }
+        } catch {
+          syncParamsFromSourceFallback(doc.source, {
+            preserveValues: false,
+            force: true,
+          });
+        }
+      }
+
+      // Apply values into store without treating as a new user scrub.
+      const list = paramStore.list().map((p) =>
+        doc.values && doc.values[p.name] !== undefined
+          ? { ...p, value: doc.values[p.name] }
+          : p,
+      );
+      if (list.length) {
+        // Keep schema sig so sheet can value-patch when structure unchanged.
+        paramStore.replace(list);
+        lastSchemaSig = schemaSignature(list);
+      }
+      if (
+        meta.reason === "undo" ||
+        meta.reason === "redo" ||
+        meta.reason === "restore"
+      ) {
+        await runSource({
+          fromParams: true,
+          fit: meta.reason === "restore",
+          generation: paramStore.generation,
+          fine: true,
+        });
+      }
+    } finally {
+      historyApplying = false;
+    }
+  },
+  // Lightweight: dirty badge + undo/redo enablement only (no listVersions).
+  onDirtyChange(dirty, tip) {
+    historyPanel?.update({
+      canUndo: project.canUndo,
+      canRedo: project.canRedo,
+      dirty,
+      tip,
+      // omit versions → panel keeps existing list
+      versions: undefined,
+      badgeOnly: true,
+    });
+  },
+  // Full list refresh on open / version / undo stack boundary.
+  onHistoryChange() {
+    void refreshHistoryPanel();
+  },
+});
 
 const scheduler = createScheduler({
   debounceMs: 200,
@@ -93,7 +213,13 @@ const scheduler = createScheduler({
   },
   async onRebuild(params, meta) {
     const gen = meta.generation ?? paramStore.generation;
-    await runSource({ fromParams: true, fit: false, generation: gen });
+    const fine = meta.phase === "commit" || meta.force === true;
+    await runSource({
+      fromParams: true,
+      fit: false,
+      generation: gen,
+      fine,
+    });
   },
 });
 
@@ -142,36 +268,6 @@ function getSource() {
 }
 
 /**
- * Schema signature: names + UI/gimbal fields (not live scrub values).
- * @param {import('./params/types.js').Parameter[]} list
- */
-function schemaSignature(list) {
-  return list
-    .map((p) => {
-      const opts = p.options
-        ? JSON.stringify(p.options)
-        : "";
-      return [
-        p.name,
-        p.type,
-        p.min,
-        p.max,
-        p.step,
-        p.scrub,
-        p.group,
-        p.defaultValue,
-        p.unit,
-        p.frame || "",
-        p.displayName || "",
-        p.axis || "",
-        p.description || "",
-        opts,
-      ].join("\0");
-    })
-    .join("\n");
-}
-
-/**
  * Preserve current values when re-resolving schema from source.
  * @param {import('./params/types.js').Parameter[]} next
  */
@@ -208,6 +304,7 @@ function applyResolvedParams(resolved, opts = {}) {
   const list =
     opts.preserveValues !== false ? mergeCurrentValues(resolved) : resolved;
   const sig = schemaSignature(list);
+  // Short-circuit: same schema → no store.replace thrash (sheet stays put).
   if (!opts.force && sig === lastSchemaSig) return;
   lastSchemaSig = sig;
   paramStore.replace(list);
@@ -234,6 +331,16 @@ function syncParamsFromSourceFallback(src, opts = {}) {
 async function syncParamsFromSourceGuest(src, opts = {}) {
   const source = src ?? getSource();
   const seed = resolveSeed();
+  const headerFp = paramsHeaderFingerprint(source);
+  // Body-only edits: skip full guest harvest when free-param header unchanged.
+  if (
+    !opts.force &&
+    headerFp &&
+    headerFp === lastParamsHeaderFp &&
+    lastSchemaSig
+  ) {
+    return;
+  }
   const gen = ++paramsResolveGen;
   await ensureConfigured();
   const reply = await callWorker(
@@ -241,6 +348,7 @@ async function syncParamsFromSourceGuest(src, opts = {}) {
     120_000,
   );
   if (gen !== paramsResolveGen) return;
+  if (reply.cancelled) return;
   if (reply.code !== 0) {
     const err = reply.error || `params_resolve code ${reply.code}`;
     appendLog(`params_resolve (syntax) failed: ${err}`);
@@ -254,6 +362,7 @@ async function syncParamsFromSourceGuest(src, opts = {}) {
     seed ? { seed } : {},
   );
   applyResolvedParams(resolved, opts);
+  lastParamsHeaderFp = headerFp;
 }
 
 /**
@@ -273,22 +382,17 @@ function syncParamsFromSource(src, opts = {}) {
   syncParamsFromSourceFallback(src, opts);
 }
 
-function scheduleParamsResolve(source) {
+function scheduleParamsResolve(source, opts = {}) {
   if (resolveTimer) clearTimeout(resolveTimer);
   resolveTimer = setTimeout(() => {
     resolveTimer = null;
-    syncParamsFromSource(source, { preserveValues: true });
+    syncParamsFromSource(source, { preserveValues: true, ...opts });
   }, ANALYZE_DEBOUNCE_MS);
-}
-
-function syncEditorFromDemo() {
-  if (!editor || sourceMode !== "demo") return;
-  const src = blockHoleSource();
-  if (editor.getValue() !== src) editor.setValue(src);
 }
 
 // Seed signature from initial store.
 lastSchemaSig = schemaSignature(paramStore.list());
+lastParamsHeaderFp = paramsHeaderFingerprint(FLANGE_SOURCE);
 
 function ensureWorker() {
   if (worker) return worker;
@@ -301,9 +405,11 @@ function ensureWorker() {
     const slot = pending.get(msg.id);
     if (!slot) return;
     pending.delete(msg.id);
+    // cancelled: soft-success so callers can drop without throwing
     // analyze + params_resolve always resolve structured replies (soft-fail via code).
     // execute/warm/config reject on nonzero so runSource still throws hard errors.
     if (
+      msg.cancelled ||
       msg.kind === "analyze" ||
       msg.kind === "params_resolve" ||
       msg.code === 0
@@ -321,8 +427,7 @@ function ensureWorker() {
     setStatus(`Worker error: ${ev.message}`, true);
     appendLog(`worker error: ${ev.message}`);
   };
-  const base = new URL("../", import.meta.url).href;
-  configReady = callWorker({ kind: "config", assetBase: base }).then(
+  configReady = callWorker({ kind: "config", assetBase: ASSET_BASE }).then(
     () => undefined,
   );
   configReady.catch((err) => appendLog(`config failed: ${err.message}`));
@@ -441,6 +546,7 @@ async function runAnalyze(source, opts = {}) {
       120_000,
     );
     if (gen !== analyzeGen) return;
+    if (reply.cancelled) return;
     const diags = reply.diagnostics || [];
     lastAnalyzeErrors = diags.filter((d) => d.severity === "error").length;
     editor?.setAnalyzeMarkers?.(diags);
@@ -482,8 +588,24 @@ function applyDiagnostics(diags) {
 }
 
 /**
- * @param {{ fit?: boolean, fromParams?: boolean, generation?: number }} [opts]
+ * @param {{ fit?: boolean, fromParams?: boolean, generation?: number, fine?: boolean }} [opts]
  */
+/**
+ * If this generation still owns the status line and nothing else is busy,
+ * clear a stuck "Updating…" / "Running…" after cancel/stale drop.
+ * @param {number} gen
+ * @param {boolean} fromParams
+ */
+function clearStaleStatus(gen, fromParams) {
+  if (!fromParams) return;
+  if (gen < paramStore.generation) return; // newer rebuild owns status
+  if (scheduler.busy) return;
+  const t = String(els.status?.textContent || "");
+  if (t === "Updating…" || t === "Running…") {
+    setStatus("Ready");
+  }
+}
+
 async function runSource(opts = {}) {
   if (analyzeTimer) {
     clearTimeout(analyzeTimer);
@@ -502,23 +624,44 @@ async function runSource(opts = {}) {
 
   try {
     await ensureConfigured();
-    if (fromParams && sourceMode === "demo") syncEditorFromDemo();
+    // Scrub path: store is source of truth — never rewrite Monaco from params.
+    // Editor remains the author buffer; inject happens only inside the worker.
     const source = getSource();
-    await runAnalyze(source, { quiet: true });
+    // Skip analyze on rapid scrub; keep it for explicit runs.
+    if (!fromParams) {
+      await runAnalyze(source, { quiet: true });
+    }
 
-    if (fromParams && gen < paramStore.generation) return;
+    if (fromParams && gen < paramStore.generation) {
+      clearStaleStatus(gen, fromParams);
+      return;
+    }
+
+    const deflection =
+      fromParams && !opts.fine ? DEFLECTION_SCRUB : DEFLECTION_COMMIT;
 
     const reply = await callWorker(
       {
         kind: "execute",
         source,
         params: paramStore.values(),
-        deflection: 0.2,
+        deflection,
+        // Param scrub: full mesh cache + per-op shape memo. Explicit Run rebuilds cold.
+        memo: fromParams === true,
       },
       300_000,
     );
 
-    if (fromParams && gen < paramStore.generation) return;
+    if (fromParams && gen < paramStore.generation) {
+      clearStaleStatus(gen, fromParams);
+      return;
+    }
+    // Soft success: queue superseded or mid-flight OCC abort (reason aborted).
+    // Do not paint error / stale mesh — a newer execute owns the UI.
+    if (reply.cancelled) {
+      clearStaleStatus(gen, fromParams);
+      return;
+    }
 
     applyDiagnostics(reply.diagnostics);
     if (!reply.diagnostics?.length) editor?.clearAnalyzeMarkers?.();
@@ -560,8 +703,23 @@ async function runSource(opts = {}) {
 
 function onParamsChanged(params, meta = {}) {
   refreshGimbals();
-  // Demo source is static (inject-only) — no rewrite into editor.
-  if (sourceMode === "demo") syncEditorFromDemo();
+  // History apply owns execute; do not re-enter project or double-schedule.
+  if (historyApplying) return;
+  // Do NOT rewrite Monaco on scrub — store + inject at execute time only.
+  // Schema harvest replace must not record undo (replace emits phase:commit).
+  if (meta.tier === "replace") {
+    project.setValues(paramStore.values(), { recordUndo: false, merge: false });
+  } else if (meta.tier === "reset") {
+    project.setValues(paramStore.values(), { recordUndo: true, merge: false });
+  } else if (meta.phase === "commit" || meta.force) {
+    project.setValues(paramStore.values(), { recordUndo: true, merge: false });
+  } else if (meta.phase === "change") {
+    // Track live values without undo noise; checkpoint on commit.
+    project.setValues(paramStore.values(), { recordUndo: false, merge: false });
+  }
+  // Harvest replace should not force geometry rebuild by itself — values
+  // unchanged; only user scrub/reset/rebuild tiers schedule execute.
+  if (meta.tier === "replace") return;
   scheduler.dispatch(params, meta, { liveRebuild: true });
 }
 
@@ -571,11 +729,200 @@ if (els.params) {
   paramSheet = mountParamSheet(els.params, paramStore, { debounceMs: 200 });
 }
 
+async function refreshHistoryPanel() {
+  if (!historyPanel) return;
+  let versions = [];
+  try {
+    versions = await project.listVersions();
+  } catch {
+    versions = [];
+  }
+  /** @type {string | null} */
+  let remoteUrl = null;
+  try {
+    const b = /** @type {any} */ (project.backend);
+    if (typeof b.getRemote === "function") {
+      remoteUrl = await b.getRemote();
+    }
+  } catch {
+    remoteUrl = null;
+  }
+  historyPanel.update({
+    canUndo: project.canUndo,
+    canRedo: project.canRedo,
+    dirty: project.dirty,
+    tip: project.tip,
+    versions,
+    backendKind: project.backendKind,
+    remoteUrl,
+  });
+}
+
+/**
+ * @param {"clone"|"pull"|"push"} op
+ * @param {string} url
+ * @param {string} token
+ */
+async function handleRemoteOp(op, url, token) {
+  const b = /** @type {any} */ (project.backend);
+  // Persist token in session only — never appendLog / console the value.
+  if (token) remoteTokenStorage.set(token);
+  else if (token === "") remoteTokenStorage.clear();
+
+  if (typeof b[op] !== "function" && op !== "clone") {
+    const msg = `Remote ${op} unavailable (backend: ${project.backendKind})`;
+    historyPanel?.setRemoteStatus?.(msg, true);
+    setStatus(msg, true);
+    return;
+  }
+
+  try {
+    if (url && typeof b.setRemote === "function" && op !== "clone") {
+      await b.setRemote(url, { token });
+    }
+    let result;
+    if (op === "clone") {
+      if (typeof b.clone !== "function") {
+        throw new Error(
+          `Clone unavailable (backend: ${project.backendKind}). GitEngine + git-engine.tar required.`,
+        );
+      }
+      result = await b.clone(url, { token });
+    } else if (op === "pull") {
+      result = await b.pull({ token });
+    } else {
+      result = await b.push({ token });
+    }
+    if (!result || result.ok === false) {
+      const msg = result?.message || `${op} failed`;
+      historyPanel?.setRemoteStatus?.(msg, true);
+      setStatus(msg, true);
+      return;
+    }
+    const msg = result.message || `${op} ok`;
+    historyPanel?.setRemoteStatus?.(msg, false);
+    setStatus(msg);
+    // After clone/pull, re-open document from worktree.
+    if (op === "clone" || op === "pull") {
+      try {
+        const doc = await b.open?.(project.projectId);
+        if (doc) {
+          await project.applyEdit(
+            {
+              source: doc.source,
+              values: doc.values,
+              project: doc.project,
+              meta: doc.meta,
+            },
+            { recordUndo: true, reason: "restore" },
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
+      await refreshHistoryPanel();
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    historyPanel?.setRemoteStatus?.(msg, true);
+    setStatus(msg, true);
+  }
+}
+
+async function handleUndo() {
+  const doc = await project.undo();
+  if (!doc) return;
+  setStatus("Undo");
+}
+
+async function handleRedo() {
+  const doc = await project.redo();
+  if (!doc) return;
+  setStatus("Redo");
+}
+
+async function handleSaveVersion() {
+  const name = window.prompt("Version name", "");
+  if (name == null) return; // cancelled
+  const trimmed = name.trim();
+  if (!trimmed) {
+    setStatus("Version name required", true);
+    return;
+  }
+  try {
+    // Sync author buffer into project before durable commit.
+    project.setSource(getSource(), { recordUndo: false });
+    project.setValues(paramStore.values(), { recordUndo: false, merge: false });
+    const entry = await project.commitVersion({
+      name: trimmed,
+      message: trimmed,
+    });
+    setStatus(`Saved · ${entry.shortHash || entry.id.slice(0, 7)}`);
+    await refreshHistoryPanel();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Save failed";
+    setStatus(msg, true);
+  }
+}
+
+async function handleRestore(id) {
+  if (!id) return;
+  const ok = window.confirm(
+    "Restore this version? Current edits stay on the undo stack (Ctrl+Z).",
+  );
+  if (!ok) return;
+  try {
+    await project.restoreVersion(id);
+    setStatus("Restored version");
+    await refreshHistoryPanel();
+  } catch {
+    setStatus("Unknown version", true);
+  }
+}
+
+if (els.history) {
+  historyPanel = mountHistoryPanel(els.history, {
+    onUndo: () => void handleUndo(),
+    onRedo: () => void handleRedo(),
+    onSaveVersion: () => void handleSaveVersion(),
+    onRestore: (id) => void handleRestore(id),
+    onRemoteClone: (url, token) => handleRemoteOp("clone", url, token),
+    onRemotePull: (url, token) => handleRemoteOp("pull", url, token),
+    onRemotePush: (url, token) => handleRemoteOp("push", url, token),
+  });
+  void refreshHistoryPanel();
+}
+
+function isEditableTarget(el) {
+  if (!el || !(el instanceof Element)) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (/** @type {HTMLElement} */ (el).isContentEditable) return true;
+  return false;
+}
+
+// Keyboard: undo/redo when not typing in Monaco or form controls.
+window.addEventListener("keydown", (ev) => {
+  if (editorHasTextFocus()) return;
+  if (isEditableTarget(/** @type {Element} */ (ev.target))) return;
+  const mod = ev.metaKey || ev.ctrlKey;
+  if (!mod) return;
+  const key = ev.key.toLowerCase();
+  if (key === "z" && !ev.shiftKey) {
+    ev.preventDefault();
+    void handleUndo();
+  } else if (key === "y" || (key === "z" && ev.shiftKey)) {
+    ev.preventDefault();
+    void handleRedo();
+  }
+});
+
 // Optional #run (removed from chrome — params live-rebuild + editor Ctrl/Cmd+Enter).
 els.run?.addEventListener("click", () => {
   sourceMode = "editor";
+  project.setSource(getSource(), { recordUndo: true });
   syncParamsFromSource(undefined, { preserveValues: true, force: true });
-  void runSource({ fit: true });
+  void runSource({ fit: true, fine: true });
 });
 
 /** Background warm: first slider rebuild is already slow without this. */
@@ -607,6 +954,14 @@ async function autoWarm() {
   }
 }
 
+function scheduleEditorCheckpoint(doc) {
+  if (editorCheckpointTimer) clearTimeout(editorCheckpointTimer);
+  editorCheckpointTimer = setTimeout(() => {
+    editorCheckpointTimer = null;
+    project.setSource(doc, { recordUndo: true });
+  }, 600);
+}
+
 setStatus("Loading editor…");
 mountLuauEditor({
   parent: els.editorHost,
@@ -614,22 +969,32 @@ mountLuauEditor({
   autoFocus: true,
   onRun: () => {
     sourceMode = "editor";
+    project.setSource(getSource(), { recordUndo: true });
+    project.setValues(paramStore.values(), { recordUndo: false, merge: false });
     syncParamsFromSource(undefined, { preserveValues: true, force: true });
-    void runSource({ fit: true });
+    void runSource({ fit: true, fine: true });
   },
   onChange: (doc) => {
     sourceMode = "editor";
     // Debounced: sheet from source analysis; execute injects store values.
+    // Do not push every keystroke onto undo — checkpoint after idle.
+    project.setSource(doc, { recordUndo: false });
+    scheduleEditorCheckpoint(doc);
     scheduleParamsResolve(doc);
     scheduleAnalyze(doc);
   },
 })
-  .then((handle) => {
+  .then(async (handle) => {
     editor = handle;
     viewport?.setEditorFocusProbe?.(editorHasTextFocus);
+    await project.open({
+      source: blockHoleSource(),
+      project: { name: "flange_plate", schema_version: 1 },
+      values: paramStore.values(),
+    });
     void autoWarm().then(() => {
       // First mesh from demo params once runtime is hot
-      void runSource({ fromParams: true, fit: true });
+      void runSource({ fromParams: true, fit: true, fine: true });
     });
   })
   .catch((err) => {
@@ -654,8 +1019,16 @@ mountLuauEditor({
     };
     ta.addEventListener("input", () => {
       sourceMode = "editor";
+      project.setSource(ta.value, { recordUndo: false });
+      scheduleEditorCheckpoint(ta.value);
       scheduleParamsResolve(ta.value);
       scheduleAnalyze(ta.value);
     });
-    void autoWarm();
+    void project
+      .open({
+        source: blockHoleSource(),
+        project: { name: "flange_plate", schema_version: 1 },
+        values: paramStore.values(),
+      })
+      .then(() => autoWarm());
   });

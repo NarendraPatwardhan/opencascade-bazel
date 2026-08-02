@@ -813,6 +813,11 @@ function tape.finish(root: string, extra: any?): number
 	local res = demo_mod.run_demo(doc, opts)
 	if type(res) == "table" and res.ok == false then
 		local e = res.error or {}
+		-- Cooperative mid-flight abort: keep a stable prefix so the worker can
+		-- treat this as cancelled (not a user geometry error).
+		if e.aborted == true or e.code == "IR_ERR_ABORTED" or e.message == "aborted" then
+			error("aborted")
+		end
 		local msg = tostring(e.message or e.code or "IR tape finish failed")
 		-- Surface which IR / host op failed (generic "host tool call failed"
 		-- alone is not actionable for authors).

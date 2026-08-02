@@ -61,6 +61,10 @@ node agent-os/smoke/solid_api_smoke.mjs
 # 3d) Host params pipeline (resolve/extract/infer/inject — no OCCT)
 node agent-os/smoke/params_smoke.mjs
 
+# 3e) Document history (undo stack + versions; GitEngine when tar present)
+node agent-os/smoke/history_smoke.mjs
+MC_GIT_ENGINE_TAR=$PWD/agent-os/vendor/git-engine.tar node agent-os/smoke/history_smoke.mjs
+
 # 4) Browser demo (stages + serves)
 ./agent-os/scripts/dev.sh
 # open http://127.0.0.1:8765/  → Warm (optional) → Run Luau
@@ -88,7 +92,7 @@ local res = ir.run_demo(doc)      -- eval + __OCC_CAD_RESULT__ like solid.finish
 
 ## Bazel
 
-Release assets are pinned in root `MODULE.bazel` (`@agent_os_*` `http_file` targets, tag **v0.4.0**).
+Release assets are pinned in root `MODULE.bazel` (`@agent_os_*` `http_file` targets, tag **v0.5.0**, including `git-engine.tar`).
 
 ```bash
 bazel build //agent-os:release_assets
@@ -150,6 +154,25 @@ On run, the host rewrites header local literals from the **values map** and inje
 ```bash
 node agent-os/smoke/params_syntax_smoke.mjs   # syntax path (needs vendor loom)
 node agent-os/smoke/params_smoke.mjs          # host fallback / inject unit tests
+```
+
+## Document history & git
+
+Versions prefer **AgentOS GitEngine** when `git-engine.tar` is staged and loads:
+
+| Layer | Role |
+|-------|------|
+| Worktree files | `main.luau`, `project.json` (`project` / `meta` / `values`) |
+| Identity | product-local `occ_c` / `cad@local` (never host gitconfig) |
+| Backend order | GitEngine → IndexedDB → memory |
+| Remotes | History panel URL + optional token (**sessionStorage only**) → Clone / Pull / Push via `GitRemoteOrchestrator` |
+
+Connection-ref pattern (credentials stay host-side; never in guest or logs): set a public `https://…` remote URL; optional bearer token is stored only in `sessionStorage` and passed into the orchestrator `connections` catalog (`auth: { kind: "bearer", token }`, `origins: [origin]`). See upstream [git.md](https://github.com/NarendraPatwardhan/agent-os/blob/main/docs/git.md).
+
+```bash
+# Node smoke with real engine (Memory/HostDir durable — no browser OPFS)
+MC_GIT_ENGINE_TAR=$PWD/agent-os/vendor/git-engine.tar \
+  node agent-os/smoke/history_smoke.mjs
 ```
 
 ## View command focus

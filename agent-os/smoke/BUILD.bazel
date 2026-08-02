@@ -14,6 +14,8 @@ filegroup(
         "params_smoke.mjs",
         "params_syntax_smoke.mjs",
         "command_router_smoke.mjs",
+        "memo_smoke.mjs",
+        "history_smoke.mjs",
         "run_node_smoke.sh",
     ],
 )

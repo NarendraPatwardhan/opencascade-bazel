@@ -1,10 +1,14 @@
 /**
  * Parameter sheet — CADAM-faithful layout & chrome (reimplemented).
  * Row: [label 80px] [slider | number | unit]  — single line, dense type.
+ *
+ * Incremental DOM: value-only store updates patch existing inputs.
+ * Full re-render only when schema signature (names/groups/types/…) changes.
  */
 
 import { autoStep } from "./types.js";
 import { createCadamSlider } from "./slider.js";
+import { schemaSignature } from "./schema-signature.js";
 
 /**
  * @param {HTMLElement} host
@@ -13,6 +17,9 @@ import { createCadamSlider } from "./slider.js";
  */
 /** @type {Map<string, boolean>} */
 const groupOpenState = new Map();
+
+/** @deprecated use schemaSignature from schema-signature.js */
+export const sheetSchemaSignature = schemaSignature;
 
 export function mountParamSheet(host, store, opts = {}) {
   const debounceMs = opts.debounceMs ?? 200;
@@ -45,10 +52,24 @@ export function mountParamSheet(host, store, opts = {}) {
   const timers = new Map();
   /** @type {Map<string, any>} */
   const inputs = new Map();
+  /** Last schema that built the DOM tree. */
+  let lastDomSchemaSig = "";
+
+  function clearTimer(name) {
+    if (timers.has(name)) {
+      clearTimeout(timers.get(name));
+      timers.delete(name);
+    }
+  }
+
+  function clearAllTimers() {
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+  }
 
   function scheduleCommit(name, value) {
     store.set(name, value, { phase: "change" });
-    if (timers.has(name)) clearTimeout(timers.get(name));
+    clearTimer(name);
     timers.set(
       name,
       setTimeout(() => {
@@ -59,6 +80,8 @@ export function mountParamSheet(host, store, opts = {}) {
   }
 
   function commit(name, value) {
+    // Prevent stale scheduleCommit from double-firing after pointer-up commit.
+    clearTimer(name);
     store.set(name, value, { phase: "commit", force: true });
   }
 
@@ -78,10 +101,25 @@ export function mountParamSheet(host, store, opts = {}) {
     return Number.isFinite(asNum) && String(asNum) === String(raw) ? asNum : raw;
   }
 
+  /**
+   * Patch existing controls when only values changed (no structural rebuild).
+   * @param {import('./types.js').Parameter[]} params
+   */
+  function patchValues(params) {
+    // Drop pending commits — external value apply (undo/restore) must win.
+    clearAllTimers();
+    for (const p of params) {
+      const el = inputs.get(p.name);
+      if (el && typeof el.setValue === "function") el.setValue(p.value);
+    }
+  }
+
   function render() {
+    clearAllTimers();
     body.replaceChildren();
     inputs.clear();
     const params = store.list();
+    lastDomSchemaSig = schemaSignature(params);
     /** @type {Map<string, typeof params>} */
     const groups = new Map();
     for (const p of params) {
@@ -305,6 +343,12 @@ export function mountParamSheet(host, store, opts = {}) {
   render();
   const unsub = store.subscribe((params, meta) => {
     if (meta.tier === "replace" || meta.tier === "reset") {
+      const sig = schemaSignature(params);
+      // Value-only replace (same schema): patch inputs — no full remount thrash.
+      if (sig === lastDomSchemaSig && inputs.size > 0) {
+        patchValues(params);
+        return;
+      }
       render();
       return;
     }
@@ -321,8 +365,7 @@ export function mountParamSheet(host, store, opts = {}) {
     refresh: render,
     dispose() {
       unsub();
-      for (const t of timers.values()) clearTimeout(t);
-      timers.clear();
+      clearAllTimers();
       host.replaceChildren();
     },
   };

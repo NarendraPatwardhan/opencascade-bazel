@@ -16,12 +16,13 @@ Scratch items with `[x]` as they land. Goal: **browser demo** where Luau runs in
 - [x] Rename `//examples/c_smoke` → `//examples/c_api`
 - [x] Create this `TASKS.md`
 
-## 1. Release pins (AgentOS v0.4.0)
+## 1. Release pins (AgentOS v0.5.0)
 
 - [x] `http_file` for `kernel.wasm` (sha256 pinned)
 - [x] `http_file` for `loom.tar`
 - [x] `http_file` for `mc-core.mjs`
 - [x] `http_file` for `catalog-compiler.wasm`
+- [x] `http_file` for `git-engine.tar`
 - [x] Bazel `filegroup` `//agent-os:release_assets`
 - [x] `scripts/fetch-release.sh` (raw GitHub download + sha256)
 
@@ -91,6 +92,22 @@ Scratch items with `[x]` as they land. Goal: **browser demo** where Luau runs in
 - [ ] `pkg_tar` one-directory release under `agent-os/`
 - [ ] GLB export + `<model-viewer>` path
 - [ ] Param re-run / Adam-like chrome
+
+## 9. Performance + document history (demo)
+
+- [x] Stage batteries once (`batteriesStaged` / assetBase)
+- [x] Worker latest-wins coalesce for execute / params_resolve / analyze
+- [x] Mid-flight OCC cancel: preempt in-flight execute at cad.call boundaries
+  - `executeAbortRequested` + yield between host calls; freeAll; `cancelled` reason `aborted`
+  - ir.host / eval / tape elevate `IR_ERR_ABORTED`; main.js soft-drop like superseded
+- [x] Scrub path: store is source of truth (no Monaco rewrite on scrub)
+- [x] Param sheet incremental DOM on value-only replace
+- [x] Schema harvest short-circuit (signature + header fingerprint)
+- [x] Scrub LOD deflection (coarser while scrubbing, finer on commit)
+- [x] ProjectController + undo stack + OPFS/IDB backend (+ real GitEngine backend)
+- [x] History panel UI (Undo/Redo/Save version/Restore + Remote Clone/Pull/Push)
+- [x] `node agent-os/smoke/history_smoke.mjs` (+ optional `MC_GIT_ENGINE_TAR=…`)
+- [x] Wire AgentOS git-engine (GitHistoryBackend + stage `git-engine.tar` + default prefer git)
 
 ---
 

@@ -161,11 +161,13 @@ export function createCadamSlider(opts) {
     get value() {
       return value;
     },
-    setValue(v, { silent } = {}) {
+    /**
+     * External value apply from store/sheet.
+     * Always silent: never fires onChange/onCommit (avoids feedback loops).
+     * The `{ silent }` option is accepted for API symmetry and is always treated as true.
+     */
+    setValue(v, _opts = {}) {
       setValue(v);
-      if (!silent) {
-        /* external set from store — no emit */
-      }
     },
   };
 }

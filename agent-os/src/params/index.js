@@ -34,5 +34,7 @@ export {
   adjustInjectedDiagnostics,
   PARAMS_INJECT_LINE_COUNT,
 } from "./inject.js";
+export { paramsHeaderFingerprint } from "./header-fingerprint.js";
+export { schemaSignature } from "./schema-signature.js";
 export { createParamStore } from "./store.js";
-export { mountParamSheet } from "./sheet.js";
+export { mountParamSheet, sheetSchemaSignature } from "./sheet.js";

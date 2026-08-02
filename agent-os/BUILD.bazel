@@ -24,6 +24,7 @@ filegroup(
         "@agent_os_loom_tar//file",
         "@agent_os_mc_core_mjs//file",
         "@agent_os_catalog_compiler_wasm//file",
+        "@agent_os_git_engine_tar//file",
     ],
 )
 
@@ -59,6 +60,7 @@ export AGENT_OS_KERNEL="$(location @agent_os_kernel_wasm//file)"
 export AGENT_OS_LOOM="$(location @agent_os_loom_tar//file)"
 export AGENT_OS_MC_CORE="$(location @agent_os_mc_core_mjs//file)"
 export AGENT_OS_CATALOG="$(location @agent_os_catalog_compiler_wasm//file)"
+export AGENT_OS_GIT_ENGINE="$(location @agent_os_git_engine_tar//file)"
 export OCC_JS="$(location //api:libocc_c_emcc_js)"
 export OCC_WASM="$(location //api:libocc_c_wasm_file)"
 export SOLID_LUAU="$(location src/batteries/solid.luau)"

@@ -96,7 +96,7 @@ cd /path/to/opencascade-bazel
 
 What the script does:
 
-1. `agent-os/scripts/fetch-release.sh` — AgentOS **v0.4.0** assets (kernel, loom, mc-core, catalog)
+1. `agent-os/scripts/fetch-release.sh` — AgentOS **v0.5.0** assets (kernel, loom, mc-core, catalog, git-engine)
 2. `browserify-mc-core.sh` — browser-safe `mc-core`
 3. `bb build --config=buildbuddy --remote_download_outputs=all //api:libocc_c_wasm`
 4. `stage.mjs` → self-contained tree (`libocc_c.*`, batteries, src, demo, `serve.mjs`)

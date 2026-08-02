@@ -5,6 +5,7 @@ const PRECACHE = [
   "./loom.tar",
   "./mc-core.mjs",
   "./catalog-compiler.wasm",
+  "./git-engine.tar",
   "./libocc_c.js",
   "./libocc_c.wasm",
 ];

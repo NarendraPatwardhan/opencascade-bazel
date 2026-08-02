@@ -792,7 +792,7 @@ Short record of structural choices. Prefer this over digging through chat histor
 
 ### D6 — Pin AgentOS releases
 
-**Decision:** Consume GitHub release **v0.4.0** by digest (`http_file` / fetch script); do not rebuild AgentOS in this repo.  
+**Decision:** Consume GitHub release **v0.5.0** by digest (`http_file` / fetch script); do not rebuild AgentOS in this repo.  
 **Why:** Hermetic, reviewable platform version.
 
 ### D7 — Monaco + Luau Monarch

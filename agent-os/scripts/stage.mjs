@@ -2,7 +2,7 @@
 /**
  * Stage a directory tree for the demo server / smoke:
  *   out/
- *     kernel.wasm loom.tar mc-core.mjs catalog-compiler.wasm
+ *     kernel.wasm loom.tar mc-core.mjs catalog-compiler.wasm git-engine.tar
  *     libocc_c.js libocc_c.wasm
  *     batteries/solid.luau + batteries/ir/**
  *     src/*.js
@@ -35,6 +35,15 @@ const demoDir = resolve(process.env.DEMO_DIR || join(dirname(fileURLToPath(impor
 const batteriesDir = resolve(
   process.env.BATTERIES_DIR || join(dirname(solid), "."),
 );
+// Optional: host git-engine.tar for document history (GitEngine).
+const gitEngineEnv = process.env.AGENT_OS_GIT_ENGINE;
+const gitEngineFallback = join(dirname(fileURLToPath(import.meta.url)), "../vendor/git-engine.tar");
+const gitEngine =
+  gitEngineEnv && existsSync(resolve(gitEngineEnv))
+    ? resolve(gitEngineEnv)
+    : existsSync(gitEngineFallback)
+      ? gitEngineFallback
+      : null;
 
 if (existsSync(out)) rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -47,6 +56,12 @@ copyFileSync(loom, join(out, "loom.tar"));
 copyFileSync(catalog, join(out, "catalog-compiler.wasm"));
 copyFileSync(occJs, join(out, "libocc_c.js"));
 copyFileSync(occWasm, join(out, "libocc_c.wasm"));
+if (gitEngine) {
+  copyFileSync(gitEngine, join(out, "git-engine.tar"));
+  console.log(`staged git-engine.tar from ${gitEngine}`);
+} else {
+  console.warn("warning: no git-engine.tar — history will fall back to IDB/memory");
+}
 // Full batteries tree (solid + ir package)
 if (existsSync(batteriesDir)) {
   cpSync(batteriesDir, join(out, "batteries"), { recursive: true });

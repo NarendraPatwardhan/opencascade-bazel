@@ -52,6 +52,15 @@ function ir.hash_body(doc: any): string
 	return canonical.hash_body(doc)
 end
 
+--- Stable per-op fingerprint (op + params + recursive ref fingerprints).
+function ir.op_fingerprint(op: any, fp_by_id: { [string]: string }?): string
+	return eval_mod.op_fingerprint(op, fp_by_id)
+end
+
+function ir.fingerprint_ops(ops: any): { [string]: string }
+	return eval_mod.fingerprint_ops(ops)
+end
+
 ir.limits = limits
 ir.registry = registry
 ir.errors = errors

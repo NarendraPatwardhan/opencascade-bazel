@@ -75,32 +75,32 @@ http_archive(
 # ---------------------------------------------------------------------------
 # AgentOS release artifacts (BSL) — consumed only by //agent-os/...
 # Pin tag + sha256 from:
-#   https://github.com/NarendraPatwardhan/agent-os/releases/download/v0.4.0/SHA256SUMS
+#   https://github.com/NarendraPatwardhan/agent-os/releases/download/v0.5.0/SHA256SUMS
 # Do not float on "latest". Do not put these under api/ (Apache).
 # ---------------------------------------------------------------------------
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
-_AGENT_OS_V = "v0.4.0"
+_AGENT_OS_V = "v0.5.0"
 _AGENT_OS_BASE = "https://github.com/NarendraPatwardhan/agent-os/releases/download/" + _AGENT_OS_V
 
 http_file(
     name = "agent_os_kernel_wasm",
     downloaded_file_path = "kernel.wasm",
-    sha256 = "522f6dd571d5c0bafaf8160e7e131f0e6735cf58a949a7bb6bd7986eedae2b32",
+    sha256 = "ab20b493f4d2fdd90a4e40b005d495d3cb15af4121167ce977a719beffe77008",
     urls = [_AGENT_OS_BASE + "/kernel.wasm"],
 )
 
 http_file(
     name = "agent_os_loom_tar",
     downloaded_file_path = "loom.tar",
-    sha256 = "020cab5db9592b6a846ab4e0d8e410a206584886c28a12d02d0fd983f4305997",
+    sha256 = "b92a703ed5c5a5f06a72cd88060af88d57a88fa67526bebba7909b02f9d6fd87",
     urls = [_AGENT_OS_BASE + "/loom.tar"],
 )
 
 http_file(
     name = "agent_os_mc_core_mjs",
     downloaded_file_path = "mc-core.mjs",
-    sha256 = "331d9356ee1190e794a7668bc9a417e34e31ce99abf34929153469576b1f73fa",
+    sha256 = "cd6e07185c79a642eadcaa29f477ebc273b5852395f957443e5cff736e96aa42",
     urls = [_AGENT_OS_BASE + "/mc-core.mjs"],
 )
 
@@ -109,4 +109,12 @@ http_file(
     downloaded_file_path = "catalog-compiler.wasm",
     sha256 = "90205ce7e67767b395f221b01fd18c9fab45d95a88eb512ec1566887ad873de4",
     urls = [_AGENT_OS_BASE + "/catalog-compiler.wasm"],
+)
+
+# Host git-engine (libgit2 + emcc) — optional for CAD history versions.
+http_file(
+    name = "agent_os_git_engine_tar",
+    downloaded_file_path = "git-engine.tar",
+    sha256 = "a7462aa830e127e9a3a2020866da95b7a75307a362b2ab536d27e4d1ee3fd52c",
+    urls = [_AGENT_OS_BASE + "/git-engine.tar"],
 )

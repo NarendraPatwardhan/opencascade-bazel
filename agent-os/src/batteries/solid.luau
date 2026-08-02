@@ -261,6 +261,10 @@ local function host_session(op: string, args: { [string]: any }): any
 	end
 	local data = res.data
 	if type(data) == "table" and type((data :: any).__occ_err) == "string" then
+		-- Mid-flight preempt: same stable "aborted" token as ir.host.
+		if (data :: any).aborted == true or (data :: any).__occ_err == "aborted" then
+			error("aborted")
+		end
 		error((data :: any).__occ_err)
 	end
 	return data

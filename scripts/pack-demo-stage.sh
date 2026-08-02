@@ -21,6 +21,7 @@ REPO="${MC_RELEASE_REPO:-NarendraPatwardhan/opencascade-bazel}"
 : "${AGENT_OS_LOOM:=$AGENT_OS/vendor/loom.tar}"
 : "${AGENT_OS_MC_CORE:=$AGENT_OS/vendor/mc-core.mjs}"
 : "${AGENT_OS_CATALOG:=$AGENT_OS/vendor/catalog-compiler.wasm}"
+: "${AGENT_OS_GIT_ENGINE:=$AGENT_OS/vendor/git-engine.tar}"
 : "${OCC_JS:=$AGENT_OS/vendor/occ/libocc_c.js}"
 : "${OCC_WASM:=$AGENT_OS/vendor/occ/libocc_c.wasm}"
 : "${SOLID_LUAU:=$AGENT_OS/src/batteries/solid.luau}"
@@ -74,6 +75,7 @@ done
 # 4) Stage tree (self-contained: batteries, src, demo, serve.mjs, wasm, …)
 export STAGE_OUT="$STAGE"
 export AGENT_OS_KERNEL AGENT_OS_LOOM AGENT_OS_MC_CORE AGENT_OS_CATALOG
+export AGENT_OS_GIT_ENGINE
 export OCC_JS OCC_WASM SOLID_LUAU
 export SRC_DIR="$AGENT_OS/src"
 export DEMO_DIR="$AGENT_OS/demo"
@@ -85,7 +87,7 @@ node "$AGENT_OS/scripts/stage.mjs"
   echo "repo=$REPO"
   echo "pack_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "git=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
-  echo "agent_os_assets=v0.4.0"
+  echo "agent_os_assets=v0.5.0"
 } >"$STAGE/STAGE_INFO.txt"
 
 # 5) Tarball (contents at archive root = stage root)

@@ -127,7 +127,7 @@ JS: `createOccModule()` then `ccall` / `cwrap` on `occ_*` (+ `malloc`/`free`).
 
 - Node smoke and browser demo: [`agent-os/README.md`](agent-os/README.md)  
 - Task tracker: [`agent-os/TASKS.md`](agent-os/TASKS.md)  
-- Pinned AgentOS release assets (v0.4.0) via `http_file` / `scripts/fetch-release.sh`
+- Pinned AgentOS release assets (v0.5.0, incl. `git-engine.tar`) via `http_file` / `scripts/fetch-release.sh`
 
 ```text
 Luau (sandbox) ──tools.call──► host ──occ_*──► OCCT Wasm ──mesh──► UI

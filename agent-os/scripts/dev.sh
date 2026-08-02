@@ -15,6 +15,7 @@ HOST="${HOST:-127.0.0.1}"
 : "${AGENT_OS_LOOM:=$AGENT_OS/vendor/loom.tar}"
 : "${AGENT_OS_MC_CORE:=$AGENT_OS/vendor/mc-core.mjs}"
 : "${AGENT_OS_CATALOG:=$AGENT_OS/vendor/catalog-compiler.wasm}"
+: "${AGENT_OS_GIT_ENGINE:=$AGENT_OS/vendor/git-engine.tar}"
 : "${OCC_JS:=$AGENT_OS/vendor/occ/libocc_c.js}"
 : "${OCC_WASM:=$AGENT_OS/vendor/occ/libocc_c.wasm}"
 : "${SOLID_LUAU:=$AGENT_OS/src/batteries/solid.luau}"
@@ -27,6 +28,10 @@ for f in "$AGENT_OS_KERNEL" "$AGENT_OS_LOOM" "$AGENT_OS_MC_CORE" "$AGENT_OS_CATA
     exit 1
   fi
 done
+if [[ ! -f "$AGENT_OS_GIT_ENGINE" ]]; then
+  echo "note: missing $AGENT_OS_GIT_ENGINE (history will use IDB/memory)" >&2
+fi
+export AGENT_OS_GIT_ENGINE
 
 # Browser needs a rebundled mc-core (release artifact is Node-first).
 if [[ ! -f "$AGENT_OS/vendor/mc-core.browser.mjs" ]]; then

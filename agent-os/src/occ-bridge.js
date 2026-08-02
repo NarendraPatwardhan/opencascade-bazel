@@ -3,6 +3,8 @@
  * Shape pointers never leave this module — only integer ids.
  */
 
+import { ShapeMemoTable } from "./memo-cache.js";
+
 /** @typedef {import('./types.js').OccModule} OccModule */
 
 export class OccBridge {
@@ -14,6 +16,35 @@ export class OccBridge {
     /** @type {Map<number, number>} id → shape pointer */
     this.shapes = new Map();
     this.nextId = 1;
+    /** Per-op fingerprint → shapeId (param scrub reuse). */
+    this.memo = new ShapeMemoTable();
+    /** @type {{ memo?: boolean }} */
+    this.sessionOpts = { memo: false };
+  }
+
+  /**
+   * Session flags visible to guest via host.call("session_opts").
+   * Worker sets { memo: true } on scrub executes.
+   * @param {{ memo?: boolean }} opts
+   */
+  setSessionOpts(opts = {}) {
+    this.sessionOpts = { ...this.sessionOpts, ...opts };
+  }
+
+  /** Bump memo generation (selective reuse across free_all under memo mode). */
+  memoBegin() {
+    this.memo.begin();
+  }
+
+  /**
+   * Free shapes not retained by this generation's memo entries (and optional root).
+   * @param {{ root?: number }} [opts]
+   */
+  memoEnd(opts = {}) {
+    const keep = this.memo.keepIds(opts.root);
+    for (const id of [...this.shapes.keys()]) {
+      if (!keep.has(id)) this.free(id);
+    }
   }
 
   /**
@@ -76,6 +107,8 @@ export class OccBridge {
   }
 
   freeAll() {
+    this.memo.clear();
+    this.sessionOpts = { memo: false };
     for (const id of [...this.shapes.keys()]) this.free(id);
   }
 
@@ -87,6 +120,34 @@ export class OccBridge {
     switch (op) {
       case "kernel_version":
         return { version: this.version() };
+      case "session_opts":
+        return {
+          memo: this.sessionOpts?.memo === true,
+        };
+      case "memo_begin":
+        this.memoBegin();
+        return { generation: this.memo.generation };
+      case "memo_end": {
+        const root =
+          args.root != null || args.shapeId != null || args.id != null
+            ? idOf(args.root ?? args.shapeId ?? args.id)
+            : undefined;
+        this.memoEnd({ root });
+        return { kept: this.memo.size };
+      }
+      case "cache_get": {
+        const key = String(args.key ?? "");
+        return this.memo.get(key, this.shapes);
+      }
+      case "cache_put": {
+        const key = String(args.key ?? "");
+        const shapeId = idOf(args.shapeId ?? args.id ?? args.shape);
+        this.memo.put(key, shapeId);
+        return {};
+      }
+      case "cache_clear":
+        this.memo.clear();
+        return {};
       case "make_box":
         return { shapeId: this.#makeBox(num(args.dx), num(args.dy), num(args.dz)) };
       case "make_cylinder":
@@ -207,6 +268,13 @@ export class OccBridge {
         this.free(idOf(args.id ?? args.shape));
         return {};
       case "free_all":
+        // Memo mode (param scrub): keep cached shapes; bump generation so
+        // memo_end can drop fingerprints not reused this eval.
+        // Hard reset: clear memo table + free every shape (default).
+        if (this.sessionOpts?.memo === true) {
+          this.memoBegin();
+          return { memo: true, generation: this.memo.generation };
+        }
         this.freeAll();
         return {};
       case "mesh_stats":

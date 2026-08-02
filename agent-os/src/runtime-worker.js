@@ -14,6 +14,7 @@ import {
   buildParamsInjectedSource,
   adjustInjectedDiagnostics,
 } from "./params/inject.js";
+import { executeCacheKey, MeshResultCache } from "./memo-cache.js";
 
 // mc-core needs crypto.subtle.digest + crypto.randomUUID. Patch only missing
 // methods — never replace globalThis.crypto (that deleted randomUUID before).
@@ -28,6 +29,71 @@ let vm = null;
 let mcApi = null;
 let warmingVm = null;
 let warmingFull = null;
+
+/** Full-result mesh cache (source+params+deflection) for param scrub. */
+const meshResultCache = new MeshResultCache();
+
+/**
+ * Mid-flight execute preemption (Phase 3).
+ * Onmessage bumps latestStamp.execute immediately; the active execute
+ * cooperatively aborts at the next cad.call host boundary (cannot interrupt
+ * a single OCC ccall mid-op). Yields the event loop so stamped messages land.
+ */
+/** Monotonic stamp per coalescible kind (latest-wins). */
+const latestStamp = {
+  execute: 0,
+  params_resolve: 0,
+  analyze: 0,
+};
+/** Stamp of the execute currently inside execute() (0 = none). */
+let activeExecuteStamp = 0;
+/** Set when a newer execute arrives while activeExecuteStamp is in flight. */
+let executeAbortRequested = false;
+
+/**
+ * Yield so pending worker onmessage handlers can bump latestStamp / abort.
+ * Macrotask (setTimeout 0) — microtasks alone do not drain message events.
+ * @returns {Promise<void>}
+ */
+function yieldToEventLoop() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** @returns {boolean} */
+function isExecuteAborted() {
+  if (activeExecuteStamp <= 0) return false;
+  if (executeAbortRequested) return true;
+  return activeExecuteStamp < latestStamp.execute;
+}
+
+/**
+ * Soft-cancel reply body (also used as execute() return when mid-flight abort).
+ * @param {{ id?: number }} req
+ * @param {string} reason
+ */
+function cancelledReply(req, reason = "superseded") {
+  return {
+    id: req.id ?? 0,
+    kind: "execute",
+    code: 0,
+    cancelled: true,
+    diagnostics: [],
+    meta: { protocol: PROTOCOL, cancelled: true, reason },
+  };
+}
+
+/**
+ * True when guest __OCC_CAD_RESULT__ fail payload is a cooperative abort.
+ * @param {any} payload
+ */
+function isAbortFailPayload(payload) {
+  if (!payload || payload.ok !== false || !payload.error) return false;
+  const e = payload.error;
+  if (e.aborted === true) return true;
+  if (e.code === "IR_ERR_ABORTED") return true;
+  const msg = String(e.message || "");
+  return msg === "aborted" || msg.startsWith("aborted:");
+}
 
 /** Execute always prepends package.path (1 line) for /opt/cad solid + ir. */
 const PACKAGE_PATH_LINES = 1;
@@ -126,14 +192,33 @@ async function ensureVm() {
     // CAD tool registered even before OCC loads — analyze does not call it.
     // Never throw from run(): loom collapses host throws to generic
     // "host tool call failed". Return a sentinel; ir/host.luau elevates it.
+    // Mid-flight cancel: yield → check abort → free shapes → aborted sentinel
+    // (between host calls only; single OCC ccall still runs to completion).
     const cadTool = tool({
       name: "cad call",
       description: "OpenCASCADE host geometry op.",
       input: z.object({ op: z.string() }).passthrough(),
       async run(input) {
         try {
+          // Let onmessage stamp a newer execute and set abortRequested.
+          await yieldToEventLoop();
+          const op =
+            input && typeof input === "object" ? String(input.op || "") : "";
+          // free_all / shape_free still run during abort so cleanup works.
+          if (
+            isExecuteAborted() &&
+            op !== "free_all" &&
+            op !== "shape_free"
+          ) {
+            if (occ) occ.freeAll();
+            return {
+              __occ_err: "aborted",
+              aborted: true,
+              __occ_op: op || undefined,
+            };
+          }
           if (!occ) throw new Error("OCCT not warmed yet");
-          const { op, ...rest } = input;
+          const { op: _op, ...rest } = input;
           return occ.call(op, rest);
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
@@ -194,8 +279,18 @@ async function mkdirp(path) {
 let batteriesStaged = false;
 /** @type {boolean} */
 let paramsResolveStaged = false;
+/** Asset base that batteries were staged against (re-stage if config changes). */
+let batteriesStagedBase = "";
+
+function resetBatteryStaging() {
+  batteriesStaged = false;
+  paramsResolveStaged = false;
+  batteriesStagedBase = "";
+}
 
 async function stageBatteries() {
+  // Stage once per assetBase — re-staging on every execute is a major bottleneck.
+  if (batteriesStaged && batteriesStagedBase === base()) return;
   const b = base();
   await mkdirp("/opt/cad");
   await mkdirp("/opt/cad/ir");
@@ -234,6 +329,8 @@ async function stageBatteries() {
     throw new Error('batteries/ir/init.luau missing — cannot stage cad.ir (require("ir"))');
   }
   batteriesStaged = true;
+  batteriesStagedBase = b;
+  log("batteries staged", b);
 }
 
 /**
@@ -241,7 +338,12 @@ async function stageBatteries() {
  * Avoid re-staging solid/ir on every debounced editor params resolve.
  */
 async function stageParamsResolveBattery() {
-  if (paramsResolveStaged) return;
+  if (paramsResolveStaged && batteriesStagedBase === base()) return;
+  // If full batteries already staged for this base, params_resolve is included.
+  if (batteriesStaged && batteriesStagedBase === base()) {
+    paramsResolveStaged = true;
+    return;
+  }
   const b = base();
   await mkdirp("/opt/cad");
   try {
@@ -250,6 +352,7 @@ async function stageParamsResolveBattery() {
     );
     await vm.fs.write("/opt/cad/params_resolve.luau", text);
     paramsResolveStaged = true;
+    if (!batteriesStagedBase) batteriesStagedBase = b;
   } catch (e) {
     throw new Error(
       `batteries/params_resolve.luau missing: ${e instanceof Error ? e.message : String(e)}`,
@@ -401,18 +504,77 @@ async function analyze(req) {
 
 async function execute(req) {
   await ensureWarm();
-  // Drop shapes from prior runs so host OCCT memory does not grow without bound.
-  occ.freeAll();
-  await stageBatteries();
   const source = req.source;
   if (!source?.trim()) throw new Error("empty Luau source");
+
+  const deflection = Number(req.deflection ?? 0.15);
+  // Param scrub: mesh cache + per-op shape memo. Explicit Run rebuilds cold.
+  const memo = req.memo === true;
+  const cacheKey = executeCacheKey(source, req.params, deflection);
+
+  if (memo) {
+    const cached = meshResultCache.get(cacheKey);
+    if (cached) {
+      if (isExecuteAborted()) {
+        return cancelledReply(req, "aborted");
+      }
+      return {
+        id: req.id,
+        kind: "execute",
+        code: 0,
+        diagnostics: [],
+        stdout: cached.stdout ?? "",
+        stderr: cached.stderr ?? "",
+        mesh: cached.mesh,
+        meta: {
+          ...cached.meta,
+          meshCacheHit: true,
+          memo: true,
+        },
+      };
+    }
+    // Keep host shapes for op-level reuse; guest free_all → memo_begin.
+    occ.setSessionOpts({ memo: true });
+  } else {
+    // Drop shapes + shape memo + mesh cache so host OCCT memory stays bounded.
+    // Also clears any partial table left by a mid-flight abort.
+    occ.freeAll();
+    meshResultCache.clear();
+  }
+
+  if (isExecuteAborted()) {
+    occ.freeAll();
+    meshResultCache.clear();
+    return cancelledReply(req, "aborted");
+  }
+  await stageBatteries();
+  if (isExecuteAborted()) {
+    occ.freeAll();
+    meshResultCache.clear();
+    return cancelledReply(req, "aborted");
+  }
 
   const built = wrapUserSource(source, req.params);
   const wrapped =
     `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` +
     built.source;
   const result = await vm.luau(wrapped);
+
+  // Cooperative abort: cad tool returned aborted → IR fail → exit nonzero,
+  // or a newer execute stamped while we were between host calls.
+  if (isExecuteAborted()) {
+    occ.freeAll();
+    meshResultCache.clear();
+    return cancelledReply(req, "aborted");
+  }
+
   if (result.exitCode !== 0) {
+    const failPayload = parseResult(result.stdout);
+    if (isAbortFailPayload(failPayload)) {
+      occ.freeAll();
+      meshResultCache.clear();
+      return cancelledReply(req, "aborted");
+    }
     const raw = `${result.stdout || ""}\n${result.stderr || ""}`;
     const diags = adjustInjectedDiagnostics(parseLuauAnalyzeOutput(raw), {
       packagePathLines: PACKAGE_PATH_LINES,
@@ -421,7 +583,6 @@ async function execute(req) {
     });
     // Prefer structured IR fail marker when present (op / host_op / real OCC msg).
     let errorText = (result.stderr || result.stdout || "luau failed").trim();
-    const failPayload = parseResult(result.stdout);
     if (failPayload && failPayload.ok === false && failPayload.error) {
       const e = failPayload.error;
       const parts = [e.message || e.code || "IR eval failed"];
@@ -434,6 +595,16 @@ async function execute(req) {
         parts.push(`[host=${e.host_op}]`);
       }
       errorText = parts.join(" ");
+    }
+    // String-only abort from tape.finish error("aborted …") without marker.
+    if (
+      errorText === "aborted" ||
+      errorText.startsWith("aborted") ||
+      /\bIR_ERR_ABORTED\b/.test(errorText)
+    ) {
+      occ.freeAll();
+      meshResultCache.clear();
+      return cancelledReply(req, "aborted");
     }
     return {
       id: req.id,
@@ -459,12 +630,61 @@ async function execute(req) {
     };
   }
 
-  const deflection = Number(req.deflection ?? 0.15);
-  const mesh = occ.mesh(payload.root, deflection);
-  // Keep only the finished root for optional follow-up measure ops in-session.
-  for (const id of [...occ.shapes.keys()]) {
-    if (id !== payload.root) occ.free(id);
+  // Skip expensive mesh if a newer scrub already superseded us.
+  if (isExecuteAborted()) {
+    occ.freeAll();
+    meshResultCache.clear();
+    return cancelledReply(req, "aborted");
   }
+
+  const mesh = occ.mesh(payload.root, deflection);
+
+  if (memo) {
+    // Drop fingerprints not reused this generation; keep root + memo hits.
+    occ.memoEnd({ root: payload.root });
+  } else {
+    // Keep only the finished root for optional follow-up measure ops in-session.
+    for (const id of [...occ.shapes.keys()]) {
+      if (id !== payload.root) occ.free(id);
+    }
+  }
+
+  // Final check after mesh: drop delivery if superseded during tessellation.
+  if (isExecuteAborted()) {
+    occ.freeAll();
+    meshResultCache.clear();
+    return cancelledReply(req, "aborted");
+  }
+
+  const meshPod = {
+    positions: mesh.positions,
+    normals: mesh.normals,
+    indices: mesh.indices,
+    bbox: mesh.bbox,
+    volume: mesh.volume,
+    vertexCount: mesh.vertexCount,
+    indexCount: mesh.indexCount,
+  };
+  const meta = {
+    protocol: PROTOCOL,
+    root: payload.root,
+    name: payload.name,
+    occVersion: occ.version(),
+    deflection,
+    memo,
+    meshCacheHit: false,
+    shapeMemoSize: occ.memo?.size ?? 0,
+  };
+
+  if (memo) {
+    meshResultCache.set(cacheKey, {
+      mesh: meshPod,
+      meta,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
   return {
     id: req.id,
     kind: "execute",
@@ -472,22 +692,8 @@ async function execute(req) {
     diagnostics: [],
     stdout: result.stdout,
     stderr: result.stderr,
-    mesh: {
-      positions: mesh.positions,
-      normals: mesh.normals,
-      indices: mesh.indices,
-      bbox: mesh.bbox,
-      volume: mesh.volume,
-      vertexCount: mesh.vertexCount,
-      indexCount: mesh.indexCount,
-    },
-    meta: {
-      protocol: PROTOCOL,
-      root: payload.root,
-      name: payload.name,
-      occVersion: occ.version(),
-      deflection,
-    },
+    mesh: meshPod,
+    meta,
   };
 }
 
@@ -579,9 +785,23 @@ async function paramsResolve(req) {
  * Serialize all worker work on the shared AgentOS VM + OccBridge.
  * Overlapping execute/params_resolve/analyze freeAll races produce
  * "unknown shape id N" → generic "host tool call failed" at solid.finish.
+ *
+ * Latest-wins: for execute / params_resolve / analyze, a newer job of the
+ * same kind supersedes older ones. Queued jobs reply cancelled:true without
+ * OCC/Luau. In-flight execute is cooperatively aborted at the next cad.call
+ * boundary (yield + abort flag) so the serial chain can start the newer run
+ * with a clean shape table instead of finishing every intermediate OCC op.
  */
 /** @type {Promise<void>} */
 let workTail = Promise.resolve();
+
+/**
+ * Highest execute stamp that has finished (ok, error, or cancelled).
+ * Analyze is lower priority: skip when a newer execute is still queued/running
+ * (latestStamp.execute > lastFinishedExecuteStamp). Under a serial queue
+ * `executeBusy` alone is nearly always false at analyze start.
+ */
+let lastFinishedExecuteStamp = 0;
 
 /**
  * @template T
@@ -598,15 +818,65 @@ function enqueue(fn) {
   return run;
 }
 
+/**
+ * @param {string} kind
+ * @returns {boolean}
+ */
+function isCoalescible(kind) {
+  return kind === "execute" || kind === "params_resolve" || kind === "analyze";
+}
+
+/**
+ * Soft-cancel reply so host pending promises resolve without treating as error.
+ * @param {{ id?: number, kind?: string }} msg
+ * @param {string} [reason]
+ */
+function postCancelled(msg, reason = "superseded") {
+  self.postMessage({
+    id: msg.id ?? 0,
+    kind: msg.kind,
+    code: 0,
+    cancelled: true,
+    diagnostics: [],
+    params: msg.kind === "params_resolve" ? [] : undefined,
+    meta: { protocol: PROTOCOL, cancelled: true, reason },
+  });
+}
+
 self.onmessage = (ev) => {
   const msg = ev.data;
   if (!msg || typeof msg !== "object") return;
+
+  // Stamp coalescible jobs before enqueue so newer arrivals win.
+  // For execute: also request cooperative abort of any in-flight older run
+  // so the next cad.call host boundary fails fast (after event-loop yield).
+  let stamp = 0;
+  if (isCoalescible(msg.kind)) {
+    stamp = ++latestStamp[msg.kind];
+    if (
+      msg.kind === "execute" &&
+      activeExecuteStamp > 0 &&
+      stamp > activeExecuteStamp
+    ) {
+      executeAbortRequested = true;
+      log("execute preempt", { active: activeExecuteStamp, newer: stamp });
+    }
+  }
+
   // config is cheap and sets assetBase for subsequent jobs — still serialize
   // so it cannot race with a mid-flight fetch of batteries.
   void enqueue(async () => {
     try {
       if (msg.kind === "config" && msg.assetBase) {
-        assetBase = msg.assetBase;
+        const next = msg.assetBase.endsWith("/")
+          ? msg.assetBase
+          : msg.assetBase + "/";
+        if (next !== base()) {
+          assetBase = msg.assetBase;
+          resetBatteryStaging();
+        } else {
+          assetBase = msg.assetBase;
+        }
         self.postMessage({
           id: msg.id ?? 0,
           kind: "config",
@@ -627,24 +897,89 @@ self.onmessage = (ev) => {
         });
         return;
       }
+
+      // Latest-wins: drop superseded work before paying OCC / guest cost.
+      if (isCoalescible(msg.kind) && stamp < latestStamp[msg.kind]) {
+        if (msg.kind === "execute") {
+          lastFinishedExecuteStamp = Math.max(lastFinishedExecuteStamp, stamp);
+        }
+        postCancelled(msg, "superseded");
+        return;
+      }
+
+      // Analyze is lower priority: skip when an execute is queued or in flight.
+      if (
+        msg.kind === "analyze" &&
+        latestStamp.execute > lastFinishedExecuteStamp
+      ) {
+        postCancelled(msg, "busy_execute");
+        return;
+      }
+
       if (msg.kind === "analyze") {
         const reply = await analyze(msg);
+        // Drop stale analyze result if a newer one was queued mid-flight.
+        if (stamp < latestStamp.analyze) {
+          postCancelled(msg, "superseded");
+          return;
+        }
         self.postMessage(reply);
         return;
       }
       if (msg.kind === "execute") {
-        const reply = await execute(msg);
-        if (reply.code === 0 && reply.mesh) {
-          const t = [reply.mesh.positions.buffer, reply.mesh.indices.buffer];
-          if (reply.mesh.normals) t.push(reply.mesh.normals.buffer);
-          self.postMessage(reply, t);
-        } else {
-          self.postMessage(reply);
+        // Re-check after any prior job; another execute may have queued.
+        if (stamp < latestStamp.execute) {
+          lastFinishedExecuteStamp = Math.max(lastFinishedExecuteStamp, stamp);
+          postCancelled(msg, "superseded");
+          return;
+        }
+        activeExecuteStamp = stamp;
+        // Clear abort for this generation; a still-newer stamp may re-set it
+        // via onmessage while we run.
+        executeAbortRequested = stamp < latestStamp.execute;
+        try {
+          const reply = await execute(msg);
+          if (reply.cancelled || stamp < latestStamp.execute) {
+            // Mid-flight abort or finished but a newer scrub is pending.
+            if (occ) occ.freeAll();
+            postCancelled(
+              msg,
+              reply.cancelled
+                ? reply.meta?.reason || "aborted"
+                : "superseded",
+            );
+            return;
+          }
+          if (reply.code === 0 && reply.mesh) {
+            const t = [reply.mesh.positions.buffer, reply.mesh.indices.buffer];
+            if (reply.mesh.normals) t.push(reply.mesh.normals.buffer);
+            self.postMessage(reply, t);
+          } else {
+            self.postMessage(reply);
+          }
+        } finally {
+          if (activeExecuteStamp === stamp) {
+            activeExecuteStamp = 0;
+            // Keep executeAbortRequested only if a still-newer run is pending;
+            // that run will clear/set it when it becomes active.
+            if (stamp >= latestStamp.execute) {
+              executeAbortRequested = false;
+            }
+          }
+          lastFinishedExecuteStamp = Math.max(lastFinishedExecuteStamp, stamp);
         }
         return;
       }
       if (msg.kind === "params_resolve") {
+        if (stamp < latestStamp.params_resolve) {
+          postCancelled(msg, "superseded");
+          return;
+        }
         const reply = await paramsResolve(msg);
+        if (stamp < latestStamp.params_resolve) {
+          postCancelled(msg, "superseded");
+          return;
+        }
         self.postMessage(reply);
         return;
       }
@@ -658,6 +993,19 @@ self.onmessage = (ev) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log("error", message);
+      // Treat unexpected abort-shaped errors as soft cancel for execute.
+      if (
+        msg.kind === "execute" &&
+        (message === "aborted" || message.startsWith("aborted:"))
+      ) {
+        if (occ) occ.freeAll();
+        lastFinishedExecuteStamp = Math.max(
+          lastFinishedExecuteStamp,
+          stamp || 0,
+        );
+        postCancelled(msg, "aborted");
+        return;
+      }
       self.postMessage({
         id: msg.id ?? 0,
         kind: msg.kind,
