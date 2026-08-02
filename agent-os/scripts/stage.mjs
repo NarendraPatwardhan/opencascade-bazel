@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 /**
- * Stage a directory tree for the demo server / smoke:
+ * Stage a directory tree for the demo server / smoke / release tarball:
+ *
  *   out/
  *     kernel.wasm loom.tar mc-core.mjs catalog-compiler.wasm git-engine.tar
  *     libocc_c.js libocc_c.wasm
- *     batteries/solid.luau + batteries/ir/**
- *     src/*.js
- *     demo/…
+ *     batteries/**
+ *     app/<content-hash>/**    ← browser app modules (whole tree versioned)
+ *     src/**                    ← same tree (local/dev paths, diagnostics)
+ *     demo/**
+ *     serve.mjs
  *
- * Env paths (absolute or cwd-relative); Bazel passes runfile paths.
+ * WHY app/<hash>/:
+ *   We ship unbundled ESM. Sibling imports (./demos/foo.js) use stable URLs if
+ *   only main.js is renamed. Cloudflare still holds year-long immutable
+ *   responses for bare /agent-os/src/*.js from earlier deploys → mixed graphs
+ *   ("does not provide an export named X"). Versioning the entire app tree
+ *   makes every module URL unique per stage.
  */
 
 import {
@@ -19,16 +27,48 @@ import {
   rmSync,
   readFileSync,
   writeFileSync,
+  readdirSync,
+  statSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-// dirname used for browser mc-core sibling lookup
 
 function need(name) {
   const v = process.env[name];
   if (!v) throw new Error(`missing env ${name}`);
   return resolve(v);
+}
+
+function sha12(buf) {
+  return createHash("sha256").update(buf).digest("hex").slice(0, 12);
+}
+
+function sha12File(p) {
+  return sha12(readFileSync(p));
+}
+
+/** Fingerprint every file under dir (relative path + bytes). */
+function hashTree(dir) {
+  const h = createHash("sha256");
+  /** @type {string[]} */
+  const files = [];
+  function walk(d) {
+    for (const ent of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, ent.name);
+      if (ent.isDirectory()) walk(p);
+      else if (ent.isFile()) files.push(p);
+    }
+  }
+  walk(dir);
+  files.sort();
+  for (const p of files) {
+    h.update(relative(dir, p).split("\\").join("/"));
+    h.update("\0");
+    h.update(readFileSync(p));
+    h.update("\0");
+  }
+  return h.digest("hex").slice(0, 12);
 }
 
 const out = resolve(process.env.STAGE_OUT || join(dirname(fileURLToPath(import.meta.url)), "../_stage"));
@@ -44,7 +84,6 @@ const demoDir = resolve(process.env.DEMO_DIR || join(dirname(fileURLToPath(impor
 const batteriesDir = resolve(
   process.env.BATTERIES_DIR || join(dirname(solid), "."),
 );
-// Optional: host git-engine.tar for document history (GitEngine).
 const gitEngineEnv = process.env.AGENT_OS_GIT_ENGINE;
 const gitEngineFallback = join(dirname(fileURLToPath(import.meta.url)), "../vendor/git-engine.tar");
 const gitEngine =
@@ -59,6 +98,7 @@ mkdirSync(out, { recursive: true });
 mkdirSync(join(out, "batteries"), { recursive: true });
 mkdirSync(join(out, "src"), { recursive: true });
 mkdirSync(join(out, "demo"), { recursive: true });
+mkdirSync(join(out, "app"), { recursive: true });
 
 copyFileSync(kernel, join(out, "kernel.wasm"));
 copyFileSync(loom, join(out, "loom.tar"));
@@ -71,7 +111,6 @@ if (gitEngine) {
 } else {
   console.warn("warning: no git-engine.tar — history will fall back to IDB/memory");
 }
-// Full batteries tree (solid + ir package)
 if (existsSync(batteriesDir)) {
   cpSync(batteriesDir, join(out, "batteries"), { recursive: true });
 } else {
@@ -80,7 +119,6 @@ if (existsSync(batteriesDir)) {
 cpSync(srcDir, join(out, "src"), { recursive: true });
 cpSync(demoDir, join(out, "demo"), { recursive: true });
 
-// Prefer a browserified mc-core (release artifact pulls in node:* static imports).
 const browserMc = process.env.AGENT_OS_MC_CORE_BROWSER
   || join(dirname(mcCore), "mc-core.browser.mjs");
 if (existsSync(browserMc)) {
@@ -91,28 +129,22 @@ if (existsSync(browserMc)) {
   console.warn("warning: no mc-core.browser.mjs — browser import may fail; run scripts/browserify-mc-core.sh");
 }
 
-// Self-contained deploy: serve.mjs at stage root (Docker / release tarball entry).
 const serveSrc = join(demoDir, "serve.mjs");
 if (existsSync(serveSrc)) {
   copyFileSync(serveSrc, join(out, "serve.mjs"));
 }
 
-// Break Cloudflare immutable cache of bare /agent-os/src/main.js:
-// 1) Copy entry module to a content-addressed filename (new URL every stage).
-// 2) Point index.html at that file + hashed CSS.
-// Relative imports from main stay same-dir (./foo.js) so the copy works.
-const mainPath = join(out, "src", "main.js");
+// --- Versioned app tree (entire ESM graph) ---
+const appHash = hashTree(join(out, "src"));
+const appDir = join(out, "app", appHash);
+cpSync(join(out, "src"), appDir, { recursive: true });
+
 const cssPath = join(out, "demo", "styles.css");
 const indexPath = join(out, "demo", "index.html");
-if (existsSync(mainPath) && existsSync(indexPath)) {
-  const short = (p) =>
-    existsSync(p)
-      ? createHash("sha256").update(readFileSync(p)).digest("hex").slice(0, 12)
-      : "0";
-  const mainV = short(mainPath);
-  const cssV = short(cssPath);
-  const entryName = `main.${mainV}.js`;
-  copyFileSync(mainPath, join(out, "src", entryName));
+const cssV = existsSync(cssPath) ? sha12File(cssPath) : "0";
+const entryUrl = `/agent-os/app/${appHash}/main.js`;
+
+if (existsSync(indexPath)) {
   let html = readFileSync(indexPath, "utf8");
   if (!html.includes("data-occ-cache-bust")) {
     const boot = `<script data-occ-cache-bust>
@@ -135,34 +167,47 @@ if (existsSync(mainPath) && existsSync(indexPath)) {
 </script>`;
     html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${boot}`);
   }
-  // Prefer content-addressed entry (never collides with CF immutable main.js).
+
+  // Absolute asset root for wasm/kernel (not relative to app/<hash>/).
+  if (!html.includes('name="occ-asset-base"')) {
+    html = html.replace(
+      /<\/head>/i,
+      `    <meta name="occ-asset-base" content="/agent-os/" />\n  </head>`,
+    );
+  }
+  if (!html.includes('name="occ-stage"')) {
+    const stamp =
+      process.env.CAD_RESOLVED_TAG ||
+      process.env.STAGE_STAMP ||
+      appHash;
+    html = html.replace(
+      /<\/head>/i,
+      `    <meta name="occ-stage" content="${stamp}" />\n    <meta name="occ-app-hash" content="${appHash}" />\n  </head>`,
+    );
+  }
+
   html = html.replace(
-    /src="\/agent-os\/src\/main(?:\.[a-f0-9]+)?\.js[^"]*"/g,
-    `src="/agent-os/src/${entryName}"`,
+    /src="\/agent-os\/(?:src|app)\/[^"]*main[^"]*\.js[^"]*"/g,
+    `src="${entryUrl}"`,
   );
-  // Fallback if template still uses plain main.js without prior rewrite match
-  if (!html.includes(entryName)) {
+  if (!html.includes(entryUrl)) {
     html = html.replace(
       /src="\/agent-os\/src\/main\.js[^"]*"/g,
-      `src="/agent-os/src/${entryName}"`,
+      `src="${entryUrl}"`,
     );
   }
   html = html.replace(
     /href="\.\/styles\.css[^"]*"/g,
     `href="./styles.css?v=${cssV}"`,
   );
-  if (!html.includes('name="occ-stage"')) {
-    const stamp =
-      process.env.CAD_RESOLVED_TAG ||
-      process.env.STAGE_STAMP ||
-      mainV;
-    html = html.replace(
-      /<\/head>/i,
-      `    <meta name="occ-stage" content="${stamp}" />\n  </head>`,
-    );
-  }
   writeFileSync(indexPath, html);
-  console.log(`staged index.html entry=/agent-os/src/${entryName} styles?v=${cssV}`);
+  console.log(`staged index.html entry=${entryUrl} appHash=${appHash} styles?v=${cssV}`);
 }
+
+// Marker for serve.mjs /version
+writeFileSync(
+  join(out, "APP_HASH"),
+  `${appHash}\nentry=${entryUrl}\n`,
+);
 
 console.log(`staged → ${out}`);

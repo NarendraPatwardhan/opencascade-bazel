@@ -4,16 +4,16 @@
  *
  * Env:
  *   DEMO_ROOT     — directory with index.html + styles.css
- *   AGENT_OS_ROOT — staged tree: kernel, loom, mc-core, batteries, src, libocc_c.*
+ *   AGENT_OS_ROOT — staged tree: kernel, loom, mc-core, batteries, app/<hash>, src, libocc_c.*
  *   PORT          — default 8765
  *   HOST          — default 0.0.0.0 (containers / Dokploy); use 127.0.0.1 for local-only
- *   CACHE_CONTROL — optional override (default: no-store for app; wasm long-cache if release)
- *   CAD_RESOLVED_TAG / STAGE_STAMP — optional stage id stamped into HTML for debugging
+ *   CACHE_CONTROL — optional override
+ *   CAD_RESOLVED_TAG / STAGE_STAMP — optional stage id stamped into HTML
  */
 
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
-import { readFileSync, statSync, existsSync } from "node:fs";
+import { readFileSync, statSync, existsSync, readdirSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,6 @@ const port = Number(process.env.PORT || 8765);
 const host = process.env.HOST || "0.0.0.0";
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-// When serve.mjs lives at stage root (release tarball), default roots are stage/demo + stage.
 const stageSibling = resolve(here, "demo");
 const defaultDemo = existsSync(join(stageSibling, "index.html")) ? stageSibling : here;
 const defaultAgent =
@@ -42,8 +41,12 @@ const TYPES = {
   ".map": "application/json",
 };
 
-/** Long-cache only heavy binaries (and emcc/mc-core glue). Everything else is no-store. */
-function isLongCacheAsset(ext, reqPath = "") {
+/** Content-addressed app tree: /agent-os/app/<12hex>/… — safe to immutable-cache. */
+function isVersionedAppPath(reqPath = "") {
+  return /\/app\/[a-f0-9]{12}\//i.test(reqPath);
+}
+
+function isBinaryGlue(ext, reqPath = "") {
   if (ext === ".wasm" || ext === ".tar") return true;
   if (ext !== ".js" && ext !== ".mjs") return false;
   return (
@@ -53,11 +56,6 @@ function isLongCacheAsset(ext, reqPath = "") {
   );
 }
 
-/**
- * Cache headers. Cloudflare "Browser Cache TTL" / edge cache can ignore bare
- * `no-cache` and re-serve stale main.js for hours or (with immutable) a year.
- * App code must use no-store + CDN-Cache-Control so edges never pin deploys.
- */
 function cacheHeaders(ext, reqPath = "") {
   const headers = {
     "cross-origin-opener-policy": "same-origin",
@@ -66,14 +64,19 @@ function cacheHeaders(ext, reqPath = "") {
     headers["cache-control"] = process.env.CACHE_CONTROL;
     return headers;
   }
-  if (process.env.CACHE_MODE === "release" && isLongCacheAsset(ext, reqPath)) {
+  // Whole ESM graph under app/<hash>/ changes URL every stage — long-cache OK.
+  if (isVersionedAppPath(reqPath)) {
+    headers["cache-control"] = "public, max-age=31536000, immutable";
+    return headers;
+  }
+  if (process.env.CACHE_MODE === "release" && isBinaryGlue(ext, reqPath)) {
     headers["cache-control"] =
       ext === ".js" || ext === ".mjs"
         ? "public, max-age=86400"
         : "public, max-age=31536000, immutable";
     return headers;
   }
-  // App HTML/JS/CSS: never cache at browser or CDN edge.
+  // Bare /agent-os/src/*, HTML, CSS: never pin at CF (poisoned immutable history).
   headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0";
   headers["cdn-cache-control"] = "no-store";
   headers["cloudflare-cdn-cache-control"] = "no-store";
@@ -87,27 +90,53 @@ function shortHash(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex").slice(0, 12);
 }
 
-/**
- * Ensure HTML points at a content-addressed entry module and hashed CSS so a
- * new stage cannot share a Cloudflare immutable cache key with bare main.js.
- * Also kill stale SW caches that once cache-firsted all of /agent-os/*.
- */
+/** Prefer staged app/<hash>/main.js; fall back for local non-stage trees. */
+function resolveAppEntry() {
+  const marker = join(agentOsRoot, "APP_HASH");
+  if (existsSync(marker)) {
+    const lines = readFileSync(marker, "utf8").split(/\r?\n/);
+    const hashLine = lines.find((l) => /^[a-f0-9]{12}$/i.test(l.trim()));
+    const entryLine = lines.find((l) => l.startsWith("entry="));
+    const hash = hashLine ? hashLine.trim() : "";
+    if (hash && existsSync(join(agentOsRoot, "app", hash, "main.js"))) {
+      return { hash, url: `/agent-os/app/${hash}/main.js` };
+    }
+    if (entryLine) {
+      const url = entryLine.slice("entry=".length).trim();
+      if (url) return { hash: hash || "unknown", url };
+    }
+  }
+  const appRoot = join(agentOsRoot, "app");
+  if (existsSync(appRoot)) {
+    try {
+      const dirs = readdirSync(appRoot).filter(
+        (d) =>
+          /^[a-f0-9]{12}$/i.test(d) &&
+          existsSync(join(appRoot, d, "main.js")),
+      );
+      if (dirs.length) {
+        dirs.sort();
+        const hash = dirs[dirs.length - 1];
+        return { hash, url: `/agent-os/app/${hash}/main.js` };
+      }
+    } catch {
+      /* */
+    }
+  }
+  // Local checkout / old stage: bare src/main.js
+  const mainV = shortHash(join(agentOsRoot, "src", "main.js"));
+  return { hash: mainV, url: `/agent-os/src/main.js?v=${mainV}` };
+}
+
 function decorateIndexHtml(raw) {
   let html = String(raw);
-  const mainV = shortHash(join(agentOsRoot, "src", "main.js"));
+  const { hash: appHash, url: entrySrc } = resolveAppEntry();
   const cssV = shortHash(join(demoRoot, "styles.css"));
-  const entryName = `main.${mainV}.js`;
-  const entryPath = join(agentOsRoot, "src", entryName);
-  // Prefer hashed filename (staged copy); fall back to ?v= on bare main.js.
-  const entrySrc = existsSync(entryPath)
-    ? `/agent-os/src/${entryName}`
-    : `/agent-os/src/main.js?v=${mainV}`;
   const stageV =
     process.env.CAD_RESOLVED_TAG ||
     process.env.STAGE_STAMP ||
-    mainV;
+    appHash;
 
-  // One-shot boot: unregister SW + drop occ-cad-static-* caches (old v1 pinned main.js).
   if (!html.includes("data-occ-cache-bust")) {
     const boot = `<script data-occ-cache-bust>
 (function () {
@@ -130,10 +159,23 @@ function decorateIndexHtml(raw) {
     html = html.replace(/<head([^>]*)>/i, `<head$1>\n    ${boot}`);
   }
 
+  if (!html.includes('name="occ-asset-base"')) {
+    html = html.replace(
+      /<\/head>/i,
+      `    <meta name="occ-asset-base" content="/agent-os/" />\n  </head>`,
+    );
+  }
+
   html = html.replace(
-    /src="\/agent-os\/src\/main(?:\.[a-f0-9]+)?\.js[^"]*"/g,
+    /src="\/agent-os\/(?:src|app)\/[^"]*main[^"]*\.js[^"]*"/g,
     `src="${entrySrc}"`,
   );
+  if (!html.includes(entrySrc.split("?")[0]) && !html.includes(entrySrc)) {
+    html = html.replace(
+      /src="\/agent-os\/src\/main\.js[^"]*"/g,
+      `src="${entrySrc}"`,
+    );
+  }
   html = html.replace(
     /href="\.\/styles\.css[^"]*"/g,
     `href="./styles.css?v=${cssV}"`,
@@ -141,7 +183,7 @@ function decorateIndexHtml(raw) {
   if (!html.includes('name="occ-stage"')) {
     html = html.replace(
       /<\/head>/i,
-      `    <meta name="occ-stage" content="${stageV}" />\n  </head>`,
+      `    <meta name="occ-stage" content="${stageV}" />\n    <meta name="occ-app-hash" content="${appHash}" />\n  </head>`,
     );
   }
   return html;
@@ -172,26 +214,38 @@ const server = createServer((req, res) => {
       return send(res, 200, "ok\n", "text/plain; charset=utf-8");
     }
 
-    // Deploy fingerprint (no-store) — operators: curl /version after redeploy.
     if (path === "/version" || path === "/STAGE_INFO" || path === "/STAGE_INFO.txt") {
       const candidates = [
         join(agentOsRoot, "VERSION"),
+        join(agentOsRoot, "APP_HASH"),
         join(agentOsRoot, "STAGE_INFO.txt"),
         join(agentOsRoot, "STAGE_INFO"),
       ];
+      /** @type {string[]} */
+      const parts = [];
       for (const f of candidates) {
         if (existsSync(f) && statSync(f).isFile()) {
-          return send(res, 200, readFileSync(f), "text/plain; charset=utf-8", ".txt", path);
+          parts.push(readFileSync(f, "utf8").trim());
         }
       }
+      if (parts.length) {
+        return send(
+          res,
+          200,
+          parts.join("\n") + "\n",
+          "text/plain; charset=utf-8",
+          ".txt",
+          path,
+        );
+      }
+      const { url: entry } = resolveAppEntry();
       const fallback =
         `tag=${process.env.CAD_RESOLVED_TAG || "unknown"}\n` +
-        `agent_os_root=${agentOsRoot}\n` +
-        `demo_root=${demoRoot}\n`;
+        `html_entry=${entry}\n` +
+        `agent_os_root=${agentOsRoot}\n`;
       return send(res, 200, fallback, "text/plain; charset=utf-8", ".txt", path);
     }
 
-    // Browsers always request /favicon.ico; avoid a noisy console 404.
     if (path === "/favicon.ico") {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#1a1a1a"/><text x="16" y="22" text-anchor="middle" font-size="14" font-family="system-ui,sans-serif" fill="#8cf">C</text></svg>`;
       res.writeHead(200, {
@@ -216,7 +270,6 @@ const server = createServer((req, res) => {
       );
     }
 
-    // /agent-os/* → staged product tree
     if (path.startsWith("/agent-os/")) {
       const rel = path.slice("/agent-os/".length);
       const file = safeJoin(agentOsRoot, rel);
@@ -234,7 +287,6 @@ const server = createServer((req, res) => {
       );
     }
 
-    // allow /demo/* from demoRoot
     if (path.startsWith("/demo/")) {
       const file = safeJoin(demoRoot, path.slice("/demo/".length));
       if (file && existsSync(file) && statSync(file).isFile()) {

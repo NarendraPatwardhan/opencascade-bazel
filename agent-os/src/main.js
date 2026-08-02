@@ -35,8 +35,25 @@ const ANALYZE_DEBOUNCE_MS = 550;
 const DEFLECTION_SCRUB = 0.35;
 const DEFLECTION_COMMIT = 0.18;
 
-/** Asset base for kernel / loom / mc-core / git-engine.tar (sibling of src/). */
-const ASSET_BASE = new URL("../", import.meta.url).href;
+/**
+ * Asset base for kernel / loom / mc-core / git-engine / wasm.
+ * Production stages main under /agent-os/app/<hash>/ so import.meta parent is
+ * not the stage root — prefer <meta name="occ-asset-base"> from index.html.
+ * Local dev (…/src/main.js) falls back to parent of src/.
+ */
+function resolveAssetBase() {
+  try {
+    const el =
+      typeof document !== "undefined" &&
+      document.querySelector('meta[name="occ-asset-base"]');
+    const c = el && String(el.getAttribute("content") || "").trim();
+    if (c) return c.endsWith("/") ? c : `${c}/`;
+  } catch {
+    /* non-DOM (tests) */
+  }
+  return new URL("../", import.meta.url).href;
+}
+const ASSET_BASE = resolveAssetBase();
 
 const els = {
   editorHost: document.querySelector("#editor"),

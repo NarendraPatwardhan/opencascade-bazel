@@ -198,8 +198,10 @@ if [ ! -f "${STAGE_DIR}/libocc_c.wasm" ]; then
 fi
 
 if [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  if grep -qE 'main\.[a-f0-9]+\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "stage UI: content-addressed main.<hash>.js entry"
+  if grep -qE '/agent-os/app/[a-f0-9]+/main\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+    log "stage UI: versioned app tree /agent-os/app/<hash>/ (CDN-safe ESM graph)"
+  elif grep -qE 'main\.[a-f0-9]+\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+    log "stage UI: main.<hash>.js only (pre-0.3.6 — sibling modules still skew-prone)"
   elif grep -q 'history-trigger' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
     log "stage UI: history-trigger, bare main.js (pre-0.3.4)"
   else
@@ -219,8 +221,11 @@ export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
   if [ -f "${STAGE_DIR}/STAGE_INFO.txt" ]; then
     cat "${STAGE_DIR}/STAGE_INFO.txt"
   fi
+  if [ -f "${STAGE_DIR}/APP_HASH" ]; then
+    cat "${STAGE_DIR}/APP_HASH"
+  fi
   if [ -f "${STAGE_DIR}/demo/index.html" ]; then
-    entry="$(grep -oE '/agent-os/src/main[^"]+\.js' "${STAGE_DIR}/demo/index.html" | head -1 || true)"
+    entry="$(grep -oE '/agent-os/app/[a-f0-9]+/main\.js|/agent-os/src/main[^"]+\.js' "${STAGE_DIR}/demo/index.html" | head -1 || true)"
     echo "html_entry=${entry:-unknown}"
   fi
 } > "${STAGE_DIR}/VERSION"
