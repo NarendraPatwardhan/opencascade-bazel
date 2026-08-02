@@ -18,11 +18,7 @@
  *   3. seed (optional migration only)
  */
 
-import {
-  extractParams,
-  extractRegistrationParams,
-  mergeParams,
-} from "./extract.js";
+import { extractParams, mergeParams } from "./extract.js";
 import { analyzeLuauParams } from "./luau-locals.js";
 import { normalizeParam } from "./types.js";
 
@@ -47,12 +43,11 @@ export function normalizeParamPods(pods) {
  */
 export function mergeParamLayers(fromLocals, source, opts = {}) {
   const seed = (opts.seed || []).map((p) => normalizeParam(p));
+  // extractParams covers --[[params]], @param lines, and P.number / params.* calls.
   const legacy = extractParams(source || "");
-  const registrations = extractRegistrationParams(source || "");
-  const legacyAll = mergeParams(legacy, registrations);
 
   // Locals win (readable source of truth). Legacy fills gaps only.
-  let merged = mergeParams(fromLocals, legacyAll);
+  let merged = mergeParams(fromLocals, legacy);
 
   if (seed.length) {
     merged = mergeParams(merged, seed);

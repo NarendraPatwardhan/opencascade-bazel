@@ -18,11 +18,13 @@ export function extractParams(source) {
   const block = source.match(/--\s*\[\[\s*params\b([\s\S]*?)\]\]/);
   const blockParams = block ? parseParamBlock(block[1]) : [];
   const lineParams = extractParamLines(source);
+  const regParams = extractRegistrationParams(source);
 
-  if (!blockParams.length) return lineParams;
-  if (!lineParams.length) return blockParams;
-  // Block wins on defined fields; line form fills disjoint names / missing fields.
-  return mergeParams(blockParams, lineParams);
+  // Block → line → P.number/params.* registrations (defined fields win left→right gaps).
+  let out = blockParams;
+  if (lineParams.length) out = out.length ? mergeParams(out, lineParams) : lineParams;
+  if (regParams.length) out = out.length ? mergeParams(out, regParams) : regParams;
+  return out;
 }
 
 /**

@@ -1,14 +1,12 @@
 # CAD browser demo for Dokploy / local Docker — no OCCT build on the host.
 #
-# Private GitHub repo: assets via API (browser download URL is 404).
+# Dokploy env (set once — never edit per release):
+#   GITHUB_TOKEN=…              # Contents: Read
+#   CAD_RELEASE_TAG=latest      # newest demo-v* with cad-demo-stage.tar.gz
+#   CAD_RELEASE_PREFIX=demo-v
 #
-# Dokploy env (stable — no tag churn):
-#   GITHUB_TOKEN=…                 # Contents: Read
-#   CAD_RELEASE_TAG=latest         # default: newest demo-v* with cad-demo-stage.tar.gz
-#   CAD_RELEASE_PREFIX=demo-v      # optional filter
-#
-# After cutting a new GitHub release (./scripts/release-demo.sh --tag demo-v…),
-# restart/redeploy the container — entrypoint re-resolves "latest" and re-fetches.
+# After ./scripts/release-demo.sh --tag demo-v… : restart the container.
+# Entrypoint re-resolves latest and re-fetches when the asset changes.
 #
 # Local:
 #   export GITHUB_TOKEN=$(tr -d '\n' < ../github.cad.key)
@@ -31,12 +29,9 @@ services:
       HOST: "0.0.0.0"
       CACHE_MODE: release
       CAD_RELEASE_REPO: ${CAD_RELEASE_REPO:-NarendraPatwardhan/opencascade-bazel}
-      # latest = newest release whose tag starts with CAD_RELEASE_PREFIX and has the asset
       CAD_RELEASE_TAG: ${CAD_RELEASE_TAG:-latest}
       CAD_RELEASE_PREFIX: ${CAD_RELEASE_PREFIX:-demo-v}
       CAD_RELEASE_ASSET: ${CAD_RELEASE_ASSET:-cad-demo-stage.tar.gz}
-      # Optional override; if set to a …/releases/download/TAG/… URL, that TAG is used.
-      CAD_RELEASE_URL: ${CAD_RELEASE_URL:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-${GH_TOKEN:-}}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/healthz"]

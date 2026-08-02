@@ -107,6 +107,5 @@ node "$PUBLISH_JS" "${args[@]}"
 
 if [[ "$DRY_RUN" != "1" ]]; then
   echo
-  echo "Dokploy / compose pin:"
-  echo "  CAD_RELEASE_URL=https://github.com/${REPO}/releases/download/${TAG}/cad-demo-stage.tar.gz"
+  echo "Dokploy: CAD_RELEASE_TAG=latest — restart the cad container to pick up ${TAG}."
 fi

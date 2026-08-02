@@ -64,16 +64,17 @@ chmod 600 ../github.cad.key
 **Do not:**
 
 - Commit the token or put it in `.bazelrc` / compose / Dockerfile
-- Put `GITHUB_TOKEN` in Dokploy (deploy only needs a **public** asset URL)
 - Use the `gh` CLI as part of this workflow (REST only)
 
-### 3. Dokploy — no build tokens
+### 3. Dokploy
 
 Dokploy only needs:
 
 - This repo’s `docker-compose.yml` (or a compose app pointing at it)
-- Env **`CAD_RELEASE_URL`** = public download URL of `cad-demo-stage.tar.gz`
+- Env **`GITHUB_TOKEN`** (Contents: Read) + **`CAD_RELEASE_TAG=latest`**
 - Domain `cad.opyt.cloud` → service **`cad`**, container port **8765**
+
+No download URLs. The entrypoint lists GitHub Releases via API and fetches the newest `demo-v*` asset.
 
 ---
 
@@ -110,11 +111,7 @@ What the script does:
 | `cad-demo-stage.tar.gz` | Full demo stage (Dokploy downloads this) |
 | `SHA256SUMS` | `sha256sum -c` over uploaded bytes |
 
-**URL for Dokploy:**
-
-```text
-https://github.com/NarendraPatwardhan/opencascade-bazel/releases/download/demo-v0.1.0/cad-demo-stage.tar.gz
-```
+Dokploy does **not** use a browser download URL. With `CAD_RELEASE_TAG=latest`, restart the container after publishing.
 
 Pack only (no publish):
 
@@ -148,12 +145,11 @@ Image: `deploy/Dockerfile` (Node 22 alpine + curl). **Entrypoint** resolves a Gi
 | Env | Meaning |
 |-----|---------|
 | `GITHUB_TOKEN` / `GH_TOKEN` | **Required** (private repo) — PAT **Contents: Read** |
-| `CAD_RELEASE_TAG` | default **`latest`** — newest release whose tag starts with `CAD_RELEASE_PREFIX` and has the asset. Pin e.g. `demo-v0.3.1` only to freeze. |
-| `CAD_RELEASE_PREFIX` | default `demo-v` (filter for latest resolution) |
+| `CAD_RELEASE_TAG` | default **`latest`** — newest release whose tag starts with `CAD_RELEASE_PREFIX` and has the asset. Pin only to freeze. |
+| `CAD_RELEASE_PREFIX` | default `demo-v` |
 | `CAD_RELEASE_REPO` | default `NarendraPatwardhan/opencascade-bazel` |
 | `CAD_RELEASE_ASSET` | default `cad-demo-stage.tar.gz` |
-| `CAD_RELEASE_URL` | optional; if set to `…/releases/download/TAG/…`, that TAG is used |
-| `CACHE_MODE` | `release` (default): re-fetch when resolved tag stamp changes. `persist`: never re-fetch. |
+| `CACHE_MODE` | `release` (default): re-fetch when asset stamp changes. `persist`: never re-fetch. |
 | `PORT` / `HOST` | default `8765` / `0.0.0.0` |
 
 ### Why not hardcode the tag?
@@ -208,11 +204,9 @@ Never put the token in git; Dokploy **secret** only.
 6. `curl https://cad.opyt.cloud/healthz` → `ok`.
 7. `curl https://cad.opyt.cloud/version` → shows `tag=demo-v…` and `html_entry=/agent-os/src/main.<hash>.js`.
 
-**Update flow:** `./scripts/release-demo.sh --tag demo-v…` → **restart/redeploy** cad (no env edit if `CAD_RELEASE_TAG=latest`).
+**Update flow:** `./scripts/release-demo.sh --tag demo-v…` → **restart** cad. Env stays `CAD_RELEASE_TAG=latest`.
 
-**If the site stays on an old stage after a new release:** set env once to the concrete tag (e.g. `CAD_RELEASE_TAG=demo-v0.3.4`), redeploy, confirm `/version`, then set back to `latest`. Do not leave a stale pin like `demo-v0.3.2`.
-
-If logs show old UI / no `history-trigger`: image still has pre-stamp entrypoint, or stamp stuck — rebuild image, redeploy, confirm log line `latest matching tag:`.
+If logs show an old tag after restart: check `GITHUB_TOKEN`, confirm log line `latest matching tag:`, rebuild image if entrypoint is stale, then `curl /version`.
 ---
 
 ## Local dev (not Dokploy)
@@ -243,10 +237,9 @@ Public demo at `cad.opyt.cloud` ships both; keep the product split clear in docs
 | `missing libocc_c` after pack | Ensure `--remote_download_outputs=all` (script sets it) |
 | Publish 401/403 | Token scopes; repo name `MC_RELEASE_REPO` |
 | Publish 404 on upload | Release created but assets API — re-run (idempotent) |
-| Container exits “set CAD_RELEASE_URL” | Compose/Dokploy env not set |
+| Container exits needing token | Set `GITHUB_TOKEN` in Dokploy |
 | Page loads, mesh never appears | Browser console; confirm `/agent-os/libocc_c.wasm` 200 |
 | Monaco fails | CDN blocked; network to jsDelivr |
 | Plain `404 page not found` on `/` + `/healthz` | Dokploy Domains: service **cad**, port **8765**; `dokploy-network` |
-| `main.js:… addEventListener` null after deploy / even in incognito | **Stage not updated** or CF still serving bare `/agent-os/src/main.js` immutable. Check `curl -sS https://cad.opyt.cloud/version` — must show newest `demo-v*`. HTML must load `/agent-os/src/main.<hash>.js` (not bare `main.js`). Force: `CAD_RELEASE_TAG=demo-v0.3.4` + restart; then purge CF if needed. |
-| HTML has bare `main.js`, no `main.abc123.js` | Container still on pre-0.3.4 stage (`demo-v0.3.2` was common). 0.3.3+ download_count may be 0 if Dokploy never re-fetched — pin tag once, restart, confirm `/version`. |
-| `/version` missing or old `pack_utc` | Entrypoint did not pull new release; check `GITHUB_TOKEN`, logs `latest matching tag:`. |
+| `main.js` / module import errors after deploy | Check `curl /version` for newest tag + `html_entry=main.<hash>.js`. Restart container so entrypoint re-fetches. Rebuild image if entrypoint is old. |
+| `/version` missing or old `pack_utc` | Entrypoint did not pull new release; `GITHUB_TOKEN`, logs `latest matching tag:`. |

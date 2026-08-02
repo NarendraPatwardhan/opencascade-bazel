@@ -1,15 +1,15 @@
 #!/bin/sh
 # Fetch private GitHub release stage tarball via REST API, then serve.
 #
-# Recommended Dokploy env (no tag churn):
-#   GITHUB_TOKEN          — PAT Contents: Read (private repo)
-#   CAD_RELEASE_TAG=latest  (default) — pick newest release matching CAD_RELEASE_PREFIX
+# Dokploy env (set once — never touch per release):
+#   GITHUB_TOKEN            — PAT Contents: Read (private repo)
+#   CAD_RELEASE_TAG=latest  — newest demo-v* with the stage asset
 #   CAD_RELEASE_PREFIX=demo-v
 #
-# Pin a tag only if you must freeze:
-#   CAD_RELEASE_TAG=demo-v0.3.1
+# After ./scripts/release-demo.sh --tag demo-v… : restart the container.
+# Entrypoint re-resolves latest and re-fetches when the asset stamp changes.
 #
-# Private repos: browser_download_url is 404. Always use API asset download.
+# Pin only to freeze: CAD_RELEASE_TAG=demo-v0.3.4
 set -eu
 
 STAGE_DIR="${STAGE_DIR:-/app/stage}"
@@ -20,7 +20,6 @@ export CACHE_MODE="${CACHE_MODE:-release}"
 
 REPO="${CAD_RELEASE_REPO:-NarendraPatwardhan/opencascade-bazel}"
 ASSET_NAME="${CAD_RELEASE_ASSET:-cad-demo-stage.tar.gz}"
-# "latest" | "latest-demo" | empty → resolve via API; concrete tag otherwise
 TAG_RAW="${CAD_RELEASE_TAG:-latest}"
 PREFIX="${CAD_RELEASE_PREFIX:-demo-v}"
 API="https://api.github.com"
@@ -32,135 +31,68 @@ token() {
   printf '%s' "${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 }
 
-# Resolve CAD_RELEASE_TAG=latest → concrete tag name (stdout only).
-resolve_concrete_tag() {
-  raw="$1"
-  case "$raw" in
-    ""|latest|LATEST|latest-demo|auto)
-      tok="$(token)"
-      if [ -z "$tok" ]; then
-        log "latest resolution needs GITHUB_TOKEN"
-        return 1
-      fi
-      meta="/tmp/releases-list.json"
-      log "resolve latest release tag repo=${REPO} prefix=${PREFIX} asset=${ASSET_NAME}"
-      # per_page=30 is enough; we pick the first matching non-draft with the asset.
-      curl -fsSL --retry 3 \
-        -H "Authorization: Bearer ${tok}" \
-        -H "Accept: application/vnd.github+json" \
-        -H "X-GitHub-Api-Version: ${API_VERSION}" \
-        -o "$meta" \
-        "${API}/repos/${REPO}/releases?per_page=30"
-
-      # Sort by created_at ourselves — GitHub often returns the non-prerelease
-      # "latest" first even when newer prereleases exist (our demo-v* stream).
-      tag="$(node -e '
-        const fs = require("fs");
-        const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-        const prefix = process.argv[2];
-        const asset = process.argv[3];
-        if (!Array.isArray(j)) {
-          console.error("releases list is not an array");
-          process.exit(2);
-        }
-        const candidates = j
-          .filter((rel) => !rel.draft)
-          .filter((rel) => {
-            const t = String(rel.tag_name || "");
-            if (prefix && !t.startsWith(prefix)) return false;
-            return (rel.assets || []).some((a) => a.name === asset);
-          })
-          .sort((a, b) => {
-            const ta = Date.parse(a.created_at || a.published_at || 0);
-            const tb = Date.parse(b.created_at || b.published_at || 0);
-            return tb - ta;
-          });
-        if (!candidates.length) {
-          console.error("no release found matching prefix=" + prefix + " asset=" + asset);
-          process.exit(2);
-        }
-        process.stdout.write(String(candidates[0].tag_name));
-      ' "$meta" "$PREFIX" "$ASSET_NAME")"
-      if [ -z "$tag" ]; then
-        log "could not resolve latest tag"
-        return 1
-      fi
-      log "latest matching tag: ${tag}"
-      printf '%s\n' "$tag"
-      ;;
-    *)
-      printf '%s\n' "$raw"
-      ;;
+is_floating_tag() {
+  case "$1" in
+    ""|latest|LATEST|latest-demo|auto) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
-# Tag from CAD_RELEASE_URL if set and TAG is latest/empty.
-tag_from_url() {
-  printf '%s' "${CAD_RELEASE_URL:-}" | sed -n 's|.*/releases/download/\([^/]*\)/.*|\1|p'
-}
-
-CONCRETE_TAG=""
-if [ -n "${CAD_RELEASE_URL:-}" ] && { [ -z "${CAD_RELEASE_TAG:-}" ] || [ "${CAD_RELEASE_TAG}" = "latest" ]; }; then
-  # URL pin without explicit tag: use tag embedded in URL (still needs token for private).
-  u_tag="$(tag_from_url)"
-  if [ -n "$u_tag" ] && [ "$u_tag" != "latest" ]; then
-    CONCRETE_TAG="$u_tag"
-    log "tag from CAD_RELEASE_URL: ${CONCRETE_TAG}"
-  fi
-fi
-if [ -z "$CONCRETE_TAG" ]; then
-  CONCRETE_TAG="$(resolve_concrete_tag "$TAG_RAW" | tr -d '\r\n')"
-fi
-if [ -z "$CONCRETE_TAG" ]; then
-  log "could not determine release tag (set GITHUB_TOKEN; CAD_RELEASE_TAG=latest or a concrete tag)"
-  exit 1
-fi
-
-# Stamp identity is always the concrete tag so "latest" re-fetches when a new demo-v* appears.
-WANT="${REPO}|${CONCRETE_TAG}|${ASSET_NAME}"
-STAMP_FILE="${STAGE_DIR}/.release-stamp"
-
-need_fetch=1
-if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  if [ "${CACHE_MODE}" = "persist" ]; then
-    need_fetch=0
-    log "CACHE_MODE=persist — reusing existing stage"
-  elif [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n')" = "$WANT" ]; then
-    need_fetch=0
-    log "stage stamp matches (${WANT}) — skip download"
-  else
-    log "stage missing or stamp mismatch — will fetch (want: ${WANT})"
-  fi
-else
-  log "stage incomplete — will fetch (want: ${WANT})"
-fi
-
-curl_download() {
-  url="$1"
-  out="$2"
+# → "tag_name\tasset_id\tupdated_at_ms" on stdout
+resolve_latest_release() {
   tok="$(token)"
-  if [ -n "$tok" ]; then
-    log "fetching (auth) ${url}"
-    curl -fsSL --retry 3 --retry-delay 2 \
-      -H "Authorization: Bearer ${tok}" \
-      -H "Accept: application/octet-stream" \
-      -H "X-GitHub-Api-Version: ${API_VERSION}" \
-      -o "$out" "$url"
-  else
-    log "fetching ${url}"
-    curl -fsSL --retry 3 --retry-delay 2 -o "$out" "$url" || {
-      log "download failed — private repos need GITHUB_TOKEN"
-      return 1
-    }
-  fi
-}
-
-# Prints only the API asset URL on stdout (logs on stderr).
-resolve_asset_api_url() {
-  tok="$(token)"
-  tag="$1"
   if [ -z "$tok" ]; then
-    log "GITHUB_TOKEN/GH_TOKEN required for private release download"
+    log "latest resolution needs GITHUB_TOKEN"
+    return 1
+  fi
+  meta="/tmp/releases-list.json"
+  log "resolve latest release tag repo=${REPO} prefix=${PREFIX} asset=${ASSET_NAME}"
+  curl -fsSL --retry 3 \
+    -H "Authorization: Bearer ${tok}" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: ${API_VERSION}" \
+    -o "$meta" \
+    "${API}/repos/${REPO}/releases?per_page=30"
+
+  node -e '
+    const fs = require("fs");
+    const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const prefix = process.argv[2];
+    const asset = process.argv[3];
+    if (!Array.isArray(j)) {
+      console.error("releases list is not an array");
+      process.exit(2);
+    }
+    const candidates = j
+      .filter((rel) => !rel.draft)
+      .map((rel) => {
+        const a = (rel.assets || []).find((x) => x.name === asset);
+        if (!a) return null;
+        const t = String(rel.tag_name || "");
+        if (prefix && !t.startsWith(prefix)) return null;
+        return {
+          tag: t,
+          assetId: a.id,
+          ts: Date.parse(a.updated_at || a.created_at || rel.published_at || rel.created_at || 0),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.ts - a.ts);
+    if (!candidates.length) {
+      console.error("no release found matching prefix=" + prefix + " asset=" + asset);
+      process.exit(2);
+    }
+    const c = candidates[0];
+    process.stdout.write(c.tag + "\t" + c.assetId + "\t" + c.ts);
+  ' "$meta" "$PREFIX" "$ASSET_NAME"
+}
+
+# → "tag\tasset_id\tupdated_at_ms"
+resolve_pinned_release() {
+  tag="$1"
+  tok="$(token)"
+  if [ -z "$tok" ]; then
+    log "GITHUB_TOKEN required for private release download"
     return 1
   fi
   meta="/tmp/release-meta.json"
@@ -172,35 +104,79 @@ resolve_asset_api_url() {
     -o "$meta" \
     "${API}/repos/${REPO}/releases/tags/${tag}"
 
-  asset_id="$(node -e '
-    const fs=require("fs");
-    const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-    const want=process.argv[2];
-    const a=(j.assets||[]).find(x=>x.name===want);
-    if(!a){ console.error("asset not found: "+want); process.exit(2); }
-    process.stdout.write(String(a.id));
-  ' "$meta" "$ASSET_NAME")"
-
-  if [ -z "$asset_id" ]; then
-    log "could not resolve asset id for ${ASSET_NAME}"
-    return 1
-  fi
-  printf '%s\n' "${API}/repos/${REPO}/releases/assets/${asset_id}"
+  node -e '
+    const fs = require("fs");
+    const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const want = process.argv[2];
+    const tag = process.argv[3];
+    const a = (j.assets || []).find((x) => x.name === want);
+    if (!a) {
+      console.error("asset not found: " + want);
+      process.exit(2);
+    }
+    const ts = Date.parse(a.updated_at || a.created_at || j.published_at || j.created_at || 0);
+    process.stdout.write(tag + "\t" + a.id + "\t" + ts);
+  ' "$meta" "$ASSET_NAME" "$tag"
 }
+
+if is_floating_tag "$TAG_RAW"; then
+  resolved="$(resolve_latest_release | tr -d '\r')"
+else
+  resolved="$(resolve_pinned_release "$TAG_RAW" | tr -d '\r')"
+fi
+
+CONCRETE_TAG="$(printf '%s' "$resolved" | cut -f1)"
+ASSET_ID="$(printf '%s' "$resolved" | cut -f2)"
+ASSET_TS="$(printf '%s' "$resolved" | cut -f3)"
+
+if [ -z "$CONCRETE_TAG" ] || [ -z "$ASSET_ID" ]; then
+  log "could not determine release (GITHUB_TOKEN + CAD_RELEASE_TAG=latest)"
+  exit 1
+fi
+
+if is_floating_tag "$TAG_RAW"; then
+  log "latest matching tag: ${CONCRETE_TAG} asset_id=${ASSET_ID}"
+else
+  log "pinned tag: ${CONCRETE_TAG} asset_id=${ASSET_ID}"
+fi
+
+# Stamp includes asset id + update time so new tags and re-uploads re-fetch.
+WANT="${REPO}|${CONCRETE_TAG}|${ASSET_NAME}|${ASSET_ID}|${ASSET_TS}"
+STAMP_FILE="${STAGE_DIR}/.release-stamp"
+
+need_fetch=1
+if [ -f "${STAGE_DIR}/libocc_c.wasm" ] && [ -f "${STAGE_DIR}/demo/index.html" ]; then
+  if [ "${CACHE_MODE}" = "persist" ]; then
+    need_fetch=0
+    log "CACHE_MODE=persist — reusing existing stage"
+  elif [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n')" = "$WANT" ]; then
+    need_fetch=0
+    log "stage stamp matches (${CONCRETE_TAG} asset ${ASSET_ID}) — skip download"
+  else
+    old="$(cat "$STAMP_FILE" 2>/dev/null | tr -d '\r\n' || true)"
+    log "stage missing or stamp mismatch — will fetch"
+    log "  have: ${old:-<none>}"
+    log "  want: ${WANT}"
+  fi
+else
+  log "stage incomplete — will fetch (want: ${CONCRETE_TAG})"
+fi
 
 if [ "$need_fetch" = "1" ]; then
   tmp="/tmp/cad-demo-stage.tar.gz"
   mkdir -p "${STAGE_DIR}"
-
-  download_url="$(resolve_asset_api_url "${CONCRETE_TAG}" | tr -d '\r\n')"
-  if [ -z "$download_url" ]; then
-    log "empty download URL"
+  download_url="${API}/repos/${REPO}/releases/assets/${ASSET_ID}"
+  tok="$(token)"
+  if [ -z "$tok" ]; then
+    log "GITHUB_TOKEN required for private release download"
     exit 1
   fi
-
-  if ! curl_download "$download_url" "$tmp"; then
-    exit 1
-  fi
+  log "fetching (auth) ${download_url}"
+  curl -fsSL --retry 3 --retry-delay 2 \
+    -H "Authorization: Bearer ${tok}" \
+    -H "Accept: application/octet-stream" \
+    -H "X-GitHub-Api-Version: ${API_VERSION}" \
+    -o "$tmp" "$download_url"
 
   if ! gzip -t "$tmp" 2>/dev/null; then
     log "downloaded file is not gzip (first bytes:)"
@@ -222,10 +198,12 @@ if [ ! -f "${STAGE_DIR}/libocc_c.wasm" ]; then
 fi
 
 if [ -f "${STAGE_DIR}/demo/index.html" ]; then
-  if grep -q 'history-trigger' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "stage UI: history-trigger present (demo-v0.3+)"
+  if grep -qE 'main\.[a-f0-9]+\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+    log "stage UI: content-addressed main.<hash>.js entry"
+  elif grep -q 'history-trigger' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
+    log "stage UI: history-trigger, bare main.js (pre-0.3.4)"
   else
-    log "stage UI: no history-trigger — OLD stage (pre-history)"
+    log "stage UI: OLD stage (pre-history)"
   fi
 fi
 
@@ -233,9 +211,10 @@ export DEMO_ROOT="${DEMO_ROOT:-${STAGE_DIR}/demo}"
 export AGENT_OS_ROOT="${AGENT_OS_ROOT:-${STAGE_DIR}}"
 export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
 
-# Fingerprint for GET /version (and operators grepping logs).
 {
   echo "tag=${CONCRETE_TAG}"
+  echo "asset_id=${ASSET_ID}"
+  echo "mode=$(is_floating_tag "$TAG_RAW" && echo floating || echo pinned)"
   echo "resolved_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if [ -f "${STAGE_DIR}/STAGE_INFO.txt" ]; then
     cat "${STAGE_DIR}/STAGE_INFO.txt"
@@ -245,7 +224,7 @@ export CAD_RESOLVED_TAG="${CONCRETE_TAG}"
     echo "html_entry=${entry:-unknown}"
   fi
 } > "${STAGE_DIR}/VERSION"
-log "VERSION file:"
+log "VERSION:"
 cat "${STAGE_DIR}/VERSION" >&2 || true
 
 SERVE="${STAGE_DIR}/serve.mjs"
@@ -257,15 +236,5 @@ if [ ! -f "$SERVE" ]; then
   exit 1
 fi
 
-# Guard: old stages still long-cache bare main.js — refuse silently shipping them
-# without a content-addressed entry when CAD_REQUIRE_HASHED_ENTRY=1 (optional).
-if [ "${CAD_REQUIRE_HASHED_ENTRY:-0}" = "1" ]; then
-  if ! grep -qE 'main\.[a-f0-9]{8,}\.js' "${STAGE_DIR}/demo/index.html" 2>/dev/null; then
-    log "ERROR: index.html has no content-addressed main.<hash>.js entry (stage too old)"
-    exit 1
-  fi
-fi
-
 log "serving ${STAGE_DIR} tag=${CONCRETE_TAG} on ${HOST}:${PORT}"
-log "probe after deploy: curl -sS https://<host>/version"
 exec node "$SERVE"
