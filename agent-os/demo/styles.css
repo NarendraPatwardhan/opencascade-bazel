@@ -54,6 +54,64 @@ body {
   );
 }
 
+/* Compact Overleaf-style history entry point (no permanent panel) */
+.history-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  max-width: min(22rem, 48vw);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--panel-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem 0.35rem 0.65rem;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.history-trigger:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.history-trigger[aria-expanded="true"] {
+  border-color: rgba(0, 166, 255, 0.55);
+  background: rgba(0, 166, 255, 0.1);
+}
+
+.history-trigger-icon {
+  font-size: 0.85rem;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+.history-trigger-label {
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.history-trigger-tip {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--fg);
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 0.35rem;
+  border-left: 1px solid var(--border-soft);
+}
+
+.history-trigger[data-dirty="1"] .history-trigger-tip {
+  color: #ffc9c9;
+}
+
 .brand {
   display: flex;
   align-items: baseline;
@@ -81,7 +139,7 @@ body {
 }
 
 /* generic buttons outside shell (view cube etc.) */
-button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(.param-toggle-item):not(.view-cube-iso):not(.viewport-proj-btn):not(.history-btn) {
+button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(.param-toggle-item):not(.view-cube-iso):not(.viewport-proj-btn):not(.history-btn):not(.history-trigger) {
   font: inherit;
   border: 1px solid var(--border);
   background: var(--panel-elevated);
@@ -144,18 +202,8 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
 .params-panel > .param-sheet {
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
-}
-
-.params-panel > .history-host,
-.params-panel > .history-panel {
-  flex: 0 0 auto;
-  max-height: 42%;
-  min-height: 8rem;
-  border-top: 1px solid var(--border-soft);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Shared pane chrome: Code / View / Parameters headers match */
@@ -734,20 +782,62 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   color: #fff;
 }
 
-/* ---- History / Versions panel ---- */
+/* ---- History drawer (modal overlay; not a layout column) ---- */
+.history-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.history-overlay:not([hidden]) {
+  pointer-events: auto;
+}
+
+.history-overlay[hidden] {
+  display: none !important;
+}
+
+.history-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  cursor: pointer;
+  animation: history-fade-in 0.15s ease-out;
+}
+
+.history-drawer {
+  position: relative;
+  width: min(360px, 100vw);
+  max-width: 100%;
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: history-slide-in 0.18s ease-out;
+}
+
+.history-host,
 .history-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
   color: var(--fg);
   background: var(--panel);
 }
 
 .history-panel-header {
   flex-shrink: 0;
+  gap: 0.5rem;
 }
 
-/* Working-copy / tip chip (not a git remote badge) */
 .history-tip {
   font-size: 0.68rem;
   font-weight: 500;
@@ -756,7 +846,7 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   border-radius: 999px;
   border: 1px solid var(--border-soft);
   background: rgba(45, 45, 45, 0.85);
-  max-width: 11rem;
+  max-width: 9rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -767,6 +857,14 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   color: #ffc9c9;
   border-color: rgba(255, 107, 107, 0.35);
   background: rgba(255, 107, 107, 0.1);
+}
+
+.history-close {
+  flex-shrink: 0;
+  width: 2rem;
+  padding-left: 0;
+  padding-right: 0;
+  color: var(--muted);
 }
 
 .history-toolbar {
@@ -831,7 +929,6 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   gap: 0.3rem;
 }
 
-/* Timeline rows — Overleaf/Onshape-ish */
 .history-row {
   display: flex;
   align-items: center;
@@ -891,4 +988,32 @@ button:not(.param-sheet-reset):not(.param-group-trigger):not(.param-switch):not(
   margin-top: 0.12rem;
 }
 
+@keyframes history-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes history-slide-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .history-drawer {
+    width: 100vw;
+  }
+  .history-trigger-label {
+    display: none;
+  }
+}
 

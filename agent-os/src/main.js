@@ -46,6 +46,9 @@ const els = {
   meta: document.querySelector("#meta"),
   params: document.querySelector("#params"),
   history: document.querySelector("#history"),
+  historyTrigger: document.querySelector("#history-trigger"),
+  historyTriggerTip: document.querySelector("#history-trigger-tip"),
+  historyOverlay: document.querySelector("#history-overlay"),
 };
 
 /** @type {Awaited<ReturnType<typeof mountLuauEditor>> | null} */
@@ -179,21 +182,21 @@ const project = createProjectController({
       historyApplying = false;
     }
   },
-  // Lightweight: dirty badge + undo/redo enablement only (no listVersions).
+  // Lightweight: app-bar chip + drawer badges only (no listVersions).
   onDirtyChange(dirty, tip) {
+    updateHistoryTrigger({ dirty, tip });
     historyPanel?.update({
       canUndo: project.canUndo,
       canRedo: project.canRedo,
       dirty,
       tip,
-      // omit versions → panel keeps existing list
       versions: undefined,
       badgeOnly: true,
     });
   },
-  // Full list refresh on open / version / undo stack boundary.
+  // Full list when drawer open / version save / restore.
   onHistoryChange() {
-    void refreshHistoryPanel();
+    void refreshHistoryPanel({ full: isHistoryOpen() });
   },
 });
 
@@ -728,8 +731,78 @@ if (els.params) {
   paramSheet = mountParamSheet(els.params, paramStore, { debounceMs: 200 });
 }
 
-async function refreshHistoryPanel() {
+/**
+ * Compact app-bar chip (always visible). Full list only when drawer is open.
+ * @param {{ dirty?: boolean, tip?: any }} state
+ */
+function updateHistoryTrigger(state = {}) {
+  const tipEl = els.historyTriggerTip;
+  const btn = els.historyTrigger;
+  if (!tipEl || !btn) return;
+  const dirty = state.dirty ?? project.dirty;
+  const tip = state.tip !== undefined ? state.tip : project.tip;
+  btn.dataset.dirty = dirty ? "1" : "0";
+  if (dirty) {
+    tipEl.textContent = "Unsaved";
+    tipEl.title = "Working copy has unsaved changes — open History to save a version";
+  } else if (tip?.name || tip?.message) {
+    const label = tip.name || tip.message;
+    tipEl.textContent = label;
+    tipEl.title = tip.shortHash ? `${label} (${tip.shortHash})` : label;
+  } else if (tip?.shortHash) {
+    tipEl.textContent = tip.shortHash;
+    tipEl.title = "Latest local version";
+  } else {
+    tipEl.textContent = "Working copy";
+    tipEl.title = "No versions yet — open History to save one";
+  }
+}
+
+function isHistoryOpen() {
+  return !!els.historyOverlay && !els.historyOverlay.hidden;
+}
+
+function openHistoryDrawer() {
+  if (!els.historyOverlay) return;
+  els.historyOverlay.hidden = false;
+  els.historyOverlay.setAttribute("aria-hidden", "false");
+  els.historyTrigger?.setAttribute("aria-expanded", "true");
+  void refreshHistoryPanel({ full: true });
+  // Focus close after paint so Esc handlers and AT work.
+  requestAnimationFrame(() => historyPanel?.focusClose?.());
+}
+
+function closeHistoryDrawer() {
+  if (!els.historyOverlay) return;
+  els.historyOverlay.hidden = true;
+  els.historyOverlay.setAttribute("aria-hidden", "true");
+  els.historyTrigger?.setAttribute("aria-expanded", "false");
+  els.historyTrigger?.focus?.();
+}
+
+function toggleHistoryDrawer() {
+  if (isHistoryOpen()) closeHistoryDrawer();
+  else openHistoryDrawer();
+}
+
+/**
+ * @param {{ full?: boolean }} [opts] full=true rebuilds version list (open drawer)
+ */
+async function refreshHistoryPanel(opts = {}) {
+  const full = opts.full === true || isHistoryOpen();
+  updateHistoryTrigger({ dirty: project.dirty, tip: project.tip });
   if (!historyPanel) return;
+  if (!full) {
+    // Scrub path: badge-only inside drawer if it happens to be open.
+    historyPanel.update({
+      canUndo: project.canUndo,
+      canRedo: project.canRedo,
+      dirty: project.dirty,
+      tip: project.tip,
+      badgeOnly: true,
+    });
+    return;
+  }
   let versions = [];
   try {
     versions = await project.listVersions();
@@ -743,6 +816,7 @@ async function refreshHistoryPanel() {
     tip: project.tip,
     versions,
   });
+  updateHistoryTrigger({ dirty: project.dirty, tip: project.tip });
 }
 
 async function handleUndo() {
@@ -812,9 +886,19 @@ if (els.history) {
     onRedo: () => void handleRedo(),
     onSaveVersion: () => void handleSaveVersion(),
     onRestore: (id) => void handleRestore(id),
+    onClose: () => closeHistoryDrawer(),
   });
-  void refreshHistoryPanel();
+  // Drawer closed by default — only keep the app-bar chip live.
+  void refreshHistoryPanel({ full: false });
 }
+
+els.historyTrigger?.addEventListener("click", () => {
+  toggleHistoryDrawer();
+});
+
+els.historyOverlay?.querySelectorAll("[data-history-close]").forEach((el) => {
+  el.addEventListener("click", () => closeHistoryDrawer());
+});
 
 function isEditableTarget(el) {
   if (!el || !(el instanceof Element)) return false;
@@ -824,13 +908,24 @@ function isEditableTarget(el) {
   return false;
 }
 
-// Keyboard: undo/redo when not typing in Monaco or form controls.
+// Keyboard: Esc closes history; undo/redo when not typing in Monaco or forms.
 window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && isHistoryOpen()) {
+    ev.preventDefault();
+    closeHistoryDrawer();
+    return;
+  }
   if (editorHasTextFocus()) return;
   if (isEditableTarget(/** @type {Element} */ (ev.target))) return;
   const mod = ev.metaKey || ev.ctrlKey;
   if (!mod) return;
   const key = ev.key.toLowerCase();
+  // Ctrl/Cmd+H — open local history (avoid browser history hijack when focused in app)
+  if (key === "h" && !ev.shiftKey && !ev.altKey) {
+    ev.preventDefault();
+    openHistoryDrawer();
+    return;
+  }
   if (key === "z" && !ev.shiftKey) {
     ev.preventDefault();
     void handleUndo();

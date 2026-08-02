@@ -13,6 +13,20 @@
         <span class="brand-sep" aria-hidden="true">×</span>
         <span class="brand-sub">AgentOS</span>
       </div>
+      <!-- Overleaf-style: compact version chip — opens local history drawer -->
+      <button
+        type="button"
+        id="history-trigger"
+        class="history-trigger"
+        aria-haspopup="dialog"
+        aria-controls="history-drawer"
+        aria-expanded="false"
+        title="Version history (local)"
+      >
+        <span class="history-trigger-icon" aria-hidden="true">⏱</span>
+        <span class="history-trigger-label">History</span>
+        <span id="history-trigger-tip" class="history-trigger-tip">Working copy</span>
+      </button>
     </header>
 
     <main class="layout">
@@ -46,9 +60,27 @@
 
       <aside class="panel params-panel" aria-label="Parameters">
         <div id="params"></div>
-        <div id="history" class="history-host" aria-label="Versions"></div>
       </aside>
     </main>
+
+    <!-- Local versions drawer (closed by default — no permanent real estate) -->
+    <div
+      id="history-overlay"
+      class="history-overlay"
+      hidden
+      aria-hidden="true"
+    >
+      <div class="history-overlay-backdrop" data-history-close tabindex="-1"></div>
+      <aside
+        id="history-drawer"
+        class="history-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-drawer-title"
+      >
+        <div id="history" class="history-host"></div>
+      </aside>
+    </div>
 
     <script type="module" src="/agent-os/src/main.js"></script>
   </body>

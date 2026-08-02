@@ -1,9 +1,9 @@
 /**
- * Local version history UI — Overleaf / Onshape style.
+ * Local version history — Overleaf / Onshape style content.
  *
- * Local AgentOS GitEngine (or IDB/memory fallback) only. No remotes:
- * named versions, commit timeline, restore/rollback. Undo/redo cover
- * fine-grained working-copy edits; Save version freezes a named commit.
+ * Mounted inside a modal drawer (not a permanent column). Named versions,
+ * timeline, restore. Undo/redo for working-copy edits; Save version freezes
+ * a local AgentOS git checkpoint.
  */
 
 /**
@@ -13,6 +13,7 @@
  *   onRedo?: () => void,
  *   onSaveVersion?: () => void,
  *   onRestore?: (id: string) => void,
+ *   onClose?: () => void,
  * }} handlers
  */
 export function mountHistoryPanel(host, handlers = {}) {
@@ -24,7 +25,8 @@ export function mountHistoryPanel(host, handlers = {}) {
 
   const title = document.createElement("h2");
   title.className = "panel-title";
-  title.textContent = "Versions";
+  title.id = "history-drawer-title";
+  title.textContent = "History";
   header.appendChild(title);
 
   const tipEl = document.createElement("span");
@@ -32,6 +34,15 @@ export function mountHistoryPanel(host, handlers = {}) {
   tipEl.textContent = "Working copy";
   tipEl.title = "Working copy state";
   header.appendChild(tipEl);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "history-btn history-close";
+  closeBtn.setAttribute("aria-label", "Close history");
+  closeBtn.title = "Close (Esc)";
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", () => handlers.onClose?.());
+  header.appendChild(closeBtn);
 
   host.appendChild(header);
 
@@ -65,7 +76,7 @@ export function mountHistoryPanel(host, handlers = {}) {
   const hint = document.createElement("div");
   hint.className = "history-hint";
   hint.textContent =
-    "Named checkpoints of this design. Restore rolls back source and params.";
+    "Local checkpoints of this design (not a remote). Restore rolls back source and params.";
   host.appendChild(hint);
 
   const list = document.createElement("div");
@@ -91,7 +102,6 @@ export function mountHistoryPanel(host, handlers = {}) {
    *     shortHash?: string,
    *   }>,
    *   badgeOnly?: boolean,
-   *   backendKind?: string,
    * }} state
    */
   function update(state = {}) {
@@ -129,7 +139,6 @@ export function mountHistoryPanel(host, handlers = {}) {
     const versions = state.versions || [];
     list.replaceChildren();
 
-    // Working-copy row (always first when there are edits or no versions).
     if (state.dirty || !versions.length) {
       const work = document.createElement("div");
       work.className = "history-row history-row-working";
@@ -154,9 +163,7 @@ export function mountHistoryPanel(host, handlers = {}) {
       list.appendChild(work);
     }
 
-    if (!versions.length) {
-      return;
-    }
+    if (!versions.length) return;
 
     for (let i = 0; i < versions.length; i++) {
       const v = versions[i];
@@ -167,11 +174,9 @@ export function mountHistoryPanel(host, handlers = {}) {
       const isCurrent =
         !state.dirty &&
         (v.id === currentTipId ||
-          (i === 0 && !state.dirty) ||
-          (state.tip?.id && v.id === state.tip.id));
-      if (isCurrent) {
-        row.dataset.current = "1";
-      }
+          (state.tip?.id && v.id === state.tip.id) ||
+          (i === 0 && !state.dirty && !currentTipId));
+      if (isCurrent) row.dataset.current = "1";
 
       const main = document.createElement("div");
       main.className = "history-row-main";
@@ -189,7 +194,6 @@ export function mountHistoryPanel(host, handlers = {}) {
       if (when) parts.push(when);
       if (hash) parts.push(hash);
       if (isCurrent) parts.push("current");
-      // Show message only when it differs from the display name (named versions).
       if (
         v.message &&
         v.name &&
@@ -221,6 +225,7 @@ export function mountHistoryPanel(host, handlers = {}) {
 
   return {
     update,
+    focusClose: () => closeBtn.focus(),
     dispose() {
       host.replaceChildren();
     },
