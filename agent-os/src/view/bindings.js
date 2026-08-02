@@ -24,7 +24,8 @@ export const BINDINGS = Object.freeze({
   keys: {
     fit: ["f", "F"],
     grid: ["g", "G"],
-    ortho: ["5"], // numpad-ish optional; also UI button
+    /** Numpad-ish "5" + letter O; also UI button. */
+    ortho: ["5", "o", "O"],
     front: ["1"],
     right: ["3"],
     top: ["7"],

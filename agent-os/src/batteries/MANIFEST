@@ -1,8 +1,10 @@
 # Top-level batteries staged under /opt/cad/*.luau
 # Batteries author through IR tape only (solid/route/frames/query).
+# params.luau is host-inject values + registration sugar (no geometry).
 # Keep runtime-worker.js TOP_BATTERY_LUAU in sync with this list.
 solid.luau
 route.luau
 frames.luau
 query.luau
 cad.luau
+params.luau

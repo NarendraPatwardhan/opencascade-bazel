@@ -11,6 +11,8 @@ filegroup(
         "ir_smoke.mjs",
         "ir_unit_smoke.mjs",
         "solid_api_smoke.mjs",
+        "params_smoke.mjs",
+        "command_router_smoke.mjs",
         "run_node_smoke.sh",
     ],
 )

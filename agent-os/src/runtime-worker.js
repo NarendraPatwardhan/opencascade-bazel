@@ -8,9 +8,12 @@ import { PROTOCOL } from "./protocol.js";
 import { OccBridge } from "./occ-bridge.js";
 import {
   parseLuauAnalyzeOutput,
-  adjustPreludeLines,
   filterDiagnosticsByPath,
 } from "./analyze-parse.js";
+import {
+  buildParamsInjectedSource,
+  adjustInjectedDiagnostics,
+} from "./params/inject.js";
 
 // mc-core needs crypto.subtle.digest + crypto.randomUUID. Patch only missing
 // methods — never replace globalThis.crypto (that deleted randomUUID before).
@@ -26,8 +29,8 @@ let mcApi = null;
 let warmingVm = null;
 let warmingFull = null;
 
-/** Execute still prepends package.path (1 line) for /opt/cad solid + ir. */
-const EXECUTE_PRELUDE_LINES = 1;
+/** Execute always prepends package.path (1 line) for /opt/cad solid + ir. */
+const PACKAGE_PATH_LINES = 1;
 
 /**
  * Top-level batteries under /opt/cad/*.luau (require("solid") / require("route") / …).
@@ -40,6 +43,7 @@ const TOP_BATTERY_LUAU = [
   "frames.luau",
   "query.luau",
   "cad.luau",
+  "params.luau",
 ];
 
 /**
@@ -288,15 +292,35 @@ function parseResult(stdout) {
   return null;
 }
 
+/**
+ * Wrap user source with host params inject (preserves --! hot comments).
+ * @param {string} userSource
+ * @param {Record<string, any> | undefined} values
+ */
+function wrapUserSource(userSource, values) {
+  return buildParamsInjectedSource(
+    userSource ?? "",
+    values && typeof values === "object" ? values : {},
+  );
+}
+
 async function analyze(req) {
   await ensureVm();
   const source = req.source ?? "";
-  await stageAnalyzeWorkspace(source);
+  // Inject params so `params.width` / params.number / require("params") work.
+  // Hot comments (--!strict) stay at file head; inject sits after them.
+  const built = wrapUserSource(source, req.params);
+  await stageAnalyzeWorkspace(built.source);
   const result = await vm.exec(`luau-analyze ${ANALYZE_ENTRY}`);
   const raw = `${result.stdout || ""}\n${result.stderr || ""}`;
   const all = parseLuauAnalyzeOutput(raw);
   // Markers map to the Monaco buffer = user entry only (not solid/tools/json).
-  const diags = filterDiagnosticsByPath(all, ["main.luau", ANALYZE_ENTRY]);
+  let diags = filterDiagnosticsByPath(all, ["main.luau", ANALYZE_ENTRY]);
+  diags = adjustInjectedDiagnostics(diags, {
+    packagePathLines: 0,
+    headLineCount: built.headLineCount,
+    injectLineCount: built.injectLineCount,
+  });
   return {
     id: req.id,
     kind: "analyze",
@@ -308,6 +332,8 @@ async function analyze(req) {
       errorCount: diags.filter((d) => d.severity === "error").length,
       diagnosticCount: diags.length,
       allDiagnosticCount: all.length,
+      paramsInjectLines: built.injectLineCount,
+      paramsHeadLines: built.headLineCount,
     },
     stdout: result.stdout,
     stderr: result.stderr,
@@ -322,12 +348,18 @@ async function execute(req) {
   const source = req.source;
   if (!source?.trim()) throw new Error("empty Luau source");
 
+  const built = wrapUserSource(source, req.params);
   const wrapped =
-    `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` + source;
+    `package.path = "/opt/cad/?.luau;/opt/cad/?/init.luau;" .. package.path\n` +
+    built.source;
   const result = await vm.luau(wrapped);
   if (result.exitCode !== 0) {
     const raw = `${result.stdout || ""}\n${result.stderr || ""}`;
-    const diags = adjustPreludeLines(parseLuauAnalyzeOutput(raw), EXECUTE_PRELUDE_LINES);
+    const diags = adjustInjectedDiagnostics(parseLuauAnalyzeOutput(raw), {
+      packagePathLines: PACKAGE_PATH_LINES,
+      headLineCount: built.headLineCount,
+      injectLineCount: built.injectLineCount,
+    });
     return {
       id: req.id,
       kind: "execute",

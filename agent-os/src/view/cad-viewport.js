@@ -24,6 +24,7 @@ import {
   FIT_PAD,
 } from "./fit.js";
 import { BINDINGS } from "./bindings.js";
+import { installViewKeyRouter } from "./command-router.js";
 
 /**
  * @typedef {import('./index.js').MeshBody} MeshBody
@@ -34,7 +35,10 @@ import { BINDINGS } from "./bindings.js";
 
 /**
  * @param {HTMLElement} container
- * @param {{ grid?: boolean }} [options]
+ * @param {{
+ *   grid?: boolean,
+ *   isEditorFocused?: () => boolean,
+ * }} [options]
  * @returns {Promise<Viewport>}
  */
 export async function createViewport(container, options = {}) {
@@ -47,7 +51,10 @@ class ViewportImpl {
   /**
    * @param {HTMLElement} container
    * @param {typeof import('three')} THREE
-   * @param {{ grid?: boolean }} opts
+   * @param {{
+   *   grid?: boolean,
+   *   isEditorFocused?: () => boolean,
+   * }} opts
    */
   constructor(container, THREE, opts = {}) {
     this.THREE = THREE;
@@ -182,40 +189,33 @@ class ViewportImpl {
     window.addEventListener("pointermove", this._onPtrMove);
     window.addEventListener("pointerup", this._onPtrUp);
 
-    this._onKey = (e) => {
-      if (e.target && /input|textarea|select/i.test(/** @type {any} */ (e.target).tagName))
-        return;
-      const k = e.key;
-      if (BINDINGS.keys.fit.includes(k)) {
-        e.preventDefault();
-        this.fit();
-      } else if (BINDINGS.keys.grid.includes(k)) {
-        e.preventDefault();
-        this.setOptions({ grid: !this.grid.mesh.visible });
-      } else if (BINDINGS.keys.ortho.includes(k)) {
-        e.preventDefault();
-        this._toggleProjection();
-      } else if (BINDINGS.keys.front.includes(k)) {
-        e.preventDefault();
-        this.cam.lookDir(
-          new THREE.Vector3(0, 0, 1),
-          new THREE.Vector3(0, 1, 0),
-        );
-      } else if (BINDINGS.keys.right.includes(k)) {
-        e.preventDefault();
-        this.cam.lookDir(
-          new THREE.Vector3(1, 0, 0),
-          new THREE.Vector3(0, 1, 0),
-        );
-      } else if (BINDINGS.keys.top.includes(k)) {
-        e.preventDefault();
-        this.cam.lookDir(
-          new THREE.Vector3(0, 1, 0),
-          new THREE.Vector3(0, 0, -1),
-        );
-      }
-    };
-    window.addEventListener("keydown", this._onKey);
+    /** @type {(() => boolean) | undefined} */
+    this._isEditorFocused = opts.isEditorFocused;
+    this._disposeKeys = installViewKeyRouter({
+      isEditorFocused: () => !!this._isEditorFocused?.(),
+      getViewSurface: () => this.renderer.domElement,
+      keys: BINDINGS.keys,
+      handlers: {
+        fit: () => this.fit(),
+        grid: () => this.setOptions({ grid: !this.grid.mesh.visible }),
+        ortho: () => this._toggleProjection(),
+        front: () =>
+          this.cam.lookDir(
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 1, 0),
+          ),
+        right: () =>
+          this.cam.lookDir(
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(0, 1, 0),
+          ),
+        top: () =>
+          this.cam.lookDir(
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, 0, -1),
+          ),
+      },
+    });
 
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(container);
@@ -477,10 +477,24 @@ class ViewportImpl {
     return this._hasBodies;
   }
 
+  /**
+   * Wire Monaco / editor text-focus probe (call from main after editor mounts).
+   * @param {(() => boolean) | null | undefined} fn
+   */
+  setEditorFocusProbe(fn) {
+    this._isEditorFocused = fn || undefined;
+  }
+
+  /** Focus the WebGL canvas so view keys route cleanly after Escape. */
+  focus() {
+    this.renderer.domElement.focus({ preventScroll: true });
+  }
+
   dispose() {
     cancelAnimationFrame(this._frame);
     this._ro.disconnect();
-    window.removeEventListener("keydown", this._onKey);
+    this._disposeKeys?.();
+    this._disposeKeys = null;
     window.removeEventListener("pointermove", this._onPtrMove);
     window.removeEventListener("pointerup", this._onPtrUp);
     this.renderer.domElement.removeEventListener(

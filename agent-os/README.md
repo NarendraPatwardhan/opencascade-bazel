@@ -58,6 +58,9 @@ node agent-os/smoke/ir_smoke.mjs        # box-cut + pipe skid + robot FK via req
 # 3c) Luau batteries surface (route/frames/query/cad + solid.* → IR tape)
 node agent-os/smoke/solid_api_smoke.mjs
 
+# 3d) Host params pipeline (resolve/extract/infer/inject — no OCCT)
+node agent-os/smoke/params_smoke.mjs
+
 # 4) Browser demo (stages + serves)
 ./agent-os/scripts/dev.sh
 # open http://127.0.0.1:8765/  → Warm (optional) → Run Luau
@@ -118,3 +121,29 @@ solid.finish(part)  -- evaluates IR tape, emits mesh marker
 ```
 
 Host meshes the finished root and returns positions/normals/indices to the page.
+
+## Parameters (framework)
+
+Parametric scripts use a **host-owned store** + **inject-only** guest binding (see root [`REACTIVITY.md`](../REACTIVITY.md) §16).
+
+| Piece | Path |
+|-------|------|
+| Resolve / extract / infer / inject | [`src/params/`](src/params/) (`resolveParams`, `injectParamsPrelude`) |
+| Sheet + store | `src/params/sheet.js`, `store.js` |
+| Battery | [`src/batteries/params.luau`](src/batteries/params.luau) — `require("params")` |
+| Demo | `src/demos/block-hole-params.js` — Luau `--[[params]]` + `params.width` |
+
+```luau
+--[[params
+width = { value=40, min=16, max=120, unit="mm", group="Size" }
+]]
+local solid = require("solid")
+local w = params.width                    -- host inject + battery __index
+-- or: local w = params.number("width", { default = 40, min = 16, max = 120 })
+```
+
+Schema is resolved from source (explicit block / `@param` / `P.number(...)` / conservative header inference). Values come from the sheet store and are **injected** after any `--!` hot comments — the editor is not rewritten on every scrub. Demo seed is applied only in demo mode, not onto unrelated editor buffers.
+
+## View command focus
+
+Viewport shortcuts (F fit, G grid, …) use [`src/view/command-router.js`](src/view/command-router.js): fire unless focus is **text entry** (Monaco `hasTextFocus()`, native input/textarea, contenteditable). Param chrome (sliders/switches) is **not** text entry — F still fits after scrubbing. Escape blurs param controls and focuses the canvas.

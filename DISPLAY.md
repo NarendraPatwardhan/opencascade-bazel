@@ -239,11 +239,25 @@ Scene **param** gimbals (rotate rings, arrows) are specified in [`REACTIVITY.md`
 | Double-click | Optional focus / set anchor | P1 |
 | `F` | Fit all | P0 |
 | `G` | Toggle ground grid | P0 |
+| `O` / `5` | Toggle ortho / persp | P1 |
 | View cube faces | Snap camera to orthographic-ish dirs | D1 |
 | `Numpad 1/3/7` or buttons | Front / Right / Top (optional) | P2 / E3 |
+| `Escape` | Blur param chrome → focus canvas | P1 |
 | Touch: 1 finger | Orbit | C2 |
 | Touch: 2 finger drag | Pan | C2 |
 | Touch: pinch | Zoom to midpoint | C2 |
+
+### 10.1 Focus policy (view command routing)
+
+Single-key view cmds fire **unless** focus is **text entry**:
+
+| Text entry (do **not** steal F/G/…) | Not text entry (F still fits) |
+|------------------------------------|-------------------------------|
+| Monaco `hasTextFocus()` | Custom param slider (`.cad-slider`) |
+| Native `input` / `textarea` / `select` (text-like) | Param switch / toggle / group trigger |
+| `contenteditable` / ancestor | Viewport canvas |
+
+Implementation: [`agent-os/src/view/command-router.js`](agent-os/src/view/command-router.js); editor exposes `hasTextFocus()`; viewport receives `isEditorFocused` probe from `main.js`.
 
 ---
 

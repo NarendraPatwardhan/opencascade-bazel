@@ -10,6 +10,14 @@
 
 export { createViewport } from "./cad-viewport.js";
 export { BINDINGS, DEFAULT_CAM, classifyPointerDown } from "./bindings.js";
+export {
+  isTextEntryTarget,
+  shouldHandleViewKey,
+  isNativeTextEntry,
+  isParamChrome,
+  installViewKeyRouter,
+  blurActiveToView,
+} from "./command-router.js";
 export { requireWebGL2, hasWebGL2, loadThree } from "./three-loader.js";
 
 /**
@@ -68,6 +76,8 @@ export { requireWebGL2, hasWebGL2, loadThree } from "./three-loader.js";
  *     staleMessage?: string,
  *   }): void,
  *   fit(): void,
+ *   focus(): void,
+ *   setEditorFocusProbe(fn: (() => boolean) | null | undefined): void,
  *   dispose(): void,
  *   readonly projection: 'perspective'|'orthographic',
  *   readonly hasBodies: boolean,

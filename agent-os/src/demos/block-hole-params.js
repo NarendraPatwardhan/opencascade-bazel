@@ -1,12 +1,17 @@
 /**
  * Main parametric demo: flange-style plate (base + boss + bore + bolt circle).
  *
- * Host owns params; editor shows clean solid.* Luau only.
- * solid.* always records cad.ir; solid.finish evaluates the tape.
+ * Source of truth for geometry params is the Luau `--[[params]]` block.
+ * Host resolves schema via resolveParams() and injects values on execute
+ * (params.width etc.) — no number rewriting into source.
+ *
+ * Optional seed (BLOCK_HOLE_SEED) is applied only in demo mode on re-resolve
+ * (migration gaps). Editor mode never merges it — Luau is sole schema authority.
  */
 
+/** Demo-mode seed for migration gaps only. Prefer the Luau block as authority. */
 /** @type {import('../params/types.js').Parameter[]} */
-export const BLOCK_HOLE_PARAMS = [
+export const BLOCK_HOLE_SEED = [
   {
     name: "width",
     displayName: "Width",
@@ -140,65 +145,87 @@ export const BLOCK_HOLE_PARAMS = [
   },
 ];
 
-/**
- * Clean Luau — solid.* always lowers to IR; finish evaluates.
- * Model units = param numbers (same scale as original demo).
- * @param {Record<string, any>} values
- */
-export function blockHoleSource(values) {
-  const w = Number(values.width) || 40;
-  const d = Number(values.depth) || 40;
-  const h = Number(values.height) || 8;
-  const bossH = Number(values.boss_h) || 10;
-  const bossR = Number(values.boss_r) || 12;
-  const holeR = Number(values.hole_r) || 5;
-  const boltN = Math.max(2, Math.min(12, Math.round(Number(values.bolt_n) || 4)));
-  const boltR = Number(values.bolt_r) || 2;
-  const pcd = Number(values.pcd) || 28;
-  const step = (2 * Math.PI) / boltN;
-  const throughH = h + bossH + 4;
-  const zTool = -2;
+/** @deprecated Use BLOCK_HOLE_SEED — kept as alias for older imports. */
+export const BLOCK_HOLE_PARAMS = BLOCK_HOLE_SEED;
 
-  return `-- Flange plate: clean solid.* (always → IR → mesh)
+/**
+ * Static flange Luau: declares params, reads injected `params.*` table.
+ * Host must inject values via injectParamsPrelude / worker `params` field.
+ */
+export const FLANGE_SOURCE = `--[[params
+width   = { value=40, min=16, max=120, step=0.5, unit="mm", scrub="rebuild", group="Size", display_name="Width" }
+depth   = { value=40, min=16, max=120, step=0.5, unit="mm", scrub="rebuild", group="Size", display_name="Depth" }
+height  = { value=8,  min=2,  max=40,  step=0.5, unit="mm", scrub="rebuild", group="Size", display_name="Base height" }
+boss_h  = { value=10, min=1,  max=40,  step=0.5, unit="mm", scrub="rebuild", group="Boss", display_name="Boss height" }
+boss_r  = { value=12, min=3,  max=50,  step=0.5, unit="mm", scrub="rebuild", group="Boss", display_name="Boss radius" }
+hole_r  = { value=5,  min=0.5, max=25, step=0.1, unit="mm", scrub="rebuild", group="Bore", display_name="Bore radius" }
+bolt_n  = { value=4,  min=2,  max=12,  step=1,   unit="",   scrub="rebuild", group="Bolts", display_name="Bolt count" }
+bolt_r  = { value=2,  min=0.5, max=8,  step=0.1, unit="mm", scrub="rebuild", group="Bolts", display_name="Bolt hole radius" }
+pcd     = { value=28, min=8,  max=100, step=0.5, unit="mm", scrub="rebuild", group="Bolts", display_name="Bolt PCD" }
+yaw     = { value=0,  min=-180, max=180, step=1, unit="°", scrub="xform", group="Pose", frame="F_PART", axis="y", display_name="Yaw" }
+show_grid = { value=true, scrub="view", group="Display", display_name="Grid" }
+]]
+-- Flange plate: solid.* (always → IR → mesh). Values from host-injected params.
 local solid = require("solid")
 
+local w = params.width
+local d = params.depth
+local h = params.height
+local boss_h = params.boss_h
+local boss_r = params.boss_r
+local hole_r = params.hole_r
+local bolt_n = math.max(2, math.min(12, math.floor((params.bolt_n or 4) + 0.5)))
+local bolt_r = params.bolt_r
+local pcd = params.pcd
+
+local step = (2 * math.pi) / bolt_n
+local through_h = h + boss_h + 4
+local z_tool = -2
+
 local base = solid.box({
-  dx = ${w},
-  dy = ${d},
-  dz = ${h},
+  dx = w,
+  dy = d,
+  dz = h,
   corner = "centered_xy_bottom",
 })
 
 local boss = solid.cylinder({
-  radius = ${bossR},
-  height = ${bossH},
-  origin = { 0, 0, ${h} },
+  radius = boss_r,
+  height = boss_h,
+  origin = { 0, 0, h },
   axis = { 0, 0, 1 },
 })
 local body = solid.fuse(base, boss)
 
 local bore = solid.cylinder({
-  radius = ${holeR},
-  height = ${throughH},
-  origin = { 0, 0, ${zTool} },
+  radius = hole_r,
+  height = through_h,
+  origin = { 0, 0, z_tool },
   axis = { 0, 0, 1 },
 })
 body = solid.cut(body, bore)
 
 local bolt = solid.cylinder({
-  radius = ${boltR},
-  height = ${throughH},
-  origin = { ${pcd / 2}, 0, ${zTool} },
+  radius = bolt_r,
+  height = through_h,
+  origin = { pcd / 2, 0, z_tool },
   axis = { 0, 0, 1 },
 })
 local bolts = solid.pattern_polar(bolt, {
   origin = { 0, 0, 0 },
   axis = { 0, 0, 1 },
-  angle_step = ${step},
-  count = ${boltN},
+  angle_step = step,
+  count = bolt_n,
 })
 local part = solid.cut(body, bolts)
 
 solid.finish(part, { name = "flange_plate" })
 `;
+
+/**
+ * Demo source (static). `values` ignored — inject path supplies runtime values.
+ * @param {Record<string, any>} [_values]
+ */
+export function blockHoleSource(_values) {
+  return FLANGE_SOURCE;
 }

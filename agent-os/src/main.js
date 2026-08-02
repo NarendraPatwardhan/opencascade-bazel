@@ -1,17 +1,21 @@
 /**
  * Host loop: editor + param sheet + scheduler + worker + viewport.
  * sourceMode: 'demo' | 'editor'
+ *
+ * Params: resolveParams(source) → store; execute injects values (no source rewrite).
+ * View keys: viewport command-router consults editor.hasTextFocus().
  */
 
 import { createViewport } from "./view/index.js";
 import { mountLuauEditor } from "./luau-editor.js";
 import { createParamStore } from "./params/store.js";
 import { mountParamSheet } from "./params/sheet.js";
-import { extractParams, mergeParams } from "./params/extract.js";
+import { resolveParams } from "./params/resolve.js";
 import { createScheduler } from "./eval/scheduler.js";
 import {
-  BLOCK_HOLE_PARAMS,
+  BLOCK_HOLE_SEED,
   blockHoleSource,
+  FLANGE_SOURCE,
 } from "./demos/block-hole-params.js";
 
 const ANALYZE_DEBOUNCE_MS = 550;
@@ -40,14 +44,23 @@ let configReady = null;
 
 /** @type {ReturnType<typeof setTimeout> | null} */
 let analyzeTimer = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let resolveTimer = null;
 let analyzeGen = 0;
 let lastAnalyzeErrors = 0;
 let isRunning = false;
+/** Last schema signature applied to the store (avoid thrash rebuilds). */
+let lastSchemaSig = "";
 
 /** @type {'demo'|'editor'} */
 let sourceMode = "demo";
 
-const paramStore = createParamStore(BLOCK_HOLE_PARAMS);
+/**
+ * Initial store from demo Luau declarations only (Luau is schema authority).
+ * Seed is applied only in demo mode on re-resolve (migration gaps), never for
+ * arbitrary editor buffers.
+ */
+const paramStore = createParamStore(resolveParams(FLANGE_SOURCE));
 // Param scrub always rebuilds (debounced). No Live checkbox / Apply in UI.
 paramStore.setLiveRebuild(true);
 
@@ -112,29 +125,103 @@ function applyYaw(deg) {
   viewport.setRootMatrix(yawMatrixY(deg));
 }
 
-function sourceFromParams() {
-  return blockHoleSource(paramStore.values());
-}
-
 function getSource() {
-  if (sourceMode === "demo") return sourceFromParams();
-  return editor ? editor.getValue() : sourceFromParams();
+  if (sourceMode === "demo") return blockHoleSource();
+  return editor ? editor.getValue() : blockHoleSource();
 }
 
-function syncEditorFromParams() {
+/**
+ * Schema signature: names + UI/gimbal fields (not live scrub values).
+ * @param {import('./params/types.js').Parameter[]} list
+ */
+function schemaSignature(list) {
+  return list
+    .map((p) => {
+      const opts = p.options
+        ? JSON.stringify(p.options)
+        : "";
+      return [
+        p.name,
+        p.type,
+        p.min,
+        p.max,
+        p.step,
+        p.scrub,
+        p.group,
+        p.defaultValue,
+        p.unit,
+        p.frame || "",
+        p.displayName || "",
+        p.axis || "",
+        p.description || "",
+        opts,
+      ].join("\0");
+    })
+    .join("\n");
+}
+
+/**
+ * Preserve current values when re-resolving schema from source.
+ * @param {import('./params/types.js').Parameter[]} next
+ */
+function mergeCurrentValues(next) {
+  const cur = paramStore.values();
+  return next.map((p) =>
+    cur[p.name] !== undefined ? { ...p, value: cur[p.name] } : p,
+  );
+}
+
+/**
+ * Seed only in demo mode (migration / missing host-only names on the flange
+ * demo). Editor mode is Luau-only authority — no flange seed leak.
+ * @returns {import('./params/types.js').Parameter[] | undefined}
+ */
+function resolveSeed() {
+  if (sourceMode === "demo") return BLOCK_HOLE_SEED;
+  return undefined;
+}
+
+/**
+ * Re-resolve param schema from source into the store.
+ * Empty resolve clears the sheet (no sticky ghost schema).
+ * @param {string} [src]
+ * @param {{ preserveValues?: boolean, force?: boolean }} [opts]
+ */
+function syncParamsFromSource(src, opts = {}) {
+  const source = src ?? getSource();
+  const seed = resolveSeed();
+  const resolved = resolveParams(source, seed ? { seed } : {});
+  if (!resolved.length) {
+    if (paramStore.list().length) {
+      lastSchemaSig = "";
+      paramStore.replace([]);
+    }
+    return;
+  }
+  const list =
+    opts.preserveValues !== false ? mergeCurrentValues(resolved) : resolved;
+  const sig = schemaSignature(list);
+  if (!opts.force && sig === lastSchemaSig) return;
+  lastSchemaSig = sig;
+  paramStore.replace(list);
+}
+
+function scheduleParamsResolve(source) {
+  if (resolveTimer) clearTimeout(resolveTimer);
+  resolveTimer = setTimeout(() => {
+    resolveTimer = null;
+    syncParamsFromSource(source, { preserveValues: true });
+  }, ANALYZE_DEBOUNCE_MS);
+}
+
+function syncEditorFromDemo() {
   if (!editor || sourceMode !== "demo") return;
-  const src = sourceFromParams();
+  const src = blockHoleSource();
   if (editor.getValue() !== src) editor.setValue(src);
 }
 
-function syncParamsFromEditor() {
-  if (sourceMode !== "editor") return;
-  const src = editor?.getValue?.() || "";
-  const extracted = extractParams(src);
-  if (extracted.length) {
-    paramStore.replace(mergeParams(extracted, BLOCK_HOLE_PARAMS));
-  }
-}
+// Seed signature from initial store.
+lastSchemaSig = schemaSignature(paramStore.list());
 
 function ensureWorker() {
   if (worker) return worker;
@@ -195,9 +282,16 @@ async function ensureConfigured() {
   if (configReady) await configReady;
 }
 
+function editorHasTextFocus() {
+  return !!editor?.hasTextFocus?.();
+}
+
 async function ensureViewport() {
   if (viewport) return viewport;
-  viewport = await createViewport(els.viewport, { grid: true });
+  viewport = await createViewport(els.viewport, {
+    grid: true,
+    isEditorFocused: editorHasTextFocus,
+  });
   viewport.setFrames([
     {
       id: "F_PART",
@@ -264,7 +358,14 @@ async function runAnalyze(source, opts = {}) {
   try {
     await ensureConfigured();
     if (!quiet) setStatus("Analyzing…");
-    const reply = await callWorker({ kind: "analyze", source }, 120_000);
+    const reply = await callWorker(
+      {
+        kind: "analyze",
+        source,
+        params: paramStore.values(),
+      },
+      120_000,
+    );
     if (gen !== analyzeGen) return;
     const diags = reply.diagnostics || [];
     lastAnalyzeErrors = diags.filter((d) => d.severity === "error").length;
@@ -327,14 +428,19 @@ async function runSource(opts = {}) {
 
   try {
     await ensureConfigured();
-    if (fromParams && sourceMode === "demo") syncEditorFromParams();
+    if (fromParams && sourceMode === "demo") syncEditorFromDemo();
     const source = getSource();
     await runAnalyze(source, { quiet: true });
 
     if (fromParams && gen < paramStore.generation) return;
 
     const reply = await callWorker(
-      { kind: "execute", source, deflection: 0.2 },
+      {
+        kind: "execute",
+        source,
+        params: paramStore.values(),
+        deflection: 0.2,
+      },
       300_000,
     );
 
@@ -380,8 +486,8 @@ async function runSource(opts = {}) {
 
 function onParamsChanged(params, meta = {}) {
   refreshGimbals();
-  // Keep Luau panel matched to sliders while still in demo mode
-  if (sourceMode === "demo") syncEditorFromParams();
+  // Demo source is static (inject-only) — no rewrite into editor.
+  if (sourceMode === "demo") syncEditorFromDemo();
   scheduler.dispatch(params, meta, { liveRebuild: true });
 }
 
@@ -394,7 +500,7 @@ if (els.params) {
 // Optional #run (removed from chrome — params live-rebuild + editor Ctrl/Cmd+Enter).
 els.run?.addEventListener("click", () => {
   sourceMode = "editor";
-  syncParamsFromEditor();
+  syncParamsFromSource(undefined, { preserveValues: true, force: true });
   void runSource({ fit: true });
 });
 
@@ -414,20 +520,23 @@ async function autoWarm() {
 setStatus("Loading editor…");
 mountLuauEditor({
   parent: els.editorHost,
-  doc: sourceFromParams(),
+  doc: blockHoleSource(),
   autoFocus: true,
   onRun: () => {
     sourceMode = "editor";
-    syncParamsFromEditor();
+    syncParamsFromSource(undefined, { preserveValues: true, force: true });
     void runSource({ fit: true });
   },
   onChange: (doc) => {
     sourceMode = "editor";
+    // Debounced: sheet from source analysis; execute injects store values.
+    scheduleParamsResolve(doc);
     scheduleAnalyze(doc);
   },
 })
   .then((handle) => {
     editor = handle;
+    viewport?.setEditorFocusProbe?.(editorHasTextFocus);
     void autoWarm().then(() => {
       // First mesh from demo params once runtime is hot
       void runSource({ fromParams: true, fit: true });
@@ -439,7 +548,7 @@ mountLuauEditor({
     const ta = document.createElement("textarea");
     ta.id = "source";
     ta.spellcheck = false;
-    ta.value = sourceFromParams();
+    ta.value = blockHoleSource();
     ta.setAttribute("aria-label", "Luau source");
     els.editorHost.replaceWith(ta);
     editor = {
@@ -448,12 +557,14 @@ mountLuauEditor({
         ta.value = d;
       },
       focus: () => ta.focus(),
+      hasTextFocus: () => document.activeElement === ta,
       destroy: () => undefined,
       setAnalyzeMarkers: () => undefined,
       clearAnalyzeMarkers: () => undefined,
     };
     ta.addEventListener("input", () => {
       sourceMode = "editor";
+      scheduleParamsResolve(ta.value);
       scheduleAnalyze(ta.value);
     });
     void autoWarm();

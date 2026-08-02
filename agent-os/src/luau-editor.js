@@ -15,6 +15,7 @@ import { registerCadCompletions } from "./monaco-cad-complete.js";
  * @property {() => string} getValue
  * @property {(doc: string) => void} setValue
  * @property {() => void} focus
+ * @property {() => boolean} hasTextFocus
  * @property {() => void} destroy
  * @property {() => import('monaco-editor').editor.ITextModel | null} getModel
  * @property {(diags: import('./analyze-parse.js').CadDiagnostic[]) => void} setAnalyzeMarkers
@@ -136,6 +137,14 @@ export async function mountLuauEditor(opts) {
       if (editor.getValue() !== doc) editor.setValue(doc);
     },
     focus: () => editor.focus(),
+    /** True when Monaco's text surface owns keyboard input (not just widget chrome). */
+    hasTextFocus: () => {
+      try {
+        return !!editor.hasTextFocus?.();
+      } catch {
+        return false;
+      }
+    },
     destroy: () => editor.dispose(),
     getModel: () => editor.getModel(),
     clearAnalyzeMarkers: () => {
