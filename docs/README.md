@@ -18,6 +18,7 @@ Canonical docs for this repository. Prefer **one home per topic**.
 | [`ir/examples/`](ir/examples/) | Example IR documents (`*.cad.json`) — box-cut, pipe skid, robot FK |
 | [`ir/goldens/`](ir/goldens/) | Measure/frame-only golden fixtures (no absolute shape ids) |
 | [`ir/schema/`](ir/schema/) | Machine-readable allowlist + document-shape notes |
+| [`bindings/binding-lag-surface-alignment.md`](bindings/binding-lag-surface-alignment.md) | **Binding lag** — `occ_*` ↔ host ↔ IR ↔ Luau ↔ catalog; Dharma single pathway |
 | [`browser-demo.png`](browser-demo.png) | Browser vertical-slice screenshot |
 
 ## Where the C API is taught

@@ -13,3 +13,4 @@ agent-os/_stage/
 
 # Packed release artifacts (produced by scripts/pack-demo-stage.sh).
 dist/
+node_modules/
